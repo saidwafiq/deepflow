@@ -62,3 +62,17 @@ Task: T1
 - Never commit partial work
 - Never commit unrelated changes
 - One logical change per commit
+
+## Tags
+
+Format: `v{major}.{minor}.{patch}`
+
+| Trigger | Bump | Example |
+|---------|------|---------|
+| Breaking change | major | `v2.0.0` |
+| New feature | minor | `v1.1.0` |
+| Bug fix | patch | `v1.0.1` |
+
+Create: `git tag -a v1.0.0 -m "message"` → `git push origin v1.0.0`
+
+Tag after milestone complete, not every commit.
