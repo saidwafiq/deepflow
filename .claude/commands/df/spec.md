@@ -22,9 +22,25 @@ Before generating, use the `gap-discovery` skill to analyze conversation.
 - [ ] Key constraints identified
 - [ ] Success criteria stated
 
-**If gaps exist**, ask targeted questions (see skill for categories).
+**If gaps exist**, use the `AskUserQuestion` tool to ask structured questions:
 
-Max 5 questions per round. Wait for answers before proceeding.
+```json
+{
+  "questions": [
+    {
+      "question": "Clear, specific question ending with ?",
+      "header": "Short label",
+      "multiSelect": false,
+      "options": [
+        {"label": "Option 1", "description": "What this means"},
+        {"label": "Option 2", "description": "What this means"}
+      ]
+    }
+  ]
+}
+```
+
+Max 4 questions per tool call. Wait for answers before proceeding.
 
 ### 2. GENERATE SPEC
 
@@ -81,14 +97,53 @@ Next: Run /df:plan to generate tasks
 ```
 USER: I want to add image upload
 
-CLAUDE: A few questions before I create the spec:
+CLAUDE: [Uses AskUserQuestion tool]
+{
+  "questions": [
+    {
+      "question": "What file types should be supported?",
+      "header": "File types",
+      "multiSelect": true,
+      "options": [
+        {"label": "JPG/PNG only", "description": "Standard formats"},
+        {"label": "Include WebP", "description": "Modern compression"},
+        {"label": "Include GIF", "description": "Animated images"}
+      ]
+    },
+    {
+      "question": "What's the maximum upload size?",
+      "header": "Size limit",
+      "multiSelect": false,
+      "options": [
+        {"label": "5 MB", "description": "Fast uploads"},
+        {"label": "10 MB (Recommended)", "description": "Balanced"},
+        {"label": "25 MB", "description": "High-res photos"}
+      ]
+    },
+    {
+      "question": "Where should files be stored?",
+      "header": "Storage",
+      "multiSelect": false,
+      "options": [
+        {"label": "S3 (Recommended)", "description": "Scalable cloud storage"},
+        {"label": "Local filesystem", "description": "Simple, single server"},
+        {"label": "Cloudflare R2", "description": "S3-compatible, no egress fees"}
+      ]
+    },
+    {
+      "question": "Who can upload files?",
+      "header": "Auth",
+      "multiSelect": false,
+      "options": [
+        {"label": "Logged-in users", "description": "Require authentication"},
+        {"label": "Public", "description": "Anyone can upload"},
+        {"label": "Role-based", "description": "Specific roles only"}
+      ]
+    }
+  ]
+}
 
-1. **File types**: Just images (jpg/png), or also gifs/videos?
-2. **Size limit**: Max file size?
-3. **Storage**: Local, S3, or other?
-4. **Auth**: Anyone can upload, or logged-in users only?
-
-USER: jpg/png/webp only, max 10MB, S3, logged-in only
+USER: [Selects: JPG/PNG + WebP, 10MB, S3, Logged-in users]
 
 CLAUDE: ✓ Created specs/image-upload.md
 
