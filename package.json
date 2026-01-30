@@ -1,0 +1,40 @@
+{
+  "name": "deepflow",
+  "version": "0.1.0",
+  "description": "Stay in flow state - lightweight spec-driven task orchestration for Claude Code",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai",
+    "flow",
+    "deep-work",
+    "orchestration",
+    "specs",
+    "tasks",
+    "automation",
+    "productivity"
+  ],
+  "author": "saidwafiq",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/saidwafiq/deepflow.git"
+  },
+  "homepage": "https://github.com/saidwafiq/deepflow#readme",
+  "bugs": {
+    "url": "https://github.com/saidwafiq/deepflow/issues"
+  },
+  "bin": {
+    "deepflow": "./bin/install.js"
+  },
+  "files": [
+    "bin/",
+    ".claude/",
+    "hooks/",
+    "templates/",
+    "VERSION"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

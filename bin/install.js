@@ -1,0 +1,187 @@
+#!/usr/bin/env node
+/**
+ * deepflow installer
+ * Usage: npx deepflow
+ */
+
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const readline = require('readline');
+
+// Colors
+const c = {
+  reset: '\x1b[0m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  cyan: '\x1b[36m',
+  dim: '\x1b[2m'
+};
+
+// Paths
+const CLAUDE_DIR = path.join(os.homedir(), '.claude');
+const PACKAGE_DIR = path.resolve(__dirname, '..');
+
+async function main() {
+  console.log('');
+  console.log(`${c.cyan}Installing deepflow...${c.reset}`);
+  console.log('');
+
+  // Create directories
+  const dirs = [
+    'commands/df',
+    'skills',
+    'agents',
+    'hooks',
+    'deepflow'
+  ];
+
+  for (const dir of dirs) {
+    fs.mkdirSync(path.join(CLAUDE_DIR, dir), { recursive: true });
+  }
+
+  // Copy commands
+  copyDir(
+    path.join(PACKAGE_DIR, '.claude', 'commands', 'df'),
+    path.join(CLAUDE_DIR, 'commands', 'df')
+  );
+  log('Commands installed');
+
+  // Copy skills
+  copyDir(
+    path.join(PACKAGE_DIR, '.claude', 'skills'),
+    path.join(CLAUDE_DIR, 'skills')
+  );
+  log('Skills installed');
+
+  // Copy agents
+  copyDir(
+    path.join(PACKAGE_DIR, '.claude', 'agents'),
+    path.join(CLAUDE_DIR, 'agents')
+  );
+  log('Agents installed');
+
+  // Copy hooks
+  const hooksDir = path.join(PACKAGE_DIR, 'hooks');
+  if (fs.existsSync(hooksDir)) {
+    for (const file of fs.readdirSync(hooksDir)) {
+      if (file.endsWith('.js')) {
+        fs.copyFileSync(
+          path.join(hooksDir, file),
+          path.join(CLAUDE_DIR, 'hooks', file)
+        );
+      }
+    }
+    log('Hooks installed');
+  }
+
+  // Copy VERSION
+  const versionFile = path.join(PACKAGE_DIR, 'VERSION');
+  if (fs.existsSync(versionFile)) {
+    fs.copyFileSync(versionFile, path.join(CLAUDE_DIR, 'deepflow', 'VERSION'));
+    log('Version file installed');
+  }
+
+  // Configure statusline
+  await configureStatusline();
+
+  // Trigger background update check
+  const updateChecker = path.join(CLAUDE_DIR, 'hooks', 'df-check-update.js');
+  if (fs.existsSync(updateChecker)) {
+    const { spawn } = require('child_process');
+    const child = spawn(process.execPath, [updateChecker], {
+      detached: true,
+      stdio: 'ignore'
+    });
+    child.unref();
+  }
+
+  console.log('');
+  console.log(`${c.green}Installation complete!${c.reset}`);
+  console.log('');
+  console.log(`Installed to ${CLAUDE_DIR}:`);
+  console.log('  commands/df/     — /df:spec, /df:plan, /df:execute, /df:verify');
+  console.log('  skills/          — gap-discovery, atomic-commits, code-completeness');
+  console.log('  agents/          — reasoner');
+  console.log('  hooks/           — statusline, update checker');
+  console.log('');
+  console.log('Quick start:');
+  console.log('  1. cd your-project');
+  console.log('  2. claude');
+  console.log('  3. Describe what you want to build');
+  console.log('  4. /df:spec feature-name');
+  console.log('');
+}
+
+function copyDir(src, dest) {
+  if (!fs.existsSync(src)) return;
+
+  fs.mkdirSync(dest, { recursive: true });
+
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+
+    if (entry.isDirectory()) {
+      copyDir(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+async function configureStatusline() {
+  const settingsPath = path.join(CLAUDE_DIR, 'settings.json');
+  const hookCmd = `node "${path.join(CLAUDE_DIR, 'hooks', 'df-statusline.js')}"`;
+
+  let settings = {};
+
+  if (fs.existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    } catch (e) {
+      settings = {};
+    }
+
+    if (settings.statusLine) {
+      const answer = await ask(
+        `  ${c.yellow}!${c.reset} Existing statusLine found. Replace with deepflow? [y/N] `
+      );
+      if (answer.toLowerCase() !== 'y') {
+        console.log(`  ${c.yellow}!${c.reset} Skipped statusline configuration`);
+        return;
+      }
+    }
+  }
+
+  settings.statusLine = {
+    type: 'command',
+    command: hookCmd
+  };
+
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  log('Statusline configured');
+}
+
+function ask(question) {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  return new Promise(resolve => {
+    rl.question(question, answer => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
+
+function log(msg) {
+  console.log(`  ${c.green}✓${c.reset} ${msg}`);
+}
+
+main().catch(err => {
+  console.error('Installation failed:', err.message);
+  process.exit(1);
+});

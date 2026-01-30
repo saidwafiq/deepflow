@@ -1,0 +1,19 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project artifacts (user-generated, ignored in user projects)
+# Note: examples/ is NOT ignored so it can be committed
+/specs/
+/PLAN.md
+/STATE.md
+/.deepflow/
+
+# Logs
+*.log

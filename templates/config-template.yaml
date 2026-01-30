@@ -1,0 +1,42 @@
+# deepflow configuration
+
+project:
+  name: my-project
+  source_dir: src/
+  specs_dir: specs/
+
+planning:
+  # Patterns to search for incomplete work
+  search_patterns:
+    - "TODO"
+    - "FIXME"
+    - "HACK"
+    - "stub"
+    - "placeholder"
+    - "it.skip"
+    - "test.skip"
+
+parallelism:
+  # Agent limits by operation type
+  search:
+    max: 100
+    per_files: 20      # 1 agent per N files
+  analyze:
+    max: 20
+    per_specs: 2       # 1 agent per N specs
+  execute:
+    max: 5
+    per_file: 1        # Never parallel on same file
+  test:
+    max: 1             # Always sequential
+
+models:
+  search: sonnet       # Fast, cheap
+  implement: sonnet    # Good balance
+  reason: opus         # Complex decisions
+  debug: opus          # Problem solving
+
+commits:
+  format: "feat({spec}): {description}"
+  atomic: true         # One task = one commit
+  push_after: complete # Or "each" for every commit
