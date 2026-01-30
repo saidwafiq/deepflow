@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * deepflow statusline for Claude Code
- * Displays: model | project | context usage
+ * Displays: update | model | project | context usage
  */
 
 const fs = require('fs');
@@ -43,38 +43,36 @@ function buildStatusLine(data) {
     parts.push(`${colors.yellow}⬆ /df:update${colors.reset}`);
   }
 
-  // Model name
-  const model = formatModel(data.model || 'unknown');
+  // Model name (Claude Code format: data.model.display_name)
+  const model = data.model?.display_name || data.model?.id || 'unknown';
   parts.push(model);
 
-  // Project name (from cwd)
-  const project = path.basename(data.cwd || process.cwd());
+  // Project name (Claude Code format: data.workspace.current_dir)
+  const currentDir = data.workspace?.current_dir || data.cwd || process.cwd();
+  const project = path.basename(currentDir);
   parts.push(`${colors.cyan}${project}${colors.reset}`);
 
-  // Context window meter
-  const contextMeter = buildContextMeter(data.tokenUsage || {});
+  // Context window meter (Claude Code format: data.context_window)
+  const contextMeter = buildContextMeter(data.context_window || {});
   parts.push(contextMeter);
 
   return parts.join(` ${colors.dim}│${colors.reset} `);
 }
 
-function formatModel(model) {
-  // Shorten model names
-  const modelMap = {
-    'claude-opus-4-5-20251101': 'Opus 4.5',
-    'claude-sonnet-4-20250514': 'Sonnet 4',
-    'claude-haiku-3-5-20241022': 'Haiku 3.5'
-  };
-  return modelMap[model] || model.replace('claude-', '').replace(/-\d+$/, '');
-}
+function buildContextMeter(contextWindow) {
+  // Use pre-calculated percentage if available
+  let percentage = contextWindow.used_percentage || 0;
 
-function buildContextMeter(tokenUsage) {
-  const used = tokenUsage.total || 0;
-  const limit = tokenUsage.limit || 200000;
+  // Fallback: calculate from current_usage if available
+  if (!percentage && contextWindow.current_usage && contextWindow.context_window_size) {
+    const usage = contextWindow.current_usage;
+    const totalTokens = (usage.input_tokens || 0) +
+                        (usage.cache_creation_input_tokens || 0) +
+                        (usage.cache_read_input_tokens || 0);
+    percentage = (totalTokens / contextWindow.context_window_size) * 100;
+  }
 
-  // Scale so 80% shows as 100% (enforce 80% limit visually)
-  const effectiveLimit = limit * 0.8;
-  const percentage = Math.min(100, Math.round((used / effectiveLimit) * 100));
+  percentage = Math.min(100, Math.round(percentage));
 
   // Build 10-segment bar
   const segments = 10;
@@ -83,11 +81,11 @@ function buildContextMeter(tokenUsage) {
 
   // Color based on usage
   let color;
-  if (percentage < 63) {
+  if (percentage < 50) {
     color = colors.green;
-  } else if (percentage < 81) {
+  } else if (percentage < 70) {
     color = colors.yellow;
-  } else if (percentage < 95) {
+  } else if (percentage < 90) {
     color = colors.orange;
   } else {
     color = colors.blink + colors.red;

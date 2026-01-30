@@ -1,6 +1,6 @@
 {
   "name": "deepflow",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Stay in flow state - lightweight spec-driven task orchestration for Claude Code",
   "keywords": [
     "claude",
@@ -25,7 +25,7 @@
     "url": "https://github.com/saidwafiq/deepflow/issues"
   },
   "bin": {
-    "deepflow": "./bin/install.js"
+    "deepflow": "bin/install.js"
   },
   "files": [
     "bin/",
