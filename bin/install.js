@@ -19,22 +19,34 @@ const c = {
 };
 
 // Paths
-const CLAUDE_DIR = path.join(os.homedir(), '.claude');
+const GLOBAL_DIR = path.join(os.homedir(), '.claude');
+const PROJECT_DIR = path.join(process.cwd(), '.claude');
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 
 async function main() {
   console.log('');
-  console.log(`${c.cyan}Installing deepflow...${c.reset}`);
+  console.log(`${c.cyan}deepflow installer${c.reset}`);
+  console.log('');
+
+  // Ask for installation level
+  const level = await askInstallLevel();
+  const CLAUDE_DIR = level === 'global' ? GLOBAL_DIR : PROJECT_DIR;
+  const levelLabel = level === 'global' ? 'globally' : 'in this project';
+
+  console.log('');
+  console.log(`Installing ${levelLabel}...`);
   console.log('');
 
   // Create directories
   const dirs = [
     'commands/df',
     'skills',
-    'agents',
-    'hooks',
-    'deepflow'
+    'agents'
   ];
+
+  if (level === 'global') {
+    dirs.push('hooks', 'deepflow');
+  }
 
   for (const dir of dirs) {
     fs.mkdirSync(path.join(CLAUDE_DIR, dir), { recursive: true });
@@ -61,55 +73,71 @@ async function main() {
   );
   log('Agents installed');
 
-  // Copy hooks
-  const hooksDir = path.join(PACKAGE_DIR, 'hooks');
-  if (fs.existsSync(hooksDir)) {
-    for (const file of fs.readdirSync(hooksDir)) {
-      if (file.endsWith('.js')) {
-        fs.copyFileSync(
-          path.join(hooksDir, file),
-          path.join(CLAUDE_DIR, 'hooks', file)
-        );
+  // Copy hooks (global only - statusline requires global settings)
+  if (level === 'global') {
+    const hooksDir = path.join(PACKAGE_DIR, 'hooks');
+    if (fs.existsSync(hooksDir)) {
+      for (const file of fs.readdirSync(hooksDir)) {
+        if (file.endsWith('.js')) {
+          fs.copyFileSync(
+            path.join(hooksDir, file),
+            path.join(CLAUDE_DIR, 'hooks', file)
+          );
+        }
       }
+      log('Hooks installed');
     }
-    log('Hooks installed');
   }
 
-  // Copy VERSION
-  const versionFile = path.join(PACKAGE_DIR, 'VERSION');
-  if (fs.existsSync(versionFile)) {
-    fs.copyFileSync(versionFile, path.join(CLAUDE_DIR, 'deepflow', 'VERSION'));
-    log('Version file installed');
+  // Copy VERSION (global only - for update checking)
+  if (level === 'global') {
+    const versionFile = path.join(PACKAGE_DIR, 'VERSION');
+    if (fs.existsSync(versionFile)) {
+      fs.copyFileSync(versionFile, path.join(CLAUDE_DIR, 'deepflow', 'VERSION'));
+      log('Version file installed');
+    }
   }
 
-  // Configure statusline
-  await configureStatusline();
+  // Configure statusline (global only)
+  if (level === 'global') {
+    await configureStatusline(CLAUDE_DIR);
 
-  // Trigger background update check
-  const updateChecker = path.join(CLAUDE_DIR, 'hooks', 'df-check-update.js');
-  if (fs.existsSync(updateChecker)) {
-    const { spawn } = require('child_process');
-    const child = spawn(process.execPath, [updateChecker], {
-      detached: true,
-      stdio: 'ignore'
-    });
-    child.unref();
+    // Trigger background update check
+    const updateChecker = path.join(CLAUDE_DIR, 'hooks', 'df-check-update.js');
+    if (fs.existsSync(updateChecker)) {
+      const { spawn } = require('child_process');
+      const child = spawn(process.execPath, [updateChecker], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.unref();
+    }
   }
 
   console.log('');
   console.log(`${c.green}Installation complete!${c.reset}`);
   console.log('');
-  console.log(`Installed to ${CLAUDE_DIR}:`);
+  console.log(`Installed to ${c.cyan}${CLAUDE_DIR}${c.reset}:`);
   console.log('  commands/df/     — /df:spec, /df:plan, /df:execute, /df:verify');
   console.log('  skills/          — gap-discovery, atomic-commits, code-completeness');
   console.log('  agents/          — reasoner');
-  console.log('  hooks/           — statusline, update checker');
+  if (level === 'global') {
+    console.log('  hooks/           — statusline, update checker');
+  }
   console.log('');
+  if (level === 'project') {
+    console.log(`${c.dim}Note: Statusline is only available with global install.${c.reset}`);
+    console.log('');
+  }
   console.log('Quick start:');
-  console.log('  1. cd your-project');
-  console.log('  2. claude');
-  console.log('  3. Describe what you want to build');
-  console.log('  4. /df:spec feature-name');
+  if (level === 'global') {
+    console.log('  1. cd your-project');
+    console.log('  2. claude');
+  } else {
+    console.log('  1. claude');
+  }
+  console.log('  2. Describe what you want to build');
+  console.log('  3. /df:spec feature-name');
   console.log('');
 }
 
@@ -130,9 +158,9 @@ function copyDir(src, dest) {
   }
 }
 
-async function configureStatusline() {
-  const settingsPath = path.join(CLAUDE_DIR, 'settings.json');
-  const hookCmd = `node "${path.join(CLAUDE_DIR, 'hooks', 'df-statusline.js')}"`;
+async function configureStatusline(claudeDir) {
+  const settingsPath = path.join(claudeDir, 'settings.json');
+  const hookCmd = `node "${path.join(claudeDir, 'hooks', 'df-statusline.js')}"`;
 
   let settings = {};
 
@@ -175,6 +203,21 @@ function ask(question) {
       resolve(answer);
     });
   });
+}
+
+async function askInstallLevel() {
+  console.log('Where do you want to install deepflow?');
+  console.log('');
+  console.log(`  ${c.cyan}1${c.reset}) Global  ${c.dim}(~/.claude/ - available in all projects)${c.reset}`);
+  console.log(`  ${c.cyan}2${c.reset}) Project ${c.dim}(./.claude/ - only this project)${c.reset}`);
+  console.log('');
+
+  const answer = await ask('Choose [1/2]: ');
+
+  if (answer === '2') {
+    return 'project';
+  }
+  return 'global';
 }
 
 function log(msg) {
