@@ -84,6 +84,38 @@ commits:
   push_after: complete # "complete" or "each"
 ```
 
+### execution
+
+Context management and agent output control:
+
+```yaml
+execution:
+  # Token budget management
+  token_budget: 100000           # Max tokens per session
+  warning_threshold: 60000       # Show warning at this level
+  checkpoint_threshold: 80000    # Auto-checkpoint at this level
+
+  # Agent output control
+  max_agent_return_lines: 5      # Enforce minimal returns
+  discard_verbose_output: true   # Strip excess output from agents
+
+  # Internal verification (agents handle these, don't report)
+  internal_test_execution: true  # Agents run tests internally
+  internal_git_retry: true       # Agents retry git failures internally
+  internal_lint_check: true      # Agents fix lint issues internally
+```
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `token_budget` | 100000 | Maximum tokens before forced checkpoint |
+| `warning_threshold` | 60000 | Display warning when exceeded |
+| `checkpoint_threshold` | 80000 | Auto-checkpoint when exceeded |
+| `max_agent_return_lines` | 5 | Max lines agents can return |
+| `discard_verbose_output` | true | Strip verbose agent output |
+| `internal_test_execution` | true | Agents run/fix tests internally |
+| `internal_git_retry` | true | Agents handle git errors internally |
+| `internal_lint_check` | true | Agents fix lint issues internally |
+
 ## Environment Variables
 
 Some settings can come from environment:
@@ -117,6 +149,8 @@ Environment overrides config file.
 ```
 /df:execute                # All ready tasks
 /df:execute T1 T2          # Specific tasks only
+/df:execute --continue     # Resume from checkpoint
+/df:execute --fresh        # Ignore checkpoint, start fresh
 /df:execute --dry-run      # Show what would run
 ```
 

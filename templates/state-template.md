@@ -29,6 +29,15 @@ Project context and learnings for LLM continuity.
 
 - [ ] [Blocker]: [Workaround if any]
 
+## Checkpoint
+
+[Auto-populated when /df:execute creates a checkpoint]
+
+- **Session**: [none]
+- **Progress**: [0/0 tasks]
+- **Tokens used**: [~0k/100k]
+- **Resume**: `/df:execute --continue`
+
 ## Session Log
 
 ### {Date}
