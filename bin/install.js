@@ -46,6 +46,8 @@ async function main() {
 
   if (level === 'global') {
     dirs.push('hooks', 'deepflow');
+  } else {
+    dirs.push('deepflow');
   }
 
   for (const dir of dirs) {
@@ -89,13 +91,18 @@ async function main() {
     }
   }
 
-  // Copy VERSION (global only - for update checking)
-  if (level === 'global') {
-    const versionFile = path.join(PACKAGE_DIR, 'VERSION');
-    if (fs.existsSync(versionFile)) {
-      fs.copyFileSync(versionFile, path.join(CLAUDE_DIR, 'deepflow', 'VERSION'));
-      log('Version file installed');
-    }
+  // Copy VERSION file (for update checking)
+  const versionFile = path.join(PACKAGE_DIR, 'VERSION');
+  if (fs.existsSync(versionFile)) {
+    fs.copyFileSync(versionFile, path.join(CLAUDE_DIR, 'deepflow', 'VERSION'));
+    log('Version file installed');
+  }
+
+  // Clear stale update cache to prevent false warnings
+  // Cache is always global, so clear it regardless of install level
+  const cacheFile = path.join(GLOBAL_DIR, 'cache', 'df-update-check.json');
+  if (fs.existsSync(cacheFile)) {
+    fs.unlinkSync(cacheFile);
   }
 
   // Configure statusline (global only)
