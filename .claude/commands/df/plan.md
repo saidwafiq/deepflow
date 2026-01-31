@@ -42,7 +42,16 @@ Determine source_dir from config or default to src/
 
 If no new specs: report counts, suggest `/df:execute`.
 
-### 2. ANALYZE CODEBASE
+### 2. DETECT PROJECT CONTEXT
+
+For existing codebases, identify:
+- Code style/conventions
+- Existing patterns (error handling, API structure)
+- Integration points
+
+Include patterns in task descriptions for agents to follow.
+
+### 3. ANALYZE CODEBASE
 
 **Spawn Explore agents** (haiku, read-only) with dynamic count:
 
@@ -59,7 +68,7 @@ If no new specs: report counts, suggest `/df:execute`.
 - Stub functions, placeholder returns
 - Skipped tests, incomplete coverage
 
-### 3. COMPARE & PRIORITIZE
+### 4. COMPARE & PRIORITIZE
 
 **Spawn `reasoner` agent** (Opus) for analysis:
 
@@ -77,15 +86,15 @@ If no new specs: report counts, suggest `/df:execute`.
 2. Impact — core features before enhancements
 3. Risk — unknowns early
 
-### 4. OUTPUT PLAN.md
+### 5. OUTPUT PLAN.md
 
 Append tasks grouped by `### doing-{spec-name}`. Include spec gaps if any.
 
-### 5. RENAME SPECS
+### 6. RENAME SPECS
 
 `mv specs/feature.md specs/doing-feature.md`
 
-### 6. REPORT
+### 7. REPORT
 
 `✓ Plan generated — {n} specs, {n} tasks. Run /df:execute`
 

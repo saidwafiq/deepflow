@@ -82,7 +82,9 @@ On failure: spawn `reasoner`.
 
 ### 6. PER-TASK (agent)
 
-Implement → verify → commit → write result file.
+1. Read existing code patterns (if any)
+2. Implement following existing style
+3. Verify → commit → write result file
 
 ### 7. COMPLETE SPECS
 
