@@ -86,20 +86,47 @@ Include patterns in task descriptions for agents to follow.
 2. Impact — core features before enhancements
 3. Risk — unknowns early
 
-### 5. OUTPUT PLAN.md
+### 5. VALIDATE HYPOTHESES
 
-Append tasks grouped by `### doing-{spec-name}`. Include spec gaps if any.
+Before finalizing the plan, identify and test risky assumptions:
 
-### 6. RENAME SPECS
+**When to validate:**
+- Unfamiliar APIs or libraries
+- Architectural decisions with multiple approaches
+- Integration with external systems
+- Performance-critical paths
+
+**How to validate:**
+1. Create minimal prototype (scratchpad, not committed)
+2. Test the specific assumption
+3. Document findings in task description
+4. Adjust approach if hypothesis fails
+
+**Examples:**
+- "Does SessionStart hook run once per session?" → Test with simple log
+- "Can we use streaming for large files?" → Prototype with sample data
+- "Will this regex handle edge cases?" → Test against real samples
+
+**Skip validation when:**
+- Using well-known patterns
+- Simple CRUD operations
+- Clear documentation exists
+
+### 6. OUTPUT PLAN.md
+
+Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validation findings.
+
+### 7. RENAME SPECS
 
 `mv specs/feature.md specs/doing-feature.md`
 
-### 7. REPORT
+### 8. REPORT
 
 `✓ Plan generated — {n} specs, {n} tasks. Run /df:execute`
 
 ## Rules
-- **Plan only** — Do NOT implement anything
+- **Plan only** — Do NOT implement anything (except quick validation prototypes)
+- **Validate before commit** — Test risky assumptions with minimal experiments
 - **Confirm before assume** — Search code before marking "missing"
 - **One task = one logical unit** — Atomic, committable
 - Prefer existing utilities over new code
