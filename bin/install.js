@@ -74,9 +74,7 @@ async function main() {
   ];
 
   if (level === 'global') {
-    dirs.push('hooks', 'deepflow');
-  } else {
-    dirs.push('deepflow');
+    dirs.push('hooks');
   }
 
   for (const dir of dirs) {
@@ -120,14 +118,9 @@ async function main() {
     }
   }
 
-  // Copy VERSION file (for update checking)
-  const versionFile = path.join(PACKAGE_DIR, 'VERSION');
-  let installedVersion = null;
-  if (fs.existsSync(versionFile)) {
-    fs.copyFileSync(versionFile, path.join(CLAUDE_DIR, 'deepflow', 'VERSION'));
-    installedVersion = fs.readFileSync(versionFile, 'utf8').trim();
-    log('Version file installed');
-  }
+  // Get version from package.json (single source of truth)
+  const packageJson = require(path.join(PACKAGE_DIR, 'package.json'));
+  const installedVersion = packageJson.version;
 
   // Update cache to reflect installed version (prevents stale "update available" message)
   const cacheDir = path.join(GLOBAL_DIR, 'cache');
@@ -309,8 +302,7 @@ async function uninstall() {
     'skills/atomic-commits',
     'skills/code-completeness',
     'skills/gap-discovery',
-    'agents/reasoner.md',
-    'deepflow'
+    'agents/reasoner.md'
   ];
 
   if (level === 'global') {

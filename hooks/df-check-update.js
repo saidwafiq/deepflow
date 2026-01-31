@@ -73,16 +73,17 @@ async function checkForUpdate() {
 }
 
 function getCurrentVersion() {
-  // Check deepflow VERSION file
-  const dfLocalPath = path.join(process.cwd(), '.claude', 'deepflow', 'VERSION');
-  const dfGlobalPath = path.join(os.homedir(), '.claude', 'deepflow', 'VERSION');
-
-  for (const versionPath of [dfLocalPath, dfGlobalPath]) {
-    if (fs.existsSync(versionPath)) {
-      return fs.readFileSync(versionPath, 'utf8').trim();
+  // Read current version from cache (written by installer)
+  if (fs.existsSync(CACHE_FILE)) {
+    try {
+      const cache = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+      if (cache.currentVersion) {
+        return cache.currentVersion;
+      }
+    } catch (e) {
+      // Fall through
     }
   }
-
   return null;
 }
 
