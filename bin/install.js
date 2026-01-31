@@ -24,6 +24,11 @@ const PROJECT_DIR = path.join(process.cwd(), '.claude');
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 
 async function main() {
+  // Handle --uninstall flag
+  if (process.argv.includes('--uninstall')) {
+    return uninstall();
+  }
+
   console.log('');
   console.log(`${c.cyan}deepflow installer${c.reset}`);
   console.log('');
@@ -258,6 +263,77 @@ async function askInstallLevel(prompt) {
 
 function log(msg) {
   console.log(`  ${c.green}✓${c.reset} ${msg}`);
+}
+
+async function uninstall() {
+  console.log('');
+  console.log(`${c.cyan}deepflow uninstaller${c.reset}`);
+  console.log('');
+
+  const globalInstalled = isInstalled(GLOBAL_DIR);
+  const projectInstalled = isInstalled(PROJECT_DIR);
+
+  if (!globalInstalled && !projectInstalled) {
+    console.log('No deepflow installation found.');
+    return;
+  }
+
+  let level;
+
+  if (globalInstalled && projectInstalled) {
+    console.log('Found installations in both locations:');
+    console.log(`  Global:  ${GLOBAL_DIR}`);
+    console.log(`  Project: ${PROJECT_DIR}`);
+    console.log('');
+    level = await askInstallLevel('Which do you want to remove?');
+  } else if (globalInstalled) {
+    level = 'global';
+  } else {
+    level = 'project';
+  }
+
+  const CLAUDE_DIR = level === 'global' ? GLOBAL_DIR : PROJECT_DIR;
+  const levelLabel = level === 'global' ? 'global' : 'project';
+
+  const confirm = await ask(`Remove ${levelLabel} installation from ${CLAUDE_DIR}? [y/N] `);
+  if (confirm.toLowerCase() !== 'y') {
+    console.log('Cancelled.');
+    return;
+  }
+
+  console.log('');
+
+  // Remove deepflow files
+  const toRemove = [
+    'commands/df',
+    'skills/atomic-commits',
+    'skills/code-completeness',
+    'skills/gap-discovery',
+    'agents/reasoner.md',
+    'deepflow'
+  ];
+
+  if (level === 'global') {
+    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js');
+  }
+
+  for (const item of toRemove) {
+    const fullPath = path.join(CLAUDE_DIR, item);
+    if (fs.existsSync(fullPath)) {
+      fs.rmSync(fullPath, { recursive: true });
+      console.log(`  ${c.green}✓${c.reset} Removed ${item}`);
+    }
+  }
+
+  // Clear update cache
+  const cacheFile = path.join(GLOBAL_DIR, 'cache', 'df-update-check.json');
+  if (fs.existsSync(cacheFile)) {
+    fs.unlinkSync(cacheFile);
+  }
+
+  console.log('');
+  console.log(`${c.green}Uninstall complete.${c.reset}`);
+  console.log('');
 }
 
 main().catch(err => {

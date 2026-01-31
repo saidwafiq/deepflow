@@ -30,8 +30,11 @@
 ## Quick Start
 
 ```bash
-# Install
+# Install (or update)
 npx deepflow
+
+# Uninstall
+npx deepflow --uninstall
 
 # In your project
 claude
