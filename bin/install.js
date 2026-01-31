@@ -122,31 +122,31 @@ async function main() {
 
   // Copy VERSION file (for update checking)
   const versionFile = path.join(PACKAGE_DIR, 'VERSION');
+  let installedVersion = null;
   if (fs.existsSync(versionFile)) {
     fs.copyFileSync(versionFile, path.join(CLAUDE_DIR, 'deepflow', 'VERSION'));
+    installedVersion = fs.readFileSync(versionFile, 'utf8').trim();
     log('Version file installed');
   }
 
-  // Clear stale update cache
-  const cacheFile = path.join(GLOBAL_DIR, 'cache', 'df-update-check.json');
-  if (fs.existsSync(cacheFile)) {
+  // Update cache to reflect installed version (prevents stale "update available" message)
+  const cacheDir = path.join(GLOBAL_DIR, 'cache');
+  const cacheFile = path.join(cacheDir, 'df-update-check.json');
+  if (installedVersion) {
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.writeFileSync(cacheFile, JSON.stringify({
+      updateAvailable: false,
+      currentVersion: installedVersion,
+      latestVersion: installedVersion,
+      timestamp: Date.now()
+    }, null, 2));
+  } else if (fs.existsSync(cacheFile)) {
     fs.unlinkSync(cacheFile);
   }
 
   // Configure statusline (global only)
   if (level === 'global') {
     await configureStatusline(CLAUDE_DIR);
-
-    // Trigger background update check
-    const updateChecker = path.join(CLAUDE_DIR, 'hooks', 'df-check-update.js');
-    if (fs.existsSync(updateChecker)) {
-      const { spawn } = require('child_process');
-      const child = spawn(process.execPath, [updateChecker], {
-        detached: true,
-        stdio: 'ignore'
-      });
-      child.unref();
-    }
   }
 
   console.log('');
