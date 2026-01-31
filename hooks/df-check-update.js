@@ -12,7 +12,6 @@ const os = require('os');
 const PACKAGE_NAME = 'deepflow';
 const CACHE_DIR = path.join(os.homedir(), '.claude', 'cache');
 const CACHE_FILE = path.join(CACHE_DIR, 'df-update-check.json');
-const CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
 
 // If called directly, spawn background process and exit
 if (process.argv[2] !== '--background') {
@@ -30,15 +29,6 @@ async function checkForUpdate() {
     // Ensure cache directory exists
     if (!fs.existsSync(CACHE_DIR)) {
       fs.mkdirSync(CACHE_DIR, { recursive: true });
-    }
-
-    // Check if we've checked recently
-    if (fs.existsSync(CACHE_FILE)) {
-      const cache = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-      const age = Date.now() - (cache.timestamp || 0);
-      if (age < CHECK_INTERVAL) {
-        process.exit(0);
-      }
     }
 
     // Get current version
@@ -92,8 +82,7 @@ function getLatestVersion() {
     const timeout = setTimeout(() => resolve(null), 10000);
 
     const child = spawn('npm', ['view', PACKAGE_NAME, 'version'], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-      shell: true
+      stdio: ['ignore', 'pipe', 'ignore']
     });
 
     let output = '';
