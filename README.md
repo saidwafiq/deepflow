@@ -14,8 +14,7 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> •
   <a href="#the-flow">The Flow</a> •
-  <a href="#commands">Commands</a> •
-  <a href="docs/getting-started.md">Docs</a>
+  <a href="#commands">Commands</a>
 </p>
 
 ---
@@ -25,9 +24,8 @@
 - **Stay in flow** — Minimize context switches, maximize deep work
 - **Conversational ideation** with proactive gap discovery
 - **Specs define intent**, tasks close reality gaps
-- **Parallel execution** with dependency awareness
+- **Parallel execution** with context-aware checkpointing
 - **Atomic commits** for clean rollback
-- **Minimal ceremony** — 4 commands, not 27
 
 ## Quick Start
 
@@ -38,7 +36,7 @@ npx deepflow
 # In your project
 claude
 
-# 1. Discuss what you want to build (conversation)
+# 1. Discuss what you want to build
 # 2. Generate spec when ready
 /df:spec image-upload
 
@@ -57,38 +55,41 @@ claude
 ```
 CONVERSATION
     │ Describe what you want
-    │ LLM asks gap questions (scope, edge cases, constraints)
+    │ LLM asks gap questions
     ▼
 /df:spec <name>
-    │ Generates specs/{name}.md
+    │ Creates specs/{name}.md
     ▼
 /df:plan
-    │ Compares specs to codebase
-    │ Finds TODOs, stubs, missing implementations
-    │ Outputs PLAN.md with prioritized tasks
+    │ Analyzes specs vs codebase
+    │ Creates PLAN.md with tasks
+    │ Renames: feature.md → doing-feature.md
     ▼
 /df:execute
-    │ Runs tasks respecting dependencies
-    │ Parallel for independent tasks
+    │ Parallel agents per wave
+    │ Context-aware (≥50% → checkpoint)
     │ Atomic commit per task
     ▼
 /df:verify
-    │ Checks spec requirements met
-    │ Updates PLAN.md status
+    │ Checks requirements met
+    │ Renames: doing-feature.md → done-feature.md
 ```
 
-## File Structure
-
-After running deepflow, your project will have:
+## Spec Lifecycle
 
 ```
-your-project/
-├── specs/
-│   ├── feature-a.md
-│   └── feature-b.md
-├── PLAN.md          # Task checklist
-└── STATE.md         # Decisions & learnings
+specs/
+  feature.md        → new, needs /df:plan
+  doing-feature.md  → in progress, has tasks in PLAN.md
+  done-feature.md   → completed, history embedded
 ```
+
+## Context-Aware Execution
+
+Statusline shows context usage. At ≥50%:
+- Waits for running agents
+- Checkpoints state
+- Resume with `/df:execute --continue`
 
 ## Commands
 
@@ -98,40 +99,43 @@ your-project/
 | `/df:plan` | Compare specs to code, create tasks |
 | `/df:execute` | Run tasks with parallel agents |
 | `/df:verify` | Check specs satisfied |
+| `/df:update` | Update deepflow to latest |
+
+## File Structure
+
+```
+your-project/
+├── specs/
+│   ├── auth.md           # new spec
+│   ├── doing-upload.md   # in progress
+│   └── done-payments.md  # completed
+├── PLAN.md               # active tasks only
+└── .deepflow/
+    ├── context.json      # context % for execution
+    ├── checkpoint.json   # resume state
+    └── results/          # agent results
+```
 
 ## Configuration
 
-Create `.deepflow/config.yaml` in your project:
+Create `.deepflow/config.yaml`:
 
 ```yaml
 project:
   source_dir: src/
   specs_dir: specs/
 
-planning:
-  search_patterns:
-    - "TODO"
-    - "FIXME"
-    - "stub"
-    - "placeholder"
-
 parallelism:
-  max_search_agents: 50
-  max_write_agents: 5
-
-models:
-  search: sonnet
-  implement: sonnet
-  reason: opus
+  max_agents: 5
 ```
 
 ## Principles
 
 1. **Stay in flow** — Uninterrupted deep work
-2. **Confirm before assume** — Search code before creating "missing" tasks
+2. **Confirm before assume** — Search code before marking "missing"
 3. **Complete implementations** — No stubs, no placeholders
 4. **Atomic commits** — One task = one commit
-5. **Single writer per file** — Avoid race conditions
+5. **Context-aware** — Checkpoint before limits
 
 ## License
 
