@@ -137,9 +137,9 @@ async function main() {
     fs.unlinkSync(cacheFile);
   }
 
-  // Configure statusline (global only)
+  // Configure hooks (global only)
   if (level === 'global') {
-    await configureStatusline(CLAUDE_DIR);
+    await configureHooks(CLAUDE_DIR);
   }
 
   console.log('');
@@ -192,9 +192,10 @@ function copyDir(src, dest) {
   }
 }
 
-async function configureStatusline(claudeDir) {
+async function configureHooks(claudeDir) {
   const settingsPath = path.join(claudeDir, 'settings.json');
-  const hookCmd = `node "${path.join(claudeDir, 'hooks', 'df-statusline.js')}"`;
+  const statuslineCmd = `node "${path.join(claudeDir, 'hooks', 'df-statusline.js')}"`;
+  const updateCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-check-update.js')}"`;
 
   let settings = {};
 
@@ -204,25 +205,48 @@ async function configureStatusline(claudeDir) {
     } catch (e) {
       settings = {};
     }
-
-    if (settings.statusLine) {
-      const answer = await ask(
-        `  ${c.yellow}!${c.reset} Existing statusLine found. Replace with deepflow? [y/N] `
-      );
-      if (answer.toLowerCase() !== 'y') {
-        console.log(`  ${c.yellow}!${c.reset} Skipped statusline configuration`);
-        return;
-      }
-    }
   }
 
-  settings.statusLine = {
-    type: 'command',
-    command: hookCmd
-  };
+  // Configure statusline
+  if (settings.statusLine) {
+    const answer = await ask(
+      `  ${c.yellow}!${c.reset} Existing statusLine found. Replace with deepflow? [y/N] `
+    );
+    if (answer.toLowerCase() === 'y') {
+      settings.statusLine = { type: 'command', command: statuslineCmd };
+      log('Statusline configured');
+    } else {
+      console.log(`  ${c.yellow}!${c.reset} Skipped statusline configuration`);
+    }
+  } else {
+    settings.statusLine = { type: 'command', command: statuslineCmd };
+    log('Statusline configured');
+  }
+
+  // Configure SessionStart hook for update checking
+  if (!settings.hooks) {
+    settings.hooks = {};
+  }
+  if (!settings.hooks.SessionStart) {
+    settings.hooks.SessionStart = [];
+  }
+
+  // Remove any existing deepflow update check hooks
+  settings.hooks.SessionStart = settings.hooks.SessionStart.filter(hook => {
+    const cmd = hook.hooks?.[0]?.command || '';
+    return !cmd.includes('df-check-update');
+  });
+
+  // Add update check hook
+  settings.hooks.SessionStart.push({
+    hooks: [{
+      type: 'command',
+      command: updateCheckCmd
+    }]
+  });
+  log('SessionStart hook configured');
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-  log('Statusline configured');
 }
 
 function ask(question) {
@@ -317,10 +341,39 @@ async function uninstall() {
     }
   }
 
-  // Clear update cache
-  const cacheFile = path.join(GLOBAL_DIR, 'cache', 'df-update-check.json');
-  if (fs.existsSync(cacheFile)) {
-    fs.unlinkSync(cacheFile);
+  // Clear update cache and trigger file
+  const cacheDir = path.join(GLOBAL_DIR, 'cache');
+  for (const file of ['df-update-check.json', 'df-trigger-time']) {
+    const filePath = path.join(cacheDir, file);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
+
+  // Remove SessionStart hook from settings
+  if (level === 'global') {
+    const settingsPath = path.join(CLAUDE_DIR, 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      try {
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        if (settings.hooks?.SessionStart) {
+          settings.hooks.SessionStart = settings.hooks.SessionStart.filter(hook => {
+            const cmd = hook.hooks?.[0]?.command || '';
+            return !cmd.includes('df-check-update');
+          });
+          if (settings.hooks.SessionStart.length === 0) {
+            delete settings.hooks.SessionStart;
+          }
+          if (Object.keys(settings.hooks).length === 0) {
+            delete settings.hooks;
+          }
+          fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+          console.log(`  ${c.green}✓${c.reset} Removed SessionStart hook`);
+        }
+      } catch (e) {
+        // Fail silently
+      }
+    }
   }
 
   console.log('');
