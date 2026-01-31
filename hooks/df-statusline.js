@@ -97,17 +97,53 @@ function buildContextMeter(contextWindow) {
   return `${color}${bar}${colors.reset} ${percentage}%`;
 }
 
+const TRIGGER_THROTTLE = 60 * 1000; // 60 seconds between triggers
+
 function checkForUpdate() {
+  const cacheDir = path.join(os.homedir(), '.claude', 'cache');
+  const cachePath = path.join(cacheDir, 'df-update-check.json');
+  const triggerPath = path.join(cacheDir, 'df-trigger-time');
+
+  // Trigger background check if not triggered recently (throttle rapid refreshes)
   try {
-    const cacheDir = path.join(os.homedir(), '.claude', 'cache');
-    const cachePath = path.join(cacheDir, 'df-update-check.json');
-
-    if (!fs.existsSync(cachePath)) return null;
-
-    const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-    return cache;
+    let shouldTrigger = true;
+    if (fs.existsSync(triggerPath)) {
+      const lastTrigger = parseInt(fs.readFileSync(triggerPath, 'utf8'), 10);
+      shouldTrigger = Date.now() - lastTrigger > TRIGGER_THROTTLE;
+    }
+    if (shouldTrigger) {
+      fs.mkdirSync(cacheDir, { recursive: true });
+      fs.writeFileSync(triggerPath, String(Date.now()));
+      triggerUpdateCheck();
+    }
   } catch (e) {
-    return null;
+    // Fail silently
+  }
+
+  // Return cached result
+  try {
+    if (fs.existsSync(cachePath)) {
+      return JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+    }
+  } catch (e) {
+    // Fail silently
+  }
+  return null;
+}
+
+function triggerUpdateCheck() {
+  try {
+    const checkerPath = path.join(os.homedir(), '.claude', 'hooks', 'df-check-update.js');
+    if (fs.existsSync(checkerPath)) {
+      const { spawn } = require('child_process');
+      const child = spawn(process.execPath, [checkerPath], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.unref();
+    }
+  } catch (e) {
+    // Fail silently
   }
 }
 
