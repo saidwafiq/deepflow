@@ -61,12 +61,14 @@ CONVERSATION
     │ Creates specs/{name}.md
     ▼
 /df:plan
+    │ Detects project context/patterns
     │ Analyzes specs vs codebase
     │ Creates PLAN.md with tasks
     │ Renames: feature.md → doing-feature.md
     ▼
 /df:execute
-    │ Parallel agents per wave
+    │ Follows existing patterns
+    │ Parallel agents, file conflicts serialize
     │ Context-aware (≥50% → checkpoint)
     │ Atomic commit per task
     ▼
@@ -83,6 +85,12 @@ specs/
   doing-feature.md  → in progress, has tasks in PLAN.md
   done-feature.md   → completed, history embedded
 ```
+
+## Works With Any Project
+
+**Greenfield:** Everything is new, agents create from scratch.
+
+**Ongoing:** Detects existing patterns, follows conventions, integrates with current code.
 
 ## Context-Aware Execution
 
