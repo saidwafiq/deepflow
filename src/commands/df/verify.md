@@ -48,30 +48,24 @@ If issues: suggest creating fix spec or reopening (`mv done-* doing-*`).
 
 ### 4. CAPTURE LEARNINGS
 
-After successful verification, document significant learnings:
+On success, write significant learnings to `.deepflow/experiments/{domain}--{approach}--success.md`
 
-**When to write experiment:**
-- Non-trivial implementation approach was used
-- Alternative approaches were considered/rejected during planning
-- Performance optimizations were made
-- Integration patterns were discovered
-
-**Write to:** `.deepflow/experiments/{domain}--{approach}--success.md`
+**Write when:**
+- Non-trivial approach used
+- Alternatives rejected during planning
+- Performance optimization made
+- Integration pattern discovered
 
 **Format:**
 ```markdown
 # {Approach} [SUCCESS]
-Objective: {What was the goal}
-Context: {Spec reference, why this was needed}
-Approach: {What was implemented}
-Why it worked: {Key insight}
-Files: {Main files involved}
+Objective: ...
+Approach: ...
+Why it worked: ...
+Files: ...
 ```
 
-**Skip when:**
-- Simple CRUD, no learnings
-- Standard patterns, well-documented
-- User declines ("No significant learnings")
+**Skip:** Simple CRUD, standard patterns, user declines
 
 ## Verification Levels
 

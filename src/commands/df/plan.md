@@ -1,7 +1,7 @@
 # /df:plan — Generate Task Plan from Specs
 
 ## Purpose
-Compare specs against codebase AND past experiments, identify gaps, generate prioritized task list informed by historical learnings.
+Compare specs against codebase and past experiments. Generate prioritized tasks.
 
 ## Usage
 ```
@@ -44,32 +44,19 @@ If no new specs: report counts, suggest `/df:execute`.
 
 ### 2. CHECK PAST EXPERIMENTS
 
-Before proposing approaches, learn from history:
+Extract domains from spec (perf, auth, api, etc.), then:
 
 ```
-1. Extract domains from spec keywords (performance, auth, caching, api, etc.)
-2. Glob `.deepflow/experiments/{domain}--*`
-3. Read matching files (filenames are the index, minimal token cost)
-4. Note failed approaches to avoid
-5. Note successful patterns to reuse
+Glob .deepflow/experiments/{domain}--*
 ```
 
-**If experiments found:**
-- Failed: Exclude approach from plan, note why
-- Success: Reference as pattern to follow
+| Result | Action |
+|--------|--------|
+| `--failed.md` | Exclude approach, note why |
+| `--success.md` | Reference as pattern |
+| No matches | Continue (expected for new projects) |
 
-**File naming convention:**
-```
-.deepflow/experiments/
-  {domain}--{approach}--{result}.md
-
-Examples:
-  perf--redis-caching--failed.md
-  perf--connection-pooling--success.md
-  auth--jwt-refresh--success.md
-```
-
-**No experiments?** Continue normally—this is expected for new projects.
+**Naming:** `{domain}--{approach}--{result}.md`
 
 ### 3. DETECT PROJECT CONTEXT
 
@@ -117,30 +104,17 @@ Include patterns in task descriptions for agents to follow.
 
 ### 6. VALIDATE HYPOTHESES
 
-Before finalizing the plan, identify and test risky assumptions:
+Test risky assumptions before finalizing plan.
 
-**When to validate:**
-- Unfamiliar APIs or libraries
-- Architectural decisions with multiple approaches
-- Integration with external systems
-- Performance-critical paths
+**Validate when:** Unfamiliar APIs, multiple approaches possible, external integrations, performance-critical
 
-**How to validate:**
-1. Create minimal prototype (scratchpad, not committed)
-2. Test the specific assumption
-3. If fails: Write to `.deepflow/experiments/{domain}--{approach}--failed.md`
-4. Adjust approach based on findings
-5. Document learnings in task description
+**Process:**
+1. Prototype in scratchpad (not committed)
+2. Test assumption
+3. If fails → Write `.deepflow/experiments/{domain}--{approach}--failed.md`
+4. Adjust approach, document in task
 
-**Examples:**
-- "Does SessionStart hook run once per session?" → Test with simple log
-- "Can we use streaming for large files?" → Prototype with sample data
-- "Will this regex handle edge cases?" → Test against real samples
-
-**Skip validation when:**
-- Using well-known patterns
-- Simple CRUD operations
-- Clear documentation exists
+**Skip:** Well-known patterns, simple CRUD, clear docs exist
 
 ### 7. OUTPUT PLAN.md
 
