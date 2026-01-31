@@ -9,11 +9,9 @@ Update deepflow to the latest version from npm.
 npx deepflow@latest
 ```
 
-2. When prompted, choose the same installation level you used before (Global or Project).
+2. The installer auto-detects your existing installation (global or project) and updates it.
 
-3. The installer will update all commands, skills, agents, and hooks.
-
-4. Restart Claude Code to apply changes.
+3. Restart Claude Code to apply changes.
 
 ## What Gets Updated
 

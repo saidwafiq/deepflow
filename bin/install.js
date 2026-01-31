@@ -28,8 +28,32 @@ async function main() {
   console.log(`${c.cyan}deepflow installer${c.reset}`);
   console.log('');
 
-  // Ask for installation level
-  const level = await askInstallLevel();
+  // Detect existing installations
+  const globalInstalled = isInstalled(GLOBAL_DIR);
+  const projectInstalled = isInstalled(PROJECT_DIR);
+
+  let level;
+
+  if (globalInstalled && projectInstalled) {
+    // Both installed - ask which to update
+    console.log(`${c.yellow}!${c.reset} Found installations in both locations:`);
+    console.log(`  Global:  ${GLOBAL_DIR}`);
+    console.log(`  Project: ${PROJECT_DIR}`);
+    console.log('');
+    level = await askInstallLevel('Which do you want to update?');
+  } else if (globalInstalled) {
+    // Only global - update it
+    console.log(`Updating global installation...`);
+    level = 'global';
+  } else if (projectInstalled) {
+    // Only project - update it
+    console.log(`Updating project installation...`);
+    level = 'project';
+  } else {
+    // Fresh install - ask
+    level = await askInstallLevel('Where do you want to install deepflow?');
+  }
+
   const CLAUDE_DIR = level === 'global' ? GLOBAL_DIR : PROJECT_DIR;
   const levelLabel = level === 'global' ? 'globally' : 'in this project';
 
@@ -98,8 +122,7 @@ async function main() {
     log('Version file installed');
   }
 
-  // Clear stale update cache to prevent false warnings
-  // Cache is always global, so clear it regardless of install level
+  // Clear stale update cache
   const cacheFile = path.join(GLOBAL_DIR, 'cache', 'df-update-check.json');
   if (fs.existsSync(cacheFile)) {
     fs.unlinkSync(cacheFile);
@@ -146,6 +169,12 @@ async function main() {
   console.log('  2. Describe what you want to build');
   console.log('  3. /df:spec feature-name');
   console.log('');
+}
+
+function isInstalled(claudeDir) {
+  // Check if deepflow commands exist
+  const commandsDir = path.join(claudeDir, 'commands', 'df');
+  return fs.existsSync(commandsDir) && fs.readdirSync(commandsDir).length > 0;
 }
 
 function copyDir(src, dest) {
@@ -212,8 +241,8 @@ function ask(question) {
   });
 }
 
-async function askInstallLevel() {
-  console.log('Where do you want to install deepflow?');
+async function askInstallLevel(prompt) {
+  console.log(prompt);
   console.log('');
   console.log(`  ${c.cyan}1${c.reset}) Global  ${c.dim}(~/.claude/ - available in all projects)${c.reset}`);
   console.log(`  ${c.cyan}2${c.reset}) Project ${c.dim}(./.claude/ - only this project)${c.reset}`);
