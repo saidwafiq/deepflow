@@ -1,7 +1,7 @@
 # /df:plan — Generate Task Plan from Specs
 
 ## Purpose
-Compare specs against codebase, identify gaps, generate prioritized task list.
+Compare specs against codebase AND past experiments, identify gaps, generate prioritized task list informed by historical learnings.
 
 ## Usage
 ```
@@ -42,7 +42,36 @@ Determine source_dir from config or default to src/
 
 If no new specs: report counts, suggest `/df:execute`.
 
-### 2. DETECT PROJECT CONTEXT
+### 2. CHECK PAST EXPERIMENTS
+
+Before proposing approaches, learn from history:
+
+```
+1. Extract domains from spec keywords (performance, auth, caching, api, etc.)
+2. Glob `.deepflow/experiments/{domain}--*`
+3. Read matching files (filenames are the index, minimal token cost)
+4. Note failed approaches to avoid
+5. Note successful patterns to reuse
+```
+
+**If experiments found:**
+- Failed: Exclude approach from plan, note why
+- Success: Reference as pattern to follow
+
+**File naming convention:**
+```
+.deepflow/experiments/
+  {domain}--{approach}--{result}.md
+
+Examples:
+  perf--redis-caching--failed.md
+  perf--connection-pooling--success.md
+  auth--jwt-refresh--success.md
+```
+
+**No experiments?** Continue normally—this is expected for new projects.
+
+### 3. DETECT PROJECT CONTEXT
 
 For existing codebases, identify:
 - Code style/conventions
@@ -51,7 +80,7 @@ For existing codebases, identify:
 
 Include patterns in task descriptions for agents to follow.
 
-### 3. ANALYZE CODEBASE
+### 4. ANALYZE CODEBASE
 
 **Spawn Explore agents** (haiku, read-only) with dynamic count:
 
@@ -68,7 +97,7 @@ Include patterns in task descriptions for agents to follow.
 - Stub functions, placeholder returns
 - Skipped tests, incomplete coverage
 
-### 4. COMPARE & PRIORITIZE
+### 5. COMPARE & PRIORITIZE
 
 **Spawn `reasoner` agent** (Opus) for analysis:
 
@@ -86,7 +115,7 @@ Include patterns in task descriptions for agents to follow.
 2. Impact — core features before enhancements
 3. Risk — unknowns early
 
-### 5. VALIDATE HYPOTHESES
+### 6. VALIDATE HYPOTHESES
 
 Before finalizing the plan, identify and test risky assumptions:
 
@@ -99,8 +128,9 @@ Before finalizing the plan, identify and test risky assumptions:
 **How to validate:**
 1. Create minimal prototype (scratchpad, not committed)
 2. Test the specific assumption
-3. Document findings in task description
-4. Adjust approach if hypothesis fails
+3. If fails: Write to `.deepflow/experiments/{domain}--{approach}--failed.md`
+4. Adjust approach based on findings
+5. Document learnings in task description
 
 **Examples:**
 - "Does SessionStart hook run once per session?" → Test with simple log
@@ -112,19 +142,20 @@ Before finalizing the plan, identify and test risky assumptions:
 - Simple CRUD operations
 - Clear documentation exists
 
-### 6. OUTPUT PLAN.md
+### 7. OUTPUT PLAN.md
 
 Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validation findings.
 
-### 7. RENAME SPECS
+### 8. RENAME SPECS
 
 `mv specs/feature.md specs/doing-feature.md`
 
-### 8. REPORT
+### 9. REPORT
 
 `✓ Plan generated — {n} specs, {n} tasks. Run /df:execute`
 
 ## Rules
+- **Learn from history** — Check past experiments before proposing approaches
 - **Plan only** — Do NOT implement anything (except quick validation prototypes)
 - **Validate before commit** — Test risky assumptions with minimal experiments
 - **Confirm before assume** — Search code before marking "missing"
@@ -150,7 +181,9 @@ Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validatio
   - Files: src/api/upload.ts
   - Blocked by: none
 
-- [ ] **T2**: Add S3 service
+- [ ] **T2**: Add S3 service with streaming
   - Files: src/services/storage.ts
   - Blocked by: T1
+  - Note: Use streaming (see experiments/perf--chunked-upload--success.md)
+  - Avoid: Direct buffer upload failed for large files (experiments/perf--buffer-upload--failed.md)
 ```
