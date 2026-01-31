@@ -124,9 +124,6 @@ Create `.deepflow/config.yaml`:
 project:
   source_dir: src/
   specs_dir: specs/
-
-parallelism:
-  max_agents: 5
 ```
 
 ## Principles

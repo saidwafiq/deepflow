@@ -96,12 +96,12 @@ Append tasks grouped by `### doing-{spec-name}`. Include spec gaps if any.
 - Prefer existing utilities over new code
 - Flag spec gaps, don't silently ignore
 
-## Agent Limits
+## Agent Scaling
 
-| Agent | Base | Scale | Cap |
-|-------|------|-------|-----|
-| Explore (search) | 10 | +1 per 20 files | 100 |
-| Reasoner (analyze) | 5 | +1 per 2 specs | 20 |
+| Agent | Base | Scale |
+|-------|------|-------|
+| Explore (search) | 10 | +1 per 20 files |
+| Reasoner (analyze) | 5 | +1 per 2 specs |
 
 ## Example
 

@@ -76,12 +76,9 @@ Ready = `[ ]` + all `blocked_by` complete + not in checkpoint.
 
 If context ≥50%: wait for agents, checkpoint, exit.
 
-| Ready | Strategy |
-|-------|----------|
-| 1-3 | All parallel |
-| 4+ | 5 parallel, queue rest |
+All ready tasks run in parallel. File conflicts execute sequentially.
 
-1 writer per file. On failure: spawn `reasoner`.
+On failure: spawn `reasoner`.
 
 ### 6. PER-TASK (agent)
 
