@@ -17,63 +17,34 @@ Implement tasks from PLAN.md with parallel agents, atomic commits, and context-e
 - Agent: `general-purpose` (Sonnet) — Task implementation
 - Agent: `reasoner` (Opus) — Debugging failures
 
-## Context Budget
+## Context-Aware Execution
 
-| Threshold | Tokens | Action |
-|-----------|--------|--------|
-| Normal | <60k | Continue execution |
-| Warning | 60k | Display budget status |
-| Checkpoint | 80k | Save state, prompt resume |
-| Limit | 100k | Hard stop |
+Statusline writes to `.deepflow/context.json`: `{"percentage": 45}`
 
-Display after each wave: `Budget: ~45k/100k tokens`
+| Context % | Action |
+|-----------|--------|
+| < 50% | Full parallelism (up to 5 agents) |
+| ≥ 50% | Wait for running agents, checkpoint, exit |
 
-Token estimates: ~650/task, ~200/wave overhead.
+## Agent Protocol
 
-## Agent Output Protocol
-
-Agents MUST return exactly 5 lines:
-
+Agents write results to `.deepflow/results/{task_id}.yaml`:
 ```yaml
 task: T3
-status: success|failed
+status: success
 commit: abc1234
-duration: 45s
-error: "single line if failed"
 ```
 
-**Agent instructions (include in spawn):**
-```
-Return ONLY 5-line YAML. No test output, git logs, or stack traces.
-Handle all verification internally. Fix issues before returning.
-```
-
-If verbose output received: extract minimal data, discard rest.
+**Spawn with:** `run_in_background: true`
+**Poll:** `Glob(".deepflow/results/T*.yaml")`
+**NEVER use TaskOutput** — returns full trace, wastes context.
 
 ## Checkpoint & Resume
 
-**File:** `.deepflow/checkpoint.json`
+**File:** `.deepflow/checkpoint.json` — stores completed tasks, current wave.
 
-```json
-{
-  "session_id": "exec_abc123",
-  "completed_tasks": ["T1", "T2"],
-  "current_wave": 2,
-  "last_commit": "def5678",
-  "estimated_tokens_used": 82000,
-  "decisions_made": ["Used multer for uploads"],
-  "resume_instructions": "Continue with Wave 3"
-}
-```
-
-**Checkpoint protocol** (at 80k tokens):
-1. Complete current task
-2. Wait for parallel agents
-3. Update PLAN.md
-4. Write checkpoint atomically (.tmp → rename)
-5. Print: `Context limit reached. Run /df:execute --continue`
-
-**Resume** (`--continue`): Load checkpoint, skip completed tasks, reset token counter.
+**On checkpoint:** Complete wave → update PLAN.md → save → exit.
+**Resume:** `--continue` loads checkpoint, skips completed tasks.
 
 ## Behavior
 
@@ -89,44 +60,43 @@ else → Start fresh
 ### 2. LOAD PLAN
 
 ```
-Load: PLAN.md (required), specs/*.md, .deepflow/config.yaml
+Load: PLAN.md (required), specs/doing-*.md, .deepflow/config.yaml
 If missing: "No PLAN.md found. Run /df:plan first."
 ```
 
-### 3. IDENTIFY READY TASKS
+### 3. CHECK FOR UNPLANNED SPECS
 
-Ready = `[ ]` status + all `blocked_by` complete + not in checkpoint.
+Warn if `specs/*.md` (excluding doing-/done-) exist. Non-blocking.
 
-### 4. EXECUTE IN PARALLEL
+### 4. IDENTIFY READY TASKS
+
+Ready = `[ ]` + all `blocked_by` complete + not in checkpoint.
+
+### 5. CHECK CONTEXT & EXECUTE
+
+If context ≥50%: wait for agents, checkpoint, exit.
 
 | Ready | Strategy |
 |-------|----------|
 | 1-3 | All parallel |
 | 4+ | 5 parallel, queue rest |
 
-**Critical:** 1 writer per file. If T1 and T2 both modify `src/api.ts`, execute sequentially.
+1 writer per file. On failure: spawn `reasoner`.
 
-**On failure:** Spawn `reasoner` (Opus) for debugging.
+### 6. PER-TASK (agent)
 
-### 5. PER-TASK EXECUTION
+Implement → verify → commit → write result file.
 
-Each agent internally:
-1. Read spec requirements
-2. Implement completely (no stubs/TODOs)
-3. Verify (tests, types, lint) — fix issues
-4. Commit atomically: `feat({spec}): {description}`
-5. Return 5-line YAML only
+### 7. COMPLETE SPECS
 
-### 6. UPDATE & CHECK BUDGET
+When all tasks done for a `doing-*` spec:
+1. Embed history in spec: `## Completed` section
+2. Rename: `doing-upload.md` → `done-upload.md`
+3. Remove section from PLAN.md
 
-- Mark task complete in PLAN.md with commit hash
-- Update token estimate
-- If >80k: checkpoint and exit
-- If >60k: show warning
+### 8. ITERATE
 
-### 7. ITERATE
-
-Repeat until: all done, all blocked, or budget reached.
+Repeat until: all done, all blocked, or checkpoint.
 
 ## Rules
 
@@ -141,24 +111,21 @@ Repeat until: all done, all blocked, or budget reached.
 ## Example
 
 ```
-/df:execute
+/df:execute (context: 12%)
 
-Loading PLAN.md...
-Found 5 tasks, 3 ready
+Wave 1: T1, T2 parallel (context: 25%)
+  T1: success (abc1234)
+  T2: success (def5678)
 
-Wave 1: T1, T2, T5 in parallel...
-  T1: success (abc1234) 45s
-  T2: success (def5678) 32s
-  T5: success (ghi9012) 28s
-Budget: ~32k/100k tokens
+Wave 2: T3 (context: 48%)
+  T3: success (ghi9012)
 
-Wave 2: T3, T4 unblocked
-  T3: success (jkl3456) 67s
-  T4: success (mno7890) 41s
-Budget: ~52k/100k tokens
+✓ doing-upload → done-upload
+✓ Complete: 3/3 tasks
+```
 
-✓ Execution complete
-Tasks: 5/5 | Commits: 5
-
-Run /df:verify to confirm specs satisfied.
+With checkpoint:
+```
+Wave 1 complete (context: 52%)
+Checkpoint saved. Run /df:execute --continue
 ```

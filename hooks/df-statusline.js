@@ -74,6 +74,9 @@ function buildContextMeter(contextWindow) {
 
   percentage = Math.min(100, Math.round(percentage));
 
+  // Write context usage to file for deepflow commands
+  writeContextUsage(percentage);
+
   // Build 10-segment bar
   const segments = 10;
   const filled = Math.round((percentage / 100) * segments);
@@ -105,5 +108,21 @@ function checkForUpdate() {
     return cache;
   } catch (e) {
     return null;
+  }
+}
+
+function writeContextUsage(percentage) {
+  try {
+    const deepflowDir = path.join(process.cwd(), '.deepflow');
+    if (!fs.existsSync(deepflowDir)) {
+      fs.mkdirSync(deepflowDir, { recursive: true });
+    }
+    const contextPath = path.join(deepflowDir, 'context.json');
+    fs.writeFileSync(contextPath, JSON.stringify({
+      percentage,
+      timestamp: Date.now()
+    }));
+  } catch (e) {
+    // Fail silently
   }
 }

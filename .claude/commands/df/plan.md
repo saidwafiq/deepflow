@@ -5,12 +5,27 @@ Compare specs against codebase, identify gaps, generate prioritized task list.
 
 ## Usage
 ```
-/df:plan
+/df:plan                 # Plan all new specs
+/df:plan feature.md      # Plan specific spec
 ```
 
 ## Skills & Agents
 - Skill: `code-completeness` — Find TODOs, stubs, incomplete work
 - Agent: `reasoner` (Opus) — Complex analysis and prioritization
+
+## Spec File States
+
+```
+specs/
+  feature.md        → New, needs planning (this command reads these)
+  doing-auth.md     → In progress, has tasks in PLAN.md
+  done-payments.md  → Completed, history embedded
+```
+
+**Filtering:**
+- New: `specs/*.md` excluding `doing-*` and `done-*`
+- In progress: `specs/doing-*.md`
+- Completed: `specs/done-*.md`
 
 ## Behavior
 
@@ -18,12 +33,14 @@ Compare specs against codebase, identify gaps, generate prioritized task list.
 
 ```
 Load:
-- specs/*.md (all spec files)
-- PLAN.md (if exists, prior state)
-- .specflow/config.yaml (if exists)
+- specs/*.md EXCLUDING doing-* and done-* (only new specs)
+- PLAN.md (if exists, for appending)
+- .deepflow/config.yaml (if exists)
 
 Determine source_dir from config or default to src/
 ```
+
+If no new specs: report counts, suggest `/df:execute`.
 
 ### 2. ANALYZE CODEBASE
 
@@ -44,68 +61,33 @@ Determine source_dir from config or default to src/
 
 ### 3. COMPARE & PRIORITIZE
 
-**Spawn `reasoner` agent** (Opus) for complex analysis:
+**Spawn `reasoner` agent** (Opus) for analysis:
 
-| Status | Meaning | Action |
-|--------|---------|--------|
-| DONE | Fully implemented | Mark complete |
-| PARTIAL | Stub or incomplete | Task to complete |
-| MISSING | Not found in code | Task to implement |
-| CONFLICT | Code contradicts spec | Flag for review |
+| Status | Action |
+|--------|--------|
+| DONE | Skip |
+| PARTIAL | Task to complete |
+| MISSING | Task to implement |
+| CONFLICT | Flag for review |
 
-Reasoner prioritizes by dependencies, impact, and risk.
+**Spec gaps:** If spec is ambiguous or missing details, note in output (don't silently assume).
 
-### 4. PRIORITIZE
+**Priority order:**
+1. Dependencies — blockers first
+2. Impact — core features before enhancements
+3. Risk — unknowns early
 
-Order tasks by:
-1. **Dependencies** — Blockers first
-2. **Impact** — Core features before enhancements
-3. **Risk** — Unknowns early (reduce risk)
+### 4. OUTPUT PLAN.md
 
-### 5. OUTPUT PLAN.md
+Append tasks grouped by `### doing-{spec-name}`. Include spec gaps if any.
 
-```markdown
-# Plan
+### 5. RENAME SPECS
 
-Generated: {timestamp}
-Specs analyzed: {count}
-
-## Spec Gaps
-[If any specs need updates, list here]
-- [ ] specs/X.md: Missing error handling definition
-
-## Tasks
-
-### {spec-name}
-
-- [ ] **T1**: {task description}
-  - Files: {files to create/modify}
-  - Blocked by: none
-
-- [ ] **T2**: {task description}
-  - Files: {files}
-  - Blocked by: T1
-
-### {another-spec}
-
-- [ ] **T3**: {task description}
-  - Files: {files}
-  - Blocked by: none
-```
+`mv specs/feature.md specs/doing-feature.md`
 
 ### 6. REPORT
 
-```
-✓ Plan generated
-
-Specs analyzed: {n}
-Tasks created: {n}
-Spec gaps found: {n}
-
-Ready to execute: {n} tasks (no blockers)
-
-Next: Run /df:execute to start implementation
-```
+`✓ Plan generated — {n} specs, {n} tasks. Run /df:execute`
 
 ## Rules
 - **Plan only** — Do NOT implement anything
@@ -114,58 +96,25 @@ Next: Run /df:execute to start implementation
 - Prefer existing utilities over new code
 - Flag spec gaps, don't silently ignore
 
-## Agent Spawning Rules
+## Agent Limits
 
-```yaml
-search_agents:
-  base: 10
-  per_files: 20  # 1 agent per 20 files
-  cap: 100
+| Agent | Base | Scale | Cap |
+|-------|------|-------|-----|
+| Explore (search) | 10 | +1 per 20 files | 100 |
+| Reasoner (analyze) | 5 | +1 per 2 specs | 20 |
 
-analyze_agents:
-  base: 5
-  per_specs: 2   # 1 agent per 2 specs
-  cap: 20
-
-model_selection:
-  search: sonnet
-  analyze: opus
-```
-
-## Example Output
+## Example
 
 ```markdown
 # Plan
 
-Generated: 2025-01-28 14:30
-Specs analyzed: 2
+### doing-upload
 
-## Spec Gaps
-- [ ] specs/image-upload.md: No error handling for S3 failures defined
-
-## Tasks
-
-### image-upload
-
-- [ ] **T1**: Create upload API endpoint
-  - Files: src/api/upload.ts (create)
+- [ ] **T1**: Create upload endpoint
+  - Files: src/api/upload.ts
   - Blocked by: none
 
-- [ ] **T2**: Add file validation middleware
-  - Files: src/middleware/validate.ts (create)
-  - Blocked by: none
-
-- [ ] **T3**: Implement S3 upload service
-  - Files: src/services/storage.ts (create)
-  - Blocked by: T1
-
-- [ ] **T4**: Complete thumbnail generation
-  - Files: src/services/image.ts:45 (stub found)
-  - Blocked by: T3
-
-### color-extraction
-
-- [ ] **T5**: Integrate color-thief library
-  - Files: src/services/color.ts (create)
+- [ ] **T2**: Add S3 service
+  - Files: src/services/storage.ts
   - Blocked by: T1
 ```
