@@ -17,6 +17,6 @@ npx deepflow --uninstall
 ## Check Version
 
 ```bash
-cat ~/.claude/deepflow/VERSION   # installed
-npm view deepflow version        # latest
+cat ~/.claude/cache/df-update-check.json   # cached version info
+npm view deepflow version                   # latest on npm
 ```
