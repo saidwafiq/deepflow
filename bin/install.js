@@ -85,21 +85,21 @@ async function main() {
 
   // Copy commands
   copyDir(
-    path.join(PACKAGE_DIR, '.claude', 'commands', 'df'),
+    path.join(PACKAGE_DIR, 'src', 'commands', 'df'),
     path.join(CLAUDE_DIR, 'commands', 'df')
   );
   log('Commands installed');
 
   // Copy skills
   copyDir(
-    path.join(PACKAGE_DIR, '.claude', 'skills'),
+    path.join(PACKAGE_DIR, 'src', 'skills'),
     path.join(CLAUDE_DIR, 'skills')
   );
   log('Skills installed');
 
   // Copy agents
   copyDir(
-    path.join(PACKAGE_DIR, '.claude', 'agents'),
+    path.join(PACKAGE_DIR, 'src', 'agents'),
     path.join(CLAUDE_DIR, 'agents')
   );
   log('Agents installed');

@@ -29,7 +29,7 @@
   },
   "files": [
     "bin/",
-    ".claude/",
+    "src/",
     "hooks/",
     "templates/",
     "VERSION"
