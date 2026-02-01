@@ -36,6 +36,9 @@ models:
   reason: opus         # Complex decisions
   debug: opus          # Problem solving
 
+explore:
+  max_tokens: 500      # Controls Explore agent response length
+
 commits:
   format: "feat({spec}): {description}"
   atomic: true         # One task = one commit
