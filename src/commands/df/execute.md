@@ -82,20 +82,78 @@ If missing: "No PLAN.md found. Run /df:plan first."
 
 Warn if `specs/*.md` (excluding doing-/done-) exist. Non-blocking.
 
-### 4. IDENTIFY READY TASKS
+### 4. CHECK EXPERIMENT STATUS (HYPOTHESIS VALIDATION)
 
-Ready = `[ ]` + all `blocked_by` complete + not in checkpoint.
+**Before identifying ready tasks**, check experiment validation for full implementation tasks.
 
-### 5. SPAWN AGENTS
+**Task Types:**
+- **Spike tasks**: Have `[SPIKE]` in title OR `Type: spike` in description — always executable
+- **Full implementation tasks**: Blocked by spike tasks — require validated experiment
+
+**Validation Flow:**
+
+```
+For each task in plan:
+  If task is spike task:
+    → Mark as executable (spikes are always allowed)
+  Else if task is blocked by a spike task (T{n}):
+    → Find related experiment file in .deepflow/experiments/
+    → Check experiment status:
+      - --passed.md exists → Unblock, proceed with implementation
+      - --failed.md exists → Keep blocked, warn user
+      - --active.md exists → Keep blocked, spike in progress
+      - No experiment → Keep blocked, spike not started
+```
+
+**Experiment File Discovery:**
+
+```
+Glob: .deepflow/experiments/{topic}--*--{status}.md
+
+Topic extraction:
+1. From spike task: experiment file path in task description
+2. From spec name: doing-{topic} → {topic}
+3. Fuzzy match: normalize and match
+```
+
+**Status Handling:**
+
+| Experiment Status | Task Status | Action |
+|-------------------|-------------|--------|
+| `--passed.md` | Ready | Execute full implementation |
+| `--failed.md` | Blocked | Skip, warn: "Experiment failed, re-plan needed" |
+| `--active.md` | Blocked | Skip, info: "Waiting for spike completion" |
+| Not found | Blocked | Skip, info: "Spike task not executed yet" |
+
+**Warning Output:**
+
+```
+⚠ T3 blocked: Experiment 'upload--streaming--failed.md' did not validate
+  → Run /df:plan to generate new hypothesis spike
+```
+
+### 5. IDENTIFY READY TASKS
+
+Ready = `[ ]` + all `blocked_by` complete + experiment validated (if applicable) + not in checkpoint.
+
+### 6. SPAWN AGENTS
 
 Context ≥50%: checkpoint and exit.
 
 Spawn all ready tasks in ONE message (parallel). Same-file conflicts: sequential.
 
+**Spike Task Execution:**
+When spawning a spike task, the agent MUST:
+1. Execute the minimal validation method
+2. Record result in experiment file (update status: `--passed.md` or `--failed.md`)
+3. If passed: implementation tasks become unblocked
+4. If failed: record conclusion with "next hypothesis" for future planning
+
 On failure: spawn `reasoner`.
 
-### 6. PER-TASK (agent prompt)
+### 7. PER-TASK (agent prompt)
 
+**Standard Task:**
 ```
 {task_id}: {description from PLAN.md}
 Files: {target files}
@@ -105,14 +163,38 @@ Implement, test, commit as feat({spec}): {description}.
 Write result to .deepflow/results/{task_id}.yaml
 ```
 
-### 7. COMPLETE SPECS
+**Spike Task:**
+```
+{task_id} [SPIKE]: {hypothesis}
+Type: spike
+Method: {minimal steps to validate}
+Success criteria: {how to know it passed}
+Time-box: {duration}
+Experiment file: {.deepflow/experiments/{topic}--{hypothesis}--active.md}
+Spec: {spec_name}
+
+Execute the minimal validation:
+1. Follow the method steps exactly
+2. Measure against success criteria
+3. Update experiment file with result:
+   - If passed: rename to --passed.md, record findings
+   - If failed: rename to --failed.md, record conclusion with "next hypothesis"
+4. Commit as spike({spec}): validate {hypothesis}
+5. Write result to .deepflow/results/{task_id}.yaml
+
+Result status:
+- success = hypothesis validated (passed)
+- failed = hypothesis invalidated (failed experiment, NOT agent error)
+```
+
+### 8. COMPLETE SPECS
 
 When all tasks done for a `doing-*` spec:
 1. Embed history in spec: `## Completed` section
 2. Rename: `doing-upload.md` → `done-upload.md`
 3. Remove section from PLAN.md
 
-### 8. ITERATE
+### 9. ITERATE
 
 Repeat until: all done, all blocked, or checkpoint.
 
@@ -125,6 +207,8 @@ Repeat until: all done, all blocked, or checkpoint.
 | Agents verify internally | Fix issues, don't report |
 
 ## Example
+
+### Standard Execution
 
 ```
 /df:execute (context: 12%)
@@ -140,7 +224,52 @@ Wave 2: T3 (context: 48%)
 ✓ Complete: 3/3 tasks
 ```
 
-With checkpoint:
+### Spike-First Execution
+
+```
+/df:execute (context: 10%)
+
+Checking experiment status...
+  T1 [SPIKE]: No experiment yet, spike executable
+  T2: Blocked by T1 (spike not validated)
+  T3: Blocked by T1 (spike not validated)
+
+Wave 1: T1 [SPIKE] (context: 20%)
+  T1: success (abc1234) → upload--streaming--passed.md
+
+Checking experiment status...
+  T2: Experiment passed, unblocked
+  T3: Experiment passed, unblocked
+
+Wave 2: T2, T3 parallel (context: 45%)
+  T2: success (def5678)
+  T3: success (ghi9012)
+
+✓ doing-upload → done-upload
+✓ Complete: 3/3 tasks
+```
+
+### Spike Failed
+
+```
+/df:execute (context: 10%)
+
+Wave 1: T1 [SPIKE] (context: 20%)
+  T1: failed → upload--streaming--failed.md
+
+Checking experiment status...
+  T2: ⚠ Blocked - Experiment failed
+  T3: ⚠ Blocked - Experiment failed
+
+⚠ Spike T1 invalidated hypothesis
+  Experiment: upload--streaming--failed.md
+  → Run /df:plan to generate new hypothesis spike
+
+Complete: 1/3 tasks (2 blocked by failed experiment)
+```
+
+### With Checkpoint
+
 ```
 Wave 1 complete (context: 52%)
 Checkpoint saved. Run /df:execute --continue
