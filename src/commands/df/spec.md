@@ -39,6 +39,34 @@ Transform conversation context into a structured specification file.
 | 20-100 | 5-8 |
 | 100+ | 10-15 |
 
+**Explore Agent Prompt Structure:**
+```
+Find: [specific question]
+Return ONLY:
+- File paths matching criteria
+- One-line description per file
+- Integration points (if asked)
+
+DO NOT:
+- Read or summarize spec files
+- Make recommendations
+- Propose solutions
+- Generate tables or lengthy explanations
+
+Max response: 500 tokens (configurable via .deepflow/config.yaml explore.max_tokens)
+```
+
+**Explore Agent Scope Restrictions:**
+- MUST only report factual findings:
+  - Files found
+  - Patterns/conventions observed
+  - Integration points
+- MUST NOT:
+  - Make recommendations
+  - Propose architectures
+  - Read and summarize specs (that's orchestrator's job)
+  - Draw conclusions about what should be built
+
 ### 2. GAP CHECK
 Use the `gap-discovery` skill to analyze conversation + agent findings.
 
