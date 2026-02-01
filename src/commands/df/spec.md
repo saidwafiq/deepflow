@@ -1,5 +1,15 @@
 # /df:spec — Generate Spec from Conversation
 
+## Orchestrator Role
+
+You coordinate agents and ask questions. You never search code directly.
+
+**NEVER:** Read source files, use Glob/Grep directly, run git
+
+**ONLY:** Spawn agents, poll results, ask user questions, write spec file
+
+---
+
 ## Purpose
 Transform conversation context into a structured specification file.
 
@@ -8,13 +18,29 @@ Transform conversation context into a structured specification file.
 /df:spec <name>
 ```
 
-## Skills
-Uses: `gap-discovery` — Proactive requirement gap identification
+## Skills & Agents
+- Skill: `gap-discovery` — Proactive requirement gap identification
+- Agent: `Explore` (haiku) — Codebase context gathering
+- Agent: `reasoner` (Opus) — Synthesize findings into requirements
 
 ## Behavior
 
-### 1. GAP CHECK
-Before generating, use the `gap-discovery` skill to analyze conversation.
+### 1. GATHER CODEBASE CONTEXT
+
+**Spawn Explore agents** (haiku, read-only, parallel) to find:
+- Related existing implementations
+- Code patterns and conventions
+- Integration points relevant to the feature
+- Existing TODOs or placeholders in related areas
+
+| Codebase Size | Agents |
+|---------------|--------|
+| <20 files | 2-3 |
+| 20-100 | 5-8 |
+| 100+ | 10-15 |
+
+### 2. GAP CHECK
+Use the `gap-discovery` skill to analyze conversation + agent findings.
 
 **Required clarity:**
 - [ ] Core objective clear
@@ -42,9 +68,17 @@ Before generating, use the `gap-discovery` skill to analyze conversation.
 
 Max 4 questions per tool call. Wait for answers before proceeding.
 
-### 2. GENERATE SPEC
+### 3. SYNTHESIZE FINDINGS
 
-Once gaps covered, create `specs/{name}.md`:
+**Spawn `reasoner` agent** (Opus) to:
+- Analyze codebase context from Explore agents
+- Identify constraints from existing architecture
+- Suggest requirements based on patterns found
+- Flag potential conflicts with existing code
+
+### 4. GENERATE SPEC
+
+Once gaps covered and context gathered, create `specs/{name}.md`:
 
 ```markdown
 # {Name}
@@ -70,10 +104,10 @@ Once gaps covered, create `specs/{name}.md`:
 - [ ] [Testable criterion 3]
 
 ## Technical Notes
-[Any implementation hints, preferred approaches, or context]
+[Implementation hints from codebase analysis — patterns, integration points, constraints discovered by agents]
 ```
 
-### 3. CONFIRM
+### 5. CONFIRM
 
 After writing:
 ```
@@ -86,16 +120,32 @@ Next: Run /df:plan to generate tasks
 ```
 
 ## Rules
+- **Orchestrator never searches** — Spawn agents for all codebase exploration
 - Do NOT generate spec if critical gaps remain
-- Ask maximum 5 questions per round (not overwhelming)
+- Ask maximum 4 questions per tool call (not overwhelming)
 - Requirements must be testable
 - Acceptance criteria must be verifiable
+- Include agent-discovered context in Technical Notes
 - Keep specs concise (<100 lines)
+
+## Agent Scaling
+
+| Agent | Base | Purpose |
+|-------|------|---------|
+| Explore (haiku) | 3-5 | Find related code, patterns |
+| Reasoner (Opus) | 1 | Synthesize into requirements |
 
 ## Example
 
 ```
 USER: I want to add image upload
+
+CLAUDE: [Spawns 3 Explore agents in parallel]
+- "Find existing file handling patterns"
+- "Find API endpoint conventions"
+- "Find storage service implementations"
+
+[Agents return: Express multer middleware, REST conventions, no cloud storage yet]
 
 CLAUDE: [Uses AskUserQuestion tool]
 {
@@ -106,18 +156,7 @@ CLAUDE: [Uses AskUserQuestion tool]
       "multiSelect": true,
       "options": [
         {"label": "JPG/PNG only", "description": "Standard formats"},
-        {"label": "Include WebP", "description": "Modern compression"},
-        {"label": "Include GIF", "description": "Animated images"}
-      ]
-    },
-    {
-      "question": "What's the maximum upload size?",
-      "header": "Size limit",
-      "multiSelect": false,
-      "options": [
-        {"label": "5 MB", "description": "Fast uploads"},
-        {"label": "10 MB (Recommended)", "description": "Balanced"},
-        {"label": "25 MB", "description": "High-res photos"}
+        {"label": "Include WebP", "description": "Modern compression"}
       ]
     },
     {
@@ -126,29 +165,22 @@ CLAUDE: [Uses AskUserQuestion tool]
       "multiSelect": false,
       "options": [
         {"label": "S3 (Recommended)", "description": "Scalable cloud storage"},
-        {"label": "Local filesystem", "description": "Simple, single server"},
-        {"label": "Cloudflare R2", "description": "S3-compatible, no egress fees"}
-      ]
-    },
-    {
-      "question": "Who can upload files?",
-      "header": "Auth",
-      "multiSelect": false,
-      "options": [
-        {"label": "Logged-in users", "description": "Require authentication"},
-        {"label": "Public", "description": "Anyone can upload"},
-        {"label": "Role-based", "description": "Specific roles only"}
+        {"label": "Local filesystem", "description": "Simple, matches current setup"}
       ]
     }
   ]
 }
 
-USER: [Selects: JPG/PNG + WebP, 10MB, S3, Logged-in users]
+USER: [Selects: JPG/PNG + WebP, S3]
+
+CLAUDE: [Spawns reasoner agent]
+- Synthesize: multer + S3 + existing API patterns
 
 CLAUDE: ✓ Created specs/image-upload.md
 
 Requirements: 4
 Acceptance criteria: 5
+Technical notes: Express/multer pattern, REST conventions from existing API
 
 Next: Run /df:plan to generate tasks
 ```
