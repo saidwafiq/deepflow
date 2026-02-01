@@ -42,21 +42,33 @@ Determine source_dir from config or default to src/
 
 If no new specs: report counts, suggest `/df:execute`.
 
-### 2. CHECK PAST EXPERIMENTS
+### 2. CHECK PAST EXPERIMENTS (SPIKE-FIRST)
 
-Extract domains from spec (perf, auth, api, etc.), then:
+**CRITICAL**: Check experiments BEFORE generating any tasks.
+
+Extract topic from spec name (fuzzy match), then:
 
 ```
-Glob .deepflow/experiments/{domain}--*
+Glob .deepflow/experiments/{topic}--*
 ```
+
+**Experiment file naming:** `{topic}--{hypothesis}--{status}.md`
+Statuses: `active`, `passed`, `failed`
 
 | Result | Action |
 |--------|--------|
-| `--failed.md` | Exclude approach, note why |
-| `--success.md` | Reference as pattern |
-| No matches | Continue (expected for new projects) |
+| `--failed.md` exists | Extract "next hypothesis" from Conclusion section |
+| `--passed.md` exists | Reference as validated pattern, can proceed to full implementation |
+| `--active.md` exists | Wait for experiment completion before planning |
+| No matches | New topic, needs initial spike |
 
-**Naming:** `{domain}--{approach}--{result}.md`
+**Spike-First Rule**:
+- If `--failed.md` exists: Generate spike task to test the next hypothesis (from failed experiment's Conclusion)
+- If no experiments exist: Generate spike task for the core hypothesis
+- Full implementation tasks are BLOCKED until a spike validates the approach
+- Only proceed to full task generation after `--passed.md` exists
+
+See: `templates/experiment-template.md` for experiment format
 
 ### 3. DETECT PROJECT CONTEXT
 
@@ -130,7 +142,36 @@ Max response: 500 tokens (configurable via .deepflow/config.yaml explore.max_tok
 2. Impact — core features before enhancements
 3. Risk — unknowns early
 
-### 6. VALIDATE HYPOTHESES
+### 6. GENERATE SPIKE TASKS (IF NEEDED)
+
+**When to generate spike tasks:**
+1. Failed experiment exists → Test the next hypothesis
+2. No experiments exist → Test the core hypothesis
+3. Passed experiment exists → Skip to full implementation
+
+**Spike Task Format:**
+```markdown
+- [ ] **T1** [SPIKE]: Validate {hypothesis}
+  - Type: spike
+  - Hypothesis: {what we're testing}
+  - Method: {minimal steps to validate}
+  - Success criteria: {how to know it passed}
+  - Time-box: 30 min
+  - Files: .deepflow/experiments/{topic}--{hypothesis}--{status}.md
+  - Blocked by: none
+```
+
+**Blocking Logic:**
+- All implementation tasks MUST have `Blocked by: T{spike}` until spike passes
+- After spike completes:
+  - If passed: Update experiment to `--passed.md`, unblock implementation tasks
+  - If failed: Update experiment to `--failed.md`, DO NOT generate implementation tasks
+
+**Full Implementation Only After Spike:**
+- Only generate full task list when spike validates the approach
+- Never generate 10-task waterfall without validated hypothesis
+
+### 7. VALIDATE HYPOTHESES
 
 Test risky assumptions before finalizing plan.
 
@@ -139,24 +180,27 @@ Test risky assumptions before finalizing plan.
 **Process:**
 1. Prototype in scratchpad (not committed)
 2. Test assumption
-3. If fails → Write `.deepflow/experiments/{domain}--{approach}--failed.md`
+3. If fails → Write `.deepflow/experiments/{topic}--{hypothesis}--failed.md`
 4. Adjust approach, document in task
 
 **Skip:** Well-known patterns, simple CRUD, clear docs exist
 
-### 7. OUTPUT PLAN.md
+### 8. OUTPUT PLAN.md
 
 Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validation findings.
 
-### 8. RENAME SPECS
+### 9. RENAME SPECS
 
 `mv specs/feature.md specs/doing-feature.md`
 
-### 9. REPORT
+### 10. REPORT
 
 `✓ Plan generated — {n} specs, {n} tasks. Run /df:execute`
 
 ## Rules
+- **Spike-first** — Generate spike task before full implementation if no `--passed.md` experiment exists
+- **Block on spike** — Full implementation tasks MUST be blocked by spike validation
+- **Learn from failures** — Extract "next hypothesis" from failed experiments, never repeat same approach
 - **Learn from history** — Check past experiments before proposing approaches
 - **Plan only** — Do NOT implement anything (except quick validation prototypes)
 - **Validate before commit** — Test risky assumptions with minimal experiments
@@ -174,6 +218,55 @@ Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validatio
 
 ## Example
 
+### Spike-First (No Prior Experiments)
+
+```markdown
+# Plan
+
+### doing-upload
+
+- [ ] **T1** [SPIKE]: Validate streaming upload approach
+  - Type: spike
+  - Hypothesis: Streaming uploads will handle files >1GB without memory issues
+  - Method: Create minimal endpoint, upload 2GB file, measure memory
+  - Success criteria: Memory stays under 500MB during upload
+  - Time-box: 30 min
+  - Files: .deepflow/experiments/upload--streaming--active.md
+  - Blocked by: none
+
+- [ ] **T2**: Create upload endpoint
+  - Files: src/api/upload.ts
+  - Blocked by: T1 (spike must pass)
+
+- [ ] **T3**: Add S3 service with streaming
+  - Files: src/services/storage.ts
+  - Blocked by: T1 (spike must pass), T2
+```
+
+### Spike-First (After Failed Experiment)
+
+```markdown
+# Plan
+
+### doing-upload
+
+- [ ] **T1** [SPIKE]: Validate chunked upload with backpressure
+  - Type: spike
+  - Hypothesis: Adding backpressure control will prevent buffer overflow
+  - Method: Implement pause/resume on buffer threshold, test with 2GB file
+  - Success criteria: No memory spikes above 500MB
+  - Time-box: 30 min
+  - Files: .deepflow/experiments/upload--chunked-backpressure--active.md
+  - Blocked by: none
+  - Note: Previous approach failed (see upload--buffer-upload--failed.md)
+
+- [ ] **T2**: Implement chunked upload endpoint
+  - Files: src/api/upload.ts
+  - Blocked by: T1 (spike must pass)
+```
+
+### After Spike Validates (Full Implementation)
+
 ```markdown
 # Plan
 
@@ -182,10 +275,10 @@ Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validatio
 - [ ] **T1**: Create upload endpoint
   - Files: src/api/upload.ts
   - Blocked by: none
+  - Note: Use streaming (validated in upload--streaming--passed.md)
 
 - [ ] **T2**: Add S3 service with streaming
   - Files: src/services/storage.ts
   - Blocked by: T1
-  - Note: Use streaming (see experiments/perf--chunked-upload--success.md)
-  - Avoid: Direct buffer upload failed for large files (experiments/perf--buffer-upload--failed.md)
+  - Avoid: Direct buffer upload failed (see upload--buffer-upload--failed.md)
 ```
