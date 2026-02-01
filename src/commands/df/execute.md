@@ -1,5 +1,15 @@
 # /df:execute — Execute Tasks from Plan
 
+## Orchestrator Role
+
+You spawn agents and poll results. You never implement.
+
+**NEVER:** Read source files, edit code, run tests, run git (except status), use `TaskOutput`
+
+**ONLY:** Read `PLAN.md` + `specs/doing-*.md`, spawn background agents, poll `.deepflow/results/`, update PLAN.md
+
+---
+
 ## Purpose
 Implement tasks from PLAN.md with parallel agents, atomic commits, and context-efficient execution.
 
@@ -28,16 +38,20 @@ Statusline writes to `.deepflow/context.json`: `{"percentage": 45}`
 
 ## Agent Protocol
 
-Agents write results to `.deepflow/results/{task_id}.yaml`:
-```yaml
-task: T3
-status: success
-commit: abc1234
+Every task = one background agent. Poll result files, never `TaskOutput`.
+
+```python
+Task(subagent_type="general-purpose", run_in_background=True, prompt="T1: ...")
+# Poll: Glob(".deepflow/results/T*.yaml")
 ```
 
-**Spawn with:** `run_in_background: true`
-**Poll:** `Glob(".deepflow/results/T*.yaml")`
-**NEVER use TaskOutput** — returns full trace, wastes context.
+Result file `.deepflow/results/{task_id}.yaml`:
+```yaml
+task: T3
+status: success|failed
+commit: abc1234
+summary: "one line"
+```
 
 ## Checkpoint & Resume
 
@@ -72,19 +86,24 @@ Warn if `specs/*.md` (excluding doing-/done-) exist. Non-blocking.
 
 Ready = `[ ]` + all `blocked_by` complete + not in checkpoint.
 
-### 5. CHECK CONTEXT & EXECUTE
+### 5. SPAWN AGENTS
 
-If context ≥50%: wait for agents, checkpoint, exit.
+Context ≥50%: checkpoint and exit.
 
-All ready tasks run in parallel. File conflicts execute sequentially.
+Spawn all ready tasks in ONE message (parallel). Same-file conflicts: sequential.
 
 On failure: spawn `reasoner`.
 
-### 6. PER-TASK (agent)
+### 6. PER-TASK (agent prompt)
 
-1. Read existing code patterns (if any)
-2. Implement following existing style
-3. Verify → commit → write result file
+```
+{task_id}: {description from PLAN.md}
+Files: {target files}
+Spec: {spec_name}
+
+Implement, test, commit as feat({spec}): {description}.
+Write result to .deepflow/results/{task_id}.yaml
+```
 
 ### 7. COMPLETE SPECS
 
@@ -99,13 +118,11 @@ Repeat until: all done, all blocked, or checkpoint.
 
 ## Rules
 
-| Rule | Enforcement |
-|------|-------------|
-| 1 task = 1 commit | `atomic-commits` skill |
-| No broken commits | Verify before commit |
-| 1 writer per file | Sequential if conflict |
-| Minimal returns | 5 lines max from agents |
-| Internal verification | Agents fix issues, don't report |
+| Rule | Detail |
+|------|--------|
+| 1 task = 1 agent = 1 commit | `atomic-commits` skill |
+| 1 file = 1 writer | Sequential if conflict |
+| Agents verify internally | Fix issues, don't report |
 
 ## Example
 
