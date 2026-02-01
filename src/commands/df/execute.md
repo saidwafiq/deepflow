@@ -24,8 +24,12 @@ Implement tasks from PLAN.md with parallel agents, atomic commits, and context-e
 
 ## Skills & Agents
 - Skill: `atomic-commits` — Clean commit protocol
-- Agent: `general-purpose` (Sonnet) — Task implementation
-- Agent: `reasoner` (Opus) — Debugging failures
+
+**Use Task tool to spawn agents:**
+| Agent | subagent_type | model | Purpose |
+|-------|---------------|-------|---------|
+| Implementation | `general-purpose` | `sonnet` | Task implementation |
+| Debugger | `reasoner` | `opus` | Debugging failures |
 
 ## Context-Aware Execution
 
@@ -140,7 +144,16 @@ Ready = `[ ]` + all `blocked_by` complete + experiment validated (if applicable)
 
 Context ≥50%: checkpoint and exit.
 
-Spawn all ready tasks in ONE message (parallel). Same-file conflicts: sequential.
+**Use Task tool to spawn all ready tasks in ONE message (parallel):**
+```
+Task tool parameters for each task:
+- subagent_type: "general-purpose"
+- model: "sonnet"
+- run_in_background: true
+- prompt: "{task details from PLAN.md}"
+```
+
+Same-file conflicts: spawn sequentially instead.
 
 **Spike Task Execution:**
 When spawning a spike task, the agent MUST:
@@ -149,7 +162,13 @@ When spawning a spike task, the agent MUST:
 3. If passed: implementation tasks become unblocked
 4. If failed: record conclusion with "next hypothesis" for future planning
 
-On failure: spawn `reasoner`.
+**On failure, use Task tool to spawn reasoner:**
+```
+Task tool parameters:
+- subagent_type: "reasoner"
+- model: "opus"
+- prompt: "Debug failure: {error details}"
+```
 
 ### 7. PER-TASK (agent prompt)
 

@@ -81,7 +81,15 @@ Include patterns in task descriptions for agents to follow.
 
 ### 4. ANALYZE CODEBASE
 
-**Spawn Explore agents** (haiku, read-only) with dynamic count:
+**Use Task tool to spawn Explore agents in parallel:**
+```
+Task tool parameters:
+- subagent_type: "Explore"
+- model: "haiku"
+- run_in_background: true (for parallel execution)
+```
+
+Scale agent count based on codebase size:
 
 | File Count | Agents |
 |------------|--------|
@@ -126,7 +134,14 @@ Max response: 500 tokens (configurable via .deepflow/config.yaml explore.max_tok
 
 ### 5. COMPARE & PRIORITIZE
 
-**Spawn `reasoner` agent** (Opus) for analysis:
+**Use Task tool to spawn reasoner agent:**
+```
+Task tool parameters:
+- subagent_type: "reasoner"
+- model: "opus"
+```
+
+Reasoner performs analysis:
 
 | Status | Action |
 |--------|--------|
@@ -211,10 +226,12 @@ Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validatio
 
 ## Agent Scaling
 
-| Agent | Base | Scale |
-|-------|------|-------|
-| Explore (search) | 10 | +1 per 20 files |
-| Reasoner (analyze) | 5 | +1 per 2 specs |
+| Agent | Model | Base | Scale |
+|-------|-------|------|-------|
+| Explore (search) | haiku | 10 | +1 per 20 files |
+| Reasoner (analyze) | opus | 5 | +1 per 2 specs |
+
+**IMPORTANT**: Always use the `Task` tool with explicit `subagent_type` and `model` parameters. Do NOT use Glob/Grep/Read directly for codebase analysis - spawn agents instead.
 
 ## Example
 

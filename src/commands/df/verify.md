@@ -12,7 +12,11 @@ Check that implemented code satisfies spec requirements and acceptance criteria.
 
 ## Skills & Agents
 - Skill: `code-completeness` — Find incomplete implementations
-- Agent: `Explore` (Haiku) — Fast codebase scanning
+
+**Use Task tool to spawn agents:**
+| Agent | subagent_type | model | Purpose |
+|-------|---------------|-------|---------|
+| Scanner | `Explore` | `haiku` | Fast codebase scanning |
 
 ## Spec File States
 
@@ -87,7 +91,15 @@ Default: L1-L3 (L4 optional, can be slow)
 
 ## Agent Usage
 
-Spawn `Explore` agents (Haiku), 1-2 per spec, cap 10.
+**Use Task tool to spawn Explore agents:**
+```
+Task tool parameters:
+- subagent_type: "Explore"
+- model: "haiku"
+- run_in_background: true (for parallel)
+```
+
+Scale: 1-2 agents per spec, cap 10.
 
 ## Example
 

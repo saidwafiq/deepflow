@@ -20,14 +20,26 @@ Transform conversation context into a structured specification file.
 
 ## Skills & Agents
 - Skill: `gap-discovery` — Proactive requirement gap identification
-- Agent: `Explore` (haiku) — Codebase context gathering
-- Agent: `reasoner` (Opus) — Synthesize findings into requirements
+
+**Use Task tool to spawn agents:**
+| Agent | subagent_type | model | Purpose |
+|-------|---------------|-------|---------|
+| Context | `Explore` | `haiku` | Codebase context gathering |
+| Synthesizer | `reasoner` | `opus` | Synthesize findings into requirements |
 
 ## Behavior
 
 ### 1. GATHER CODEBASE CONTEXT
 
-**Spawn Explore agents** (haiku, read-only, parallel) to find:
+**Use Task tool to spawn Explore agents in parallel:**
+```
+Task tool parameters:
+- subagent_type: "Explore"
+- model: "haiku"
+- run_in_background: true
+```
+
+Find:
 - Related existing implementations
 - Code patterns and conventions
 - Integration points relevant to the feature
@@ -98,7 +110,14 @@ Max 4 questions per tool call. Wait for answers before proceeding.
 
 ### 3. SYNTHESIZE FINDINGS
 
-**Spawn `reasoner` agent** (Opus) to:
+**Use Task tool to spawn reasoner agent:**
+```
+Task tool parameters:
+- subagent_type: "reasoner"
+- model: "opus"
+```
+
+The reasoner will:
 - Analyze codebase context from Explore agents
 - Identify constraints from existing architecture
 - Suggest requirements based on patterns found
@@ -158,10 +177,12 @@ Next: Run /df:plan to generate tasks
 
 ## Agent Scaling
 
-| Agent | Base | Purpose |
-|-------|------|---------|
-| Explore (haiku) | 3-5 | Find related code, patterns |
-| Reasoner (Opus) | 1 | Synthesize into requirements |
+| Agent | subagent_type | model | Base | Purpose |
+|-------|---------------|-------|------|---------|
+| Explore | `Explore` | `haiku` | 3-5 | Find related code, patterns |
+| Reasoner | `reasoner` | `opus` | 1 | Synthesize into requirements |
+
+**IMPORTANT**: Always use the `Task` tool with explicit `subagent_type` and `model` parameters.
 
 ## Example
 
