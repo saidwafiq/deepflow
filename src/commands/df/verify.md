@@ -115,3 +115,46 @@ Learnings captured:
   → experiments/perf--streaming-upload--success.md
   → experiments/auth--jwt-refresh-rotation--success.md
 ```
+
+## Post-Verification: Worktree Merge & Cleanup
+
+After all verification passes:
+
+### 1. MERGE TO MAIN
+
+```bash
+# Get worktree info from checkpoint
+WORKTREE_BRANCH=$(cat .deepflow/checkpoint.json | jq -r '.worktree_branch')
+
+# Switch to main and merge
+git checkout main
+git merge "${WORKTREE_BRANCH}" --no-ff -m "feat({spec}): merge verified changes"
+```
+
+**On merge conflict:**
+- Keep worktree intact for manual resolution
+- Output: "Merge conflict detected. Resolve manually, then run /df:verify --merge-only"
+- Exit without cleanup
+
+### 2. CLEANUP WORKTREE
+
+After successful merge:
+
+```bash
+# Get worktree path from checkpoint
+WORKTREE_PATH=$(cat .deepflow/checkpoint.json | jq -r '.worktree_path')
+
+# Remove worktree and branch
+git worktree remove --force "${WORKTREE_PATH}"
+git branch -d "${WORKTREE_BRANCH}"
+
+# Remove checkpoint
+rm .deepflow/checkpoint.json
+```
+
+**Output on success:**
+```
+✓ Merged df/doing-upload/20260202-1430 to main
+✓ Cleaned up worktree and branch
+✓ Spec complete: doing-upload → done-upload
+```
