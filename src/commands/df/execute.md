@@ -59,17 +59,32 @@ summary: "one line"
 
 ## Checkpoint & Resume
 
-**File:** `.deepflow/checkpoint.json` — stores completed tasks, current wave.
+**File:** `.deepflow/checkpoint.json` — stored in WORKTREE directory, not main.
 
-**On checkpoint:** Complete wave → update PLAN.md → save → exit.
-**Resume:** `--continue` loads checkpoint, skips completed tasks.
+**Schema:**
+```json
+{
+  "completed_tasks": ["T1", "T2"],
+  "current_wave": 2,
+  "worktree_path": ".deepflow/worktrees/df/doing-upload/20260202-1430",
+  "worktree_branch": "df/doing-upload/20260202-1430"
+}
+```
+
+**On checkpoint:** Complete wave → update PLAN.md → save to worktree → exit.
+**Resume:** `--continue` loads checkpoint, verifies worktree, skips completed tasks.
 
 ## Behavior
 
 ### 1. CHECK CHECKPOINT
 
 ```
---continue → Load and resume
+--continue → Load checkpoint
+  → If worktree_path exists:
+    → Verify worktree still exists on disk
+    → If missing: Error "Worktree deleted. Use --fresh"
+    → If exists: Use it, skip worktree creation
+  → Resume execution with completed tasks
 --fresh → Delete checkpoint, start fresh
 checkpoint exists → Prompt: "Resume? (y/n)"
 else → Start fresh
