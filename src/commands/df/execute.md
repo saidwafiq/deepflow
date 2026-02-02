@@ -75,6 +75,35 @@ checkpoint exists → Prompt: "Resume? (y/n)"
 else → Start fresh
 ```
 
+### 1.5. CREATE WORKTREE
+
+Before spawning any agents, create an isolated worktree:
+
+```
+# Check main is clean (ignore untracked)
+git diff --quiet HEAD || Error: "Main has uncommitted changes. Commit or stash first."
+
+# Generate worktree path
+SPEC_NAME=$(basename spec/doing-*.md .md | sed 's/doing-//')
+TIMESTAMP=$(date +%Y%m%d-%H%M)
+BRANCH_NAME="df/${SPEC_NAME}/${TIMESTAMP}"
+WORKTREE_PATH=".deepflow/worktrees/${BRANCH_NAME}"
+
+# Create worktree
+git worktree add -b "${BRANCH_NAME}" "${WORKTREE_PATH}"
+
+# Store in checkpoint for resume
+checkpoint.worktree_path = WORKTREE_PATH
+checkpoint.worktree_branch = BRANCH_NAME
+```
+
+**Resume handling:**
+- If checkpoint has worktree_path → verify it exists, use it
+- If worktree missing → Error: "Worktree deleted. Use --fresh"
+
+**Existing worktree handling:**
+- If worktree exists for same spec → Prompt: "Resume existing worktree? (y/n/delete)"
+
 ### 2. LOAD PLAN
 
 ```
@@ -178,8 +207,17 @@ Task tool parameters:
 Files: {target files}
 Spec: {spec_name}
 
+**IMPORTANT: Working Directory**
+All file operations MUST use this absolute path as base:
+{worktree_absolute_path}
+
+Example: To edit src/foo.ts, use:
+{worktree_absolute_path}/src/foo.ts
+
+Do NOT write files to the main project directory.
+
 Implement, test, commit as feat({spec}): {description}.
-Write result to .deepflow/results/{task_id}.yaml
+Write result to {worktree_absolute_path}/.deepflow/results/{task_id}.yaml
 ```
 
 **Spike Task:**
@@ -189,8 +227,17 @@ Type: spike
 Method: {minimal steps to validate}
 Success criteria: {how to know it passed}
 Time-box: {duration}
-Experiment file: {.deepflow/experiments/{topic}--{hypothesis}--active.md}
+Experiment file: {worktree_absolute_path}/.deepflow/experiments/{topic}--{hypothesis}--active.md
 Spec: {spec_name}
+
+**IMPORTANT: Working Directory**
+All file operations MUST use this absolute path as base:
+{worktree_absolute_path}
+
+Example: To edit src/foo.ts, use:
+{worktree_absolute_path}/src/foo.ts
+
+Do NOT write files to the main project directory.
 
 Execute the minimal validation:
 1. Follow the method steps exactly
@@ -199,7 +246,7 @@ Execute the minimal validation:
    - If passed: rename to --passed.md, record findings
    - If failed: rename to --failed.md, record conclusion with "next hypothesis"
 4. Commit as spike({spec}): validate {hypothesis}
-5. Write result to .deepflow/results/{task_id}.yaml
+5. Write result to {worktree_absolute_path}/.deepflow/results/{task_id}.yaml
 
 Result status:
 - success = hypothesis validated (passed)
