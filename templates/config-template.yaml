@@ -43,3 +43,21 @@ commits:
   format: "feat({spec}): {description}"
   atomic: true         # One task = one commit
   push_after: complete # Or "each" for every commit
+
+# Worktree isolation for /df:execute
+# Isolates all agent work in a git worktree, keeping main clean
+worktree:
+  # Enable worktree isolation (default: true)
+  enabled: true
+
+  # Base path for worktrees relative to project root
+  base_path: .deepflow/worktrees
+
+  # Branch name prefix for worktree branches
+  branch_prefix: df/
+
+  # Automatically cleanup worktree after successful verify
+  cleanup_on_success: true
+
+  # Keep worktree after failed execution for debugging
+  cleanup_on_fail: false
