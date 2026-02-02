@@ -268,14 +268,49 @@ Result status:
 - failed = hypothesis invalidated (failed experiment, NOT agent error)
 ```
 
-### 8. COMPLETE SPECS
+### 8. FAILURE HANDLING
+
+When a task fails and cannot be auto-fixed:
+
+**Behavior:**
+1. Leave worktree intact at `{worktree_path}`
+2. Keep checkpoint.json for potential resume
+3. Output debugging instructions
+
+**Output:**
+```
+✗ Task T3 failed after retry
+
+Worktree preserved for debugging:
+  Path: .deepflow/worktrees/df/doing-upload/20260202-1430
+  Branch: df/doing-upload/20260202-1430
+
+To investigate:
+  cd .deepflow/worktrees/df/doing-upload/20260202-1430
+  # examine files, run tests, etc.
+
+To resume after fixing:
+  /df:execute --continue
+
+To discard and start fresh:
+  git worktree remove --force .deepflow/worktrees/df/doing-upload/20260202-1430
+  git branch -D df/doing-upload/20260202-1430
+  /df:execute --fresh
+```
+
+**Key points:**
+- Never auto-delete worktree on failure (cleanup_on_fail: false by default)
+- Always provide the exact cleanup commands
+- Checkpoint remains so --continue can work after manual fix
+
+### 9. COMPLETE SPECS
 
 When all tasks done for a `doing-*` spec:
 1. Embed history in spec: `## Completed` section
 2. Rename: `doing-upload.md` → `done-upload.md`
 3. Remove section from PLAN.md
 
-### 9. ITERATE
+### 10. ITERATE
 
 Repeat until: all done, all blocked, or checkpoint.
 
