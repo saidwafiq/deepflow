@@ -29,6 +29,7 @@ Implement tasks from PLAN.md with parallel agents, atomic commits, and context-e
 | Agent | subagent_type | model | Purpose |
 |-------|---------------|-------|---------|
 | Implementation | `general-purpose` | `sonnet` | Task implementation |
+| Spike Verifier | `reasoner` | `opus` | Verify spike pass/fail is correct |
 | Debugger | `reasoner` | `opus` | Debugging failures |
 
 ## Context-Aware Execution
@@ -56,6 +57,28 @@ status: success|failed
 commit: abc1234
 summary: "one line"
 ```
+
+**Spike result file** `.deepflow/results/{task_id}.yaml` (additional fields):
+```yaml
+task: T1
+type: spike
+status: success|failed
+commit: abc1234
+summary: "one line"
+criteria:
+  - name: "throughput"
+    target: ">= 7000 g/s"
+    actual: "1500 g/s"
+    met: false
+  - name: "memory usage"
+    target: "< 500 MB"
+    actual: "320 MB"
+    met: true
+all_criteria_met: false  # ALL must be true for spike to pass
+experiment_file: ".deepflow/experiments/upload--streaming--failed.md"
+```
+
+**CRITICAL:** `status` MUST equal `success` only if `all_criteria_met: true`. The spike verifier will reject mismatches.
 
 ## Checkpoint & Resume
 
@@ -202,9 +225,57 @@ Same-file conflicts: spawn sequentially instead.
 **Spike Task Execution:**
 When spawning a spike task, the agent MUST:
 1. Execute the minimal validation method
-2. Record result in experiment file (update status: `--passed.md` or `--failed.md`)
-3. If passed: implementation tasks become unblocked
-4. If failed: record conclusion with "next hypothesis" for future planning
+2. Record structured criteria evaluation in result file (see spike result schema above)
+3. Write experiment file with `--active.md` status (verifier determines final status)
+4. Commit as `spike({spec}): validate {hypothesis}`
+
+**IMPORTANT:** Spike agent writes `--active.md`, NOT `--passed.md` or `--failed.md`. The verifier determines final status.
+
+### 6.5. VERIFY SPIKE RESULTS
+
+After spike completes, spawn verifier BEFORE unblocking implementation tasks.
+
+**Trigger:** Spike result file detected (`.deepflow/results/T{n}.yaml` with `type: spike`)
+
+**Spawn:**
+```
+Task(subagent_type="reasoner", model="opus", prompt=VERIFIER_PROMPT)
+```
+
+**Verifier Prompt:**
+```
+SPIKE VERIFICATION — Be skeptical. Catch false positives.
+
+Task: {task_id}
+Result: {worktree_path}/.deepflow/results/{task_id}.yaml
+Experiment: {worktree_path}/.deepflow/experiments/{topic}--{hypothesis}--active.md
+
+For each criterion in result file:
+1. Is `actual` a concrete number? (reject "good", "improved", "better")
+2. Does `actual` satisfy `target`? Do the math.
+3. Is `met` correct?
+
+Reject these patterns:
+- "Works but doesn't meet target" → FAILED
+- "Close enough" → FAILED
+- Actual 1500 vs Target >= 7000 → FAILED
+
+Output to {worktree_path}/.deepflow/results/{task_id}-verified.yaml:
+  verified_status: VERIFIED_PASS|VERIFIED_FAIL
+  override: true|false
+  reason: "one line"
+
+Then rename experiment:
+- VERIFIED_PASS → --passed.md
+- VERIFIED_FAIL → --failed.md (add "Next hypothesis:" to Conclusion)
+```
+
+**Gate:**
+```
+VERIFIED_PASS → Unblock, log "✓ Spike {task_id} verified"
+VERIFIED_FAIL → Block, log "✗ Spike {task_id} failed verification"
+  If override: log "⚠ Agent incorrectly marked as passed"
+```
 
 **On failure, use Task tool to spawn reasoner:**
 ```
@@ -239,33 +310,25 @@ Write result to {worktree_absolute_path}/.deepflow/results/{task_id}.yaml
 ```
 {task_id} [SPIKE]: {hypothesis}
 Type: spike
-Method: {minimal steps to validate}
-Success criteria: {how to know it passed}
-Time-box: {duration}
+Method: {minimal steps}
+Success criteria: {measurable targets}
 Experiment file: {worktree_absolute_path}/.deepflow/experiments/{topic}--{hypothesis}--active.md
-Spec: {spec_name}
 
-**IMPORTANT: Working Directory**
-All file operations MUST use this absolute path as base:
-{worktree_absolute_path}
+Working directory: {worktree_absolute_path}
 
-Example: To edit src/foo.ts, use:
-{worktree_absolute_path}/src/foo.ts
+Steps:
+1. Execute method
+2. For EACH criterion: record target, measure actual, compare (show math)
+3. Write experiment as --active.md (verifier determines final status)
+4. Commit: spike({spec}): validate {hypothesis}
+5. Write result to .deepflow/results/{task_id}.yaml (see spike result schema)
 
-Do NOT write files to the main project directory.
-
-Execute the minimal validation:
-1. Follow the method steps exactly
-2. Measure against success criteria
-3. Update experiment file with result:
-   - If passed: rename to --passed.md, record findings
-   - If failed: rename to --failed.md, record conclusion with "next hypothesis"
-4. Commit as spike({spec}): validate {hypothesis}
-5. Write result to {worktree_absolute_path}/.deepflow/results/{task_id}.yaml
-
-Result status:
-- success = hypothesis validated (passed)
-- failed = hypothesis invalidated (failed experiment, NOT agent error)
+Rules:
+- `met: true` ONLY if actual satisfies target
+- `status: success` ONLY if ALL criteria met
+- Worse than baseline = FAILED (baseline 7k, actual 1.5k → FAILED)
+- "Close enough" = FAILED
+- Verifier will check. False positives waste resources.
 ```
 
 ### 8. FAILURE HANDLING
@@ -350,14 +413,14 @@ Checking experiment status...
   T2: Blocked by T1 (spike not validated)
   T3: Blocked by T1 (spike not validated)
 
-Wave 1: T1 [SPIKE] (context: 20%)
-  T1: success (abc1234) → upload--streaming--passed.md
+Wave 1: T1 [SPIKE] (context: 15%)
+  T1: complete, verifying...
 
-Checking experiment status...
-  T2: Experiment passed, unblocked
-  T3: Experiment passed, unblocked
+Verifying T1...
+  ✓ Spike T1 verified (throughput 8500 >= 7000)
+  → upload--streaming--passed.md
 
-Wave 2: T2, T3 parallel (context: 45%)
+Wave 2: T2, T3 parallel (context: 40%)
   T2: success (def5678)
   T3: success (ghi9012)
 
@@ -365,20 +428,38 @@ Wave 2: T2, T3 parallel (context: 45%)
 ✓ Complete: 3/3 tasks
 ```
 
-### Spike Failed
+### Spike Failed (Agent Correctly Reported)
 
 ```
 /df:execute (context: 10%)
 
-Wave 1: T1 [SPIKE] (context: 20%)
-  T1: failed → upload--streaming--failed.md
+Wave 1: T1 [SPIKE] (context: 15%)
+  T1: complete, verifying...
 
-Checking experiment status...
-  T2: ⚠ Blocked - Experiment failed
-  T3: ⚠ Blocked - Experiment failed
+Verifying T1...
+  ✗ Spike T1 failed verification (throughput 1500 < 7000)
+  → upload--streaming--failed.md
 
 ⚠ Spike T1 invalidated hypothesis
-  Experiment: upload--streaming--failed.md
+  → Run /df:plan to generate new hypothesis spike
+
+Complete: 1/3 tasks (2 blocked by failed experiment)
+```
+
+### Spike Failed (Verifier Override)
+
+```
+/df:execute (context: 10%)
+
+Wave 1: T1 [SPIKE] (context: 15%)
+  T1: complete (agent said: success), verifying...
+
+Verifying T1...
+  ✗ Spike T1 failed verification (throughput 1500 < 7000)
+  ⚠ Agent incorrectly marked as passed — overriding to FAILED
+  → upload--streaming--failed.md
+
+⚠ Spike T1 invalidated hypothesis
   → Run /df:plan to generate new hypothesis spike
 
 Complete: 1/3 tasks (2 blocked by failed experiment)
