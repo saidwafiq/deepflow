@@ -17,3 +17,11 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+**/credentials.json
+**/secrets.json
