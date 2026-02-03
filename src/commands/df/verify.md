@@ -91,12 +91,15 @@ Default: L1-L3 (L4 optional, can be slow)
 
 ## Agent Usage
 
-**Use Task tool to spawn Explore agents:**
+**Spawn ALL Explore agents in ONE message, then wait for ALL with TaskOutput in ONE message:**
 ```
-Task tool parameters:
-- subagent_type: "Explore"
-- model: "haiku"
-- run_in_background: true (for parallel)
+// Spawn all in single message:
+t1 = Task(subagent_type="Explore", model="haiku", run_in_background=true, prompt="...")
+t2 = Task(subagent_type="Explore", model="haiku", run_in_background=true, prompt="...")
+
+// Wait all in single message:
+TaskOutput(task_id=t1)
+TaskOutput(task_id=t2)
 ```
 
 Scale: 1-2 agents per spec, cap 10.

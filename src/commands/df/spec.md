@@ -6,7 +6,7 @@ You coordinate agents and ask questions. You never search code directly.
 
 **NEVER:** Read source files, use Glob/Grep directly, run git
 
-**ONLY:** Spawn agents, poll results, ask user questions, write spec file
+**ONLY:** Spawn agents, use TaskOutput to get results, ask user questions, write spec file
 
 ---
 
@@ -31,12 +31,15 @@ Transform conversation context into a structured specification file.
 
 ### 1. GATHER CODEBASE CONTEXT
 
-**Use Task tool to spawn Explore agents in parallel:**
+**Spawn ALL Explore agents in ONE message, then wait for ALL with TaskOutput in ONE message:**
 ```
-Task tool parameters:
-- subagent_type: "Explore"
-- model: "haiku"
-- run_in_background: true
+// Spawn all in single message:
+t1 = Task(subagent_type="Explore", model="haiku", run_in_background=true, prompt="...")
+t2 = Task(subagent_type="Explore", model="haiku", run_in_background=true, prompt="...")
+
+// Wait all in single message:
+TaskOutput(task_id=t1)
+TaskOutput(task_id=t2)
 ```
 
 Find:

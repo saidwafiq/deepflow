@@ -2,11 +2,11 @@
 
 ## Orchestrator Role
 
-You spawn agents and poll results. You never implement.
+You are a coordinator. Spawn agents, wait for results, update PLAN.md. Never implement code yourself.
 
-**NEVER:** Read source files, edit code, run tests, run git (except status), use `TaskOutput`
+**NEVER:** Read source files, edit code, run tests, run git commands (except status)
 
-**ONLY:** Read `PLAN.md` + `specs/doing-*.md`, spawn background agents, poll `.deepflow/results/`, update PLAN.md
+**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn background agents, use TaskOutput to get results, update PLAN.md
 
 ---
 
@@ -43,11 +43,16 @@ Statusline writes to `.deepflow/context.json`: `{"percentage": 45}`
 
 ## Agent Protocol
 
-Every task = one background agent. Poll result files, never `TaskOutput`.
+Each task = one background agent. Use TaskOutput to wait for results. Never poll files in a loop.
 
 ```python
-Task(subagent_type="general-purpose", run_in_background=True, prompt="T1: ...")
-# Poll: Glob(".deepflow/results/T*.yaml")
+# Spawn agents in parallel (single message, multiple Task calls)
+task_id_1 = Task(subagent_type="general-purpose", run_in_background=True, prompt="T1: ...")
+task_id_2 = Task(subagent_type="general-purpose", run_in_background=True, prompt="T2: ...")
+
+# Wait for all results (single message, multiple TaskOutput calls)
+TaskOutput(task_id=task_id_1)
+TaskOutput(task_id=task_id_2)
 ```
 
 Result file `.deepflow/results/{task_id}.yaml`:
@@ -211,14 +216,21 @@ Ready = `[ ]` + all `blocked_by` complete + experiment validated (if applicable)
 
 Context ≥50%: checkpoint and exit.
 
-**Use Task tool to spawn all ready tasks in ONE message (parallel):**
+**CRITICAL: Spawn ALL ready tasks in a SINGLE response with MULTIPLE Task tool calls.**
+
+DO NOT spawn one task, wait, then spawn another. Instead, call Task tool multiple times in the SAME message block. This enables true parallelism.
+
+Example: If T1, T2, T3 are ready, send ONE message containing THREE Task tool invocations:
+
 ```
-Task tool parameters for each task:
-- subagent_type: "general-purpose"
-- model: "sonnet"
-- run_in_background: true
-- prompt: "{task details from PLAN.md}"
+// In a SINGLE assistant message, invoke Task THREE times:
+Task(subagent_type="general-purpose", model="sonnet", run_in_background=true, prompt="T1: ...")
+Task(subagent_type="general-purpose", model="sonnet", run_in_background=true, prompt="T2: ...")
+Task(subagent_type="general-purpose", model="sonnet", run_in_background=true, prompt="T3: ...")
 ```
+
+**WRONG (sequential):** Send message with Task for T1 → wait → send message with Task for T2 → wait → ...
+**RIGHT (parallel):** Send ONE message with Task for T1, T2, T3 all together
 
 Same-file conflicts: spawn sequentially instead.
 
@@ -375,7 +387,18 @@ When all tasks done for a `doing-*` spec:
 
 ### 10. ITERATE
 
-Repeat until: all done, all blocked, or checkpoint.
+After spawning agents, wait for results using TaskOutput. Call TaskOutput for ALL running agents in a SINGLE message (parallel wait).
+
+```python
+# After spawning T1, T2, T3 in parallel, wait for all in parallel:
+TaskOutput(task_id=t1_id)  # These three calls go in ONE message
+TaskOutput(task_id=t2_id)
+TaskOutput(task_id=t3_id)
+```
+
+Then check which tasks completed, update PLAN.md, identify newly unblocked tasks, spawn next wave.
+
+Repeat until: all done, all blocked, or context ≥50% (checkpoint).
 
 ## Rules
 
