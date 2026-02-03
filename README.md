@@ -24,6 +24,7 @@
 - **Stay in flow** — Minimize context switches, maximize deep work
 - **Conversational ideation** with proactive gap discovery
 - **Specs define intent**, tasks close reality gaps
+- **Spike-first planning** — Validate risky hypotheses before full implementation
 - **Worktree isolation** — Main branch stays clean during execution
 - **Parallel execution** with context-aware checkpointing
 - **Atomic commits** for clean rollback
@@ -65,19 +66,20 @@ CONVERSATION
     │ Creates specs/{name}.md
     ▼
 /df:plan
-    │ Detects project context/patterns
-    │ Analyzes specs vs codebase
-    │ Creates PLAN.md with tasks
+    │ Checks past experiments (learn from failures)
+    │ Risky work? → generates spike task first
+    │ Creates PLAN.md with prioritized tasks
     │ Renames: feature.md → doing-feature.md
     ▼
 /df:execute
     │ Creates isolated worktree (main stays clean)
+    │ Spike tasks run first, verified before continuing
     │ Parallel agents, file conflicts serialize
     │ Context-aware (≥50% → checkpoint)
-    │ Atomic commit per task
     ▼
 /df:verify
     │ Checks requirements met
+    │ Merges worktree to main, cleans up
     │ Renames: doing-feature.md → done-feature.md
 ```
 
@@ -96,13 +98,26 @@ specs/
 
 **Ongoing:** Detects existing patterns, follows conventions, integrates with current code.
 
+## Spike-First Planning
+
+For risky or uncertain work, `/df:plan` generates a **spike task** first:
+
+```
+Spike: Validate streaming upload handles 10MB+ files
+  │ Run minimal experiment
+  │ Pass? → Unblock implementation tasks
+  │ Fail? → Record learning, generate new hypothesis
+```
+
+Experiments are tracked in `.deepflow/experiments/`. Failed approaches won't be repeated.
+
 ## Worktree Isolation
 
 Execution happens in an isolated git worktree:
 - Main branch stays clean during execution
 - On failure, worktree preserved for debugging
 - Resume with `/df:execute --continue`
-- On success, changes merged back to main
+- On success, `/df:verify` merges to main and cleans up
 
 ## Context-Aware Execution
 
@@ -129,11 +144,12 @@ your-project/
 │   ├── auth.md           # new spec
 │   ├── doing-upload.md   # in progress
 │   └── done-payments.md  # completed
-├── PLAN.md               # active tasks only
+├── PLAN.md               # active tasks
 └── .deepflow/
-    ├── context.json      # context % for execution
-    ├── checkpoint.json   # resume state
-    └── worktrees/        # isolated execution (main stays clean)
+    ├── config.yaml       # project settings
+    ├── context.json      # context % tracking
+    ├── experiments/      # spike results (pass/fail)
+    └── worktrees/        # isolated execution
         └── upload/       # one worktree per spec
 ```
 
@@ -145,6 +161,14 @@ Create `.deepflow/config.yaml`:
 project:
   source_dir: src/
   specs_dir: specs/
+
+parallelism:
+  execute:
+    max: 5              # max parallel agents
+
+worktree:
+  cleanup_on_success: true
+  cleanup_on_fail: false  # preserve for debugging
 ```
 
 ## Principles
