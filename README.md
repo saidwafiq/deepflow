@@ -134,7 +134,7 @@ your-project/
     ├── context.json      # context % for execution
     ├── checkpoint.json   # resume state
     └── worktrees/        # isolated execution (main stays clean)
-        └── df/doing-upload/20260202-1430/
+        └── upload/       # one worktree per spec
 ```
 
 ## Configuration

@@ -157,7 +157,7 @@ rm .deepflow/checkpoint.json
 
 **Output on success:**
 ```
-✓ Merged df/doing-upload/20260202-1430 to main
+✓ Merged df/upload to main
 ✓ Cleaned up worktree and branch
 ✓ Spec complete: doing-upload → done-upload
 

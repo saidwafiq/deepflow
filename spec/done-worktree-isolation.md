@@ -5,7 +5,7 @@ Isolate all `/df:execute` work in a git worktree so main directory stays untouch
 
 ## Requirements
 - REQ-1: `/df:execute` creates a git worktree before spawning any agents
-- REQ-2: Worktree branch follows pattern `df/{spec-name}/{timestamp}` (e.g., `df/doing-upload/20260202-1430`)
+- REQ-2: Worktree branch follows pattern `df/{spec-name}` (e.g., `df/upload`)
 - REQ-3: All spawned agents receive worktree path as working directory in their prompts
 - REQ-4: Main directory remains unchanged during execution (no uncommitted changes, no new files)
 - REQ-5: After successful `/df:verify`, worktree branch is merged to main automatically
@@ -25,7 +25,7 @@ Isolate all `/df:execute` work in a git worktree so main directory stays untouch
 - Manual merge option (always auto-merge on success)
 
 ## Acceptance Criteria
-- [ ] Running `/df:execute` creates worktree at `.deepflow/worktrees/df/{spec}/{timestamp}`
+- [ ] Running `/df:execute` creates worktree at `.deepflow/worktrees/{spec}`
 - [ ] `git status` in main shows clean during and after execution
 - [ ] Agent prompts contain explicit worktree path
 - [ ] All commits appear on worktree branch, not main
@@ -62,12 +62,12 @@ worktree:
 **Worktree commands:**
 ```bash
 # Create
-git worktree add -b df/doing-upload/20260202 .deepflow/worktrees/df/doing-upload/20260202
+git worktree add -b df/upload .deepflow/worktrees/upload
 
 # Merge (from main)
-git merge df/doing-upload/20260202
+git merge df/upload
 
 # Cleanup
-git worktree remove .deepflow/worktrees/df/doing-upload/20260202
-git branch -d df/doing-upload/20260202
+git worktree remove .deepflow/worktrees/upload
+git branch -d df/upload
 ```

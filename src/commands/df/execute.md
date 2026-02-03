@@ -94,8 +94,8 @@ experiment_file: ".deepflow/experiments/upload--streaming--failed.md"
 {
   "completed_tasks": ["T1", "T2"],
   "current_wave": 2,
-  "worktree_path": ".deepflow/worktrees/df/doing-upload/20260202-1430",
-  "worktree_branch": "df/doing-upload/20260202-1430"
+  "worktree_path": ".deepflow/worktrees/upload",
+  "worktree_branch": "df/upload"
 }
 ```
 
@@ -126,26 +126,22 @@ Before spawning any agents, create an isolated worktree:
 # Check main is clean (ignore untracked)
 git diff --quiet HEAD || Error: "Main has uncommitted changes. Commit or stash first."
 
-# Generate worktree path
+# Generate paths
 SPEC_NAME=$(basename spec/doing-*.md .md | sed 's/doing-//')
-TIMESTAMP=$(date +%Y%m%d-%H%M)
-BRANCH_NAME="df/${SPEC_NAME}/${TIMESTAMP}"
-WORKTREE_PATH=".deepflow/worktrees/${BRANCH_NAME}"
+BRANCH_NAME="df/${SPEC_NAME}"
+WORKTREE_PATH=".deepflow/worktrees/${SPEC_NAME}"
 
-# Create worktree
-git worktree add -b "${BRANCH_NAME}" "${WORKTREE_PATH}"
-
-# Store in checkpoint for resume
-checkpoint.worktree_path = WORKTREE_PATH
-checkpoint.worktree_branch = BRANCH_NAME
+# Create worktree (or reuse existing)
+if [ -d "${WORKTREE_PATH}" ]; then
+  echo "Reusing existing worktree"
+else
+  git worktree add -b "${BRANCH_NAME}" "${WORKTREE_PATH}"
+fi
 ```
 
-**Resume handling:**
-- If checkpoint has worktree_path → verify it exists, use it
-- If worktree missing → Error: "Worktree deleted. Use --fresh"
+**Existing worktree:** Reuse it (same spec = same worktree).
 
-**Existing worktree handling:**
-- If worktree exists for same spec → Prompt: "Resume existing worktree? (y/n/delete)"
+**--fresh flag:** Deletes existing worktree and creates new one.
 
 ### 2. LOAD PLAN
 
@@ -357,19 +353,17 @@ When a task fails and cannot be auto-fixed:
 ✗ Task T3 failed after retry
 
 Worktree preserved for debugging:
-  Path: .deepflow/worktrees/df/doing-upload/20260202-1430
-  Branch: df/doing-upload/20260202-1430
+  Path: .deepflow/worktrees/upload
+  Branch: df/upload
 
 To investigate:
-  cd .deepflow/worktrees/df/doing-upload/20260202-1430
+  cd .deepflow/worktrees/upload
   # examine files, run tests, etc.
 
 To resume after fixing:
   /df:execute --continue
 
 To discard and start fresh:
-  git worktree remove --force .deepflow/worktrees/df/doing-upload/20260202-1430
-  git branch -D df/doing-upload/20260202-1430
   /df:execute --fresh
 ```
 
