@@ -157,4 +157,6 @@ rm .deepflow/checkpoint.json
 ✓ Merged df/doing-upload/20260202-1430 to main
 ✓ Cleaned up worktree and branch
 ✓ Spec complete: doing-upload → done-upload
+
+Workflow complete! Ready for next feature: /df:spec <name>
 ```

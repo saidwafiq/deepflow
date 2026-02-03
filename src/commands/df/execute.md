@@ -401,6 +401,8 @@ Wave 2: T3 (context: 48%)
 
 ✓ doing-upload → done-upload
 ✓ Complete: 3/3 tasks
+
+Next: Run /df:verify to verify specs and merge to main
 ```
 
 ### Spike-First Execution
@@ -426,6 +428,8 @@ Wave 2: T2, T3 parallel (context: 40%)
 
 ✓ doing-upload → done-upload
 ✓ Complete: 3/3 tasks
+
+Next: Run /df:verify to verify specs and merge to main
 ```
 
 ### Spike Failed (Agent Correctly Reported)
@@ -441,9 +445,9 @@ Verifying T1...
   → upload--streaming--failed.md
 
 ⚠ Spike T1 invalidated hypothesis
-  → Run /df:plan to generate new hypothesis spike
-
 Complete: 1/3 tasks (2 blocked by failed experiment)
+
+Next: Run /df:plan to generate new hypothesis spike
 ```
 
 ### Spike Failed (Verifier Override)
@@ -460,14 +464,16 @@ Verifying T1...
   → upload--streaming--failed.md
 
 ⚠ Spike T1 invalidated hypothesis
-  → Run /df:plan to generate new hypothesis spike
-
 Complete: 1/3 tasks (2 blocked by failed experiment)
+
+Next: Run /df:plan to generate new hypothesis spike
 ```
 
 ### With Checkpoint
 
 ```
 Wave 1 complete (context: 52%)
-Checkpoint saved. Run /df:execute --continue
+Checkpoint saved.
+
+Next: Run /df:execute --continue to resume execution
 ```
