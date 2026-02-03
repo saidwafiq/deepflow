@@ -24,6 +24,7 @@
 - **Stay in flow** — Minimize context switches, maximize deep work
 - **Conversational ideation** with proactive gap discovery
 - **Specs define intent**, tasks close reality gaps
+- **Worktree isolation** — Main branch stays clean during execution
 - **Parallel execution** with context-aware checkpointing
 - **Atomic commits** for clean rollback
 
@@ -70,7 +71,7 @@ CONVERSATION
     │ Renames: feature.md → doing-feature.md
     ▼
 /df:execute
-    │ Follows existing patterns
+    │ Creates isolated worktree (main stays clean)
     │ Parallel agents, file conflicts serialize
     │ Context-aware (≥50% → checkpoint)
     │ Atomic commit per task
@@ -94,6 +95,14 @@ specs/
 **Greenfield:** Everything is new, agents create from scratch.
 
 **Ongoing:** Detects existing patterns, follows conventions, integrates with current code.
+
+## Worktree Isolation
+
+Execution happens in an isolated git worktree:
+- Main branch stays clean during execution
+- On failure, worktree preserved for debugging
+- Resume with `/df:execute --continue`
+- On success, changes merged back to main
 
 ## Context-Aware Execution
 
@@ -124,7 +133,8 @@ your-project/
 └── .deepflow/
     ├── context.json      # context % for execution
     ├── checkpoint.json   # resume state
-    └── results/          # agent results
+    └── worktrees/        # isolated execution (main stays clean)
+        └── df/doing-upload/20260202-1430/
 ```
 
 ## Configuration
