@@ -43,7 +43,7 @@ Statusline writes to `.deepflow/context.json`: `{"percentage": 45}`
 
 ## Agent Protocol
 
-Each task = one background agent. Use TaskOutput to wait for results. Never poll files in a loop.
+Each task = one background agent. **TaskOutput blocks until agent completes and returns result directly.** Never poll, loop, or repeatedly check for results.
 
 ```python
 # Spawn agents in parallel (single message, multiple Task calls)
@@ -51,6 +51,7 @@ task_id_1 = Task(subagent_type="general-purpose", run_in_background=True, prompt
 task_id_2 = Task(subagent_type="general-purpose", run_in_background=True, prompt="T2: ...")
 
 # Wait for all results (single message, multiple TaskOutput calls)
+# TaskOutput BLOCKS — no polling needed, result returned when agent finishes
 TaskOutput(task_id=task_id_1)
 TaskOutput(task_id=task_id_2)
 ```
@@ -381,13 +382,14 @@ When all tasks done for a `doing-*` spec:
 
 ### 10. ITERATE
 
-After spawning agents, wait for results using TaskOutput. Call TaskOutput for ALL running agents in a SINGLE message (parallel wait).
+After spawning agents, call TaskOutput for ALL running agents in a SINGLE message. **TaskOutput blocks—do NOT loop, poll, or check repeatedly.** One call per agent, results returned when complete.
 
 ```python
 # After spawning T1, T2, T3 in parallel, wait for all in parallel:
-TaskOutput(task_id=t1_id)  # These three calls go in ONE message
-TaskOutput(task_id=t2_id)
-TaskOutput(task_id=t3_id)
+TaskOutput(task_id=t1_id)  # BLOCKS until T1 done
+TaskOutput(task_id=t2_id)  # BLOCKS until T2 done
+TaskOutput(task_id=t3_id)  # BLOCKS until T3 done
+# All three in ONE message = parallel wait, zero polling
 ```
 
 Then check which tasks completed, update PLAN.md, identify newly unblocked tasks, spawn next wave.
