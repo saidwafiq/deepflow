@@ -4,9 +4,9 @@
 
 You are a coordinator. Spawn agents, wait for results, update PLAN.md. Never implement code yourself.
 
-**NEVER:** Read source files, edit code, run tests, run git commands (except status), use TaskOutput
+**NEVER:** Read source files, edit code, run tests, run git commands (except status), use TaskOutput, use run_in_background
 
-**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn background agents, wait with Bash monitor, read `.deepflow/results/*.yaml` for outcomes, update PLAN.md
+**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn agents (non-background), read `.deepflow/results/*.yaml` for outcomes, update PLAN.md
 
 ---
 
@@ -43,54 +43,28 @@ Statusline writes to `.deepflow/context.json`: `{"percentage": 45}`
 
 ## Agent Protocol
 
-Each task = one background agent. **NEVER use TaskOutput** — it returns full transcripts (100KB+) that explode context.
+Each task = one agent. Spawn ALL wave tasks in ONE message as non-background parallel Task calls.
 
-**Wait Strategy: Bash Monitor**
-- One Bash call that monitors result files
-- Shows progress via streaming (user sees in real-time)
-- Minimal context (just the final output)
-- User can react/cancel if needed
+**NEVER use `run_in_background`** — causes late "Agent completed" notifications after orchestrator finishes, polluting output and duplicating summaries.
+
+**NEVER use TaskOutput** — returns full agent transcripts (100KB+) that explode context.
 
 ```python
-# 1. Spawn agents in parallel (single message, multiple Task calls)
-Task(subagent_type="general-purpose", run_in_background=True, prompt="T1: ...")
-Task(subagent_type="general-purpose", run_in_background=True, prompt="T2: ...")
-Task(subagent_type="general-purpose", run_in_background=True, prompt="T3: ...")
+# 1. Spawn agents in parallel (single message, NON-background)
+Task(subagent_type="general-purpose", prompt="T1: ... Final message: one line only.")
+Task(subagent_type="general-purpose", prompt="T2: ... Final message: one line only.")
+Task(subagent_type="general-purpose", prompt="T3: ... Final message: one line only.")
+# All run in parallel, block until ALL complete — no late notifications
 
-# 2. Wait with Bash monitor (ONE call, streams progress to user)
-# IMPORTANT: Use find (not globs) — globs fail in zsh when no matches exist
-Bash("""
-RESULTS_DIR="{worktree}/.deepflow/results"
-EXPECTED=3
-SEEN=""
-for i in $(seq 1 60); do
-  for f in $(find "$RESULTS_DIR" -name '*.yaml' 2>/dev/null); do
-    name=$(basename "$f" .yaml)
-    if ! echo "$SEEN" | grep -q "$name"; then
-      echo "✓ $name"
-      SEEN="$SEEN $name"
-    fi
-  done
-  COUNT=$(find "$RESULTS_DIR" -name '*.yaml' 2>/dev/null | wc -l | tr -d ' ')
-  if [ "$COUNT" -ge "$EXPECTED" ]; then echo "ALL COMPLETE"; exit 0; fi
-  sleep 5
-done
-echo "TIMEOUT: some tasks did not complete"
-""")
-
-# 3. Read actual results (minimal context)
+# 2. Read structured results (minimal context)
 Read("{worktree}/.deepflow/results/T1.yaml")
 Read("{worktree}/.deepflow/results/T2.yaml")
 Read("{worktree}/.deepflow/results/T3.yaml")
 ```
 
-**User sees streaming:**
-```
-✓ T1
-✓ T3
-✓ T2
-ALL COMPLETE
-```
+**Agent final message rule:** Agents MUST end with exactly one line:
+`Done: {task_id} {status} ({commit_hash})`
+Detailed results go in the YAML file, not the message.
 
 Result file `.deepflow/results/{task_id}.yaml`:
 ```yaml
@@ -256,10 +230,11 @@ DO NOT spawn one task, wait, then spawn another. Instead, call Task tool multipl
 Example: If T1, T2, T3 are ready, send ONE message containing THREE Task tool invocations:
 
 ```
-// In a SINGLE assistant message, invoke Task THREE times:
-Task(subagent_type="general-purpose", model="sonnet", run_in_background=true, prompt="T1: ...")
-Task(subagent_type="general-purpose", model="sonnet", run_in_background=true, prompt="T2: ...")
-Task(subagent_type="general-purpose", model="sonnet", run_in_background=true, prompt="T3: ...")
+// In a SINGLE assistant message, invoke Task THREE times (NON-background):
+Task(subagent_type="general-purpose", model="sonnet", prompt="T1: ...")
+Task(subagent_type="general-purpose", model="sonnet", prompt="T2: ...")
+Task(subagent_type="general-purpose", model="sonnet", prompt="T3: ...")
+// All run in parallel, block until complete — no late notifications
 ```
 
 **WRONG (sequential):** Send message with Task for T1 → wait → send message with Task for T2 → wait → ...
@@ -418,15 +393,14 @@ When all tasks done for a `doing-*` spec:
 
 ### 10. ITERATE
 
-After spawning agents, use Bash monitor to wait. **NEVER use TaskOutput** — it explodes context.
+After spawning wave agents (non-background, parallel), they block until all complete. Then read results.
+
+**NEVER use TaskOutput** — it explodes context.
+**NEVER use run_in_background** — causes late notifications and duplicate summaries.
 
 ```python
-# After spawning T1, T2, T3 in parallel:
-
-# 1. Wait with Bash monitor (streams progress to user)
-Bash("timeout 300 bash -c '...' ")  # See Agent Protocol for full script
-
-# 2. Read results
+# After spawning T1, T2, T3 in parallel (non-background):
+# They already completed — read structured results:
 Read("{worktree}/.deepflow/results/T1.yaml")
 Read("{worktree}/.deepflow/results/T2.yaml")
 Read("{worktree}/.deepflow/results/T3.yaml")
