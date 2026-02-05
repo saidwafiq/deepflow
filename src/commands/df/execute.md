@@ -58,24 +58,24 @@ Task(subagent_type="general-purpose", run_in_background=True, prompt="T2: ...")
 Task(subagent_type="general-purpose", run_in_background=True, prompt="T3: ...")
 
 # 2. Wait with Bash monitor (ONE call, streams progress to user)
+# IMPORTANT: Use find (not globs) — globs fail in zsh when no matches exist
 Bash("""
 RESULTS_DIR="{worktree}/.deepflow/results"
 EXPECTED=3
-TIMEOUT=300
-
-timeout $TIMEOUT bash -c '
-  seen=""
-  while [ $(ls "$0"/*.yaml 2>/dev/null | wc -l) -lt '$EXPECTED' ]; do
-    for f in "$0"/*.yaml 2>/dev/null; do
-      if [ -f "$f" ] && [[ ! "$seen" =~ "$f" ]]; then
-        echo "✓ $(basename "$f" .yaml)"
-        seen="$seen $f"
-      fi
-    done
-    sleep 5
+SEEN=""
+for i in $(seq 1 60); do
+  for f in $(find "$RESULTS_DIR" -name '*.yaml' 2>/dev/null); do
+    name=$(basename "$f" .yaml)
+    if ! echo "$SEEN" | grep -q "$name"; then
+      echo "✓ $name"
+      SEEN="$SEEN $name"
+    fi
   done
-  echo "ALL COMPLETE"
-' "$RESULTS_DIR" || echo "TIMEOUT: some tasks did not complete"
+  COUNT=$(find "$RESULTS_DIR" -name '*.yaml' 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$COUNT" -ge "$EXPECTED" ]; then echo "ALL COMPLETE"; exit 0; fi
+  sleep 5
+done
+echo "TIMEOUT: some tasks did not complete"
 """)
 
 # 3. Read actual results (minimal context)
