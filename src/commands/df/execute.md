@@ -4,9 +4,11 @@
 
 You are a coordinator. Spawn agents, wait for results, update PLAN.md. Never implement code yourself.
 
-**NEVER:** Read source files, edit code, run tests, run git commands (except status)
+**NEVER:** Read source files, edit code, run tests, run git commands (except status), process TaskOutput content
 
-**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn background agents, use TaskOutput to get results, update PLAN.md
+**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn background agents, use TaskOutput to wait (ignore its content), read `.deepflow/results/*.yaml` for outcomes, update PLAN.md
+
+**CONTEXT CRITICAL:** TaskOutput returns FULL agent transcripts (100KB+). NEVER include this in context. Agents write results to `.deepflow/results/{task_id}.yaml`. Read those files instead.
 
 ---
 
@@ -43,17 +45,28 @@ Statusline writes to `.deepflow/context.json`: `{"percentage": 45}`
 
 ## Agent Protocol
 
-Each task = one background agent. **TaskOutput blocks until agent completes and returns result directly.** Never poll, loop, or repeatedly check for results.
+Each task = one background agent. **TaskOutput blocks until agent completes.** Never poll, loop, or repeatedly check for results.
+
+**CRITICAL: Context Management**
+- TaskOutput returns the FULL agent transcript (all tool calls, messages, etc.)
+- **DO NOT** process or include TaskOutput response in context — it will explode your token usage
+- **ONLY** use TaskOutput to wait for completion (ignore its content)
+- **ALWAYS** read the result file directly to get the actual outcome
 
 ```python
 # Spawn agents in parallel (single message, multiple Task calls)
 task_id_1 = Task(subagent_type="general-purpose", run_in_background=True, prompt="T1: ...")
 task_id_2 = Task(subagent_type="general-purpose", run_in_background=True, prompt="T2: ...")
 
-# Wait for all results (single message, multiple TaskOutput calls)
-# TaskOutput BLOCKS — no polling needed, result returned when agent finishes
+# Wait for completion (single message, multiple TaskOutput calls)
+# TaskOutput BLOCKS — no polling needed
+# IGNORE the response content — read result files instead
 TaskOutput(task_id=task_id_1)
 TaskOutput(task_id=task_id_2)
+
+# Read actual results from files (minimal context usage)
+Read("{worktree}/.deepflow/results/T1.yaml")
+Read("{worktree}/.deepflow/results/T2.yaml")
 ```
 
 Result file `.deepflow/results/{task_id}.yaml`:
@@ -382,14 +395,20 @@ When all tasks done for a `doing-*` spec:
 
 ### 10. ITERATE
 
-After spawning agents, call TaskOutput for ALL running agents in a SINGLE message. **TaskOutput blocks—do NOT loop, poll, or check repeatedly.** One call per agent, results returned when complete.
+After spawning agents, call TaskOutput for ALL running agents in a SINGLE message. **TaskOutput blocks—do NOT loop, poll, or check repeatedly.** One call per agent.
+
+**CRITICAL:** TaskOutput returns FULL agent transcripts. **IGNORE the response content** — it will explode context. Read result files instead.
 
 ```python
 # After spawning T1, T2, T3 in parallel, wait for all in parallel:
-TaskOutput(task_id=t1_id)  # BLOCKS until T1 done
-TaskOutput(task_id=t2_id)  # BLOCKS until T2 done
-TaskOutput(task_id=t3_id)  # BLOCKS until T3 done
-# All three in ONE message = parallel wait, zero polling
+TaskOutput(task_id=t1_id)  # BLOCKS until done — IGNORE response content
+TaskOutput(task_id=t2_id)  # BLOCKS until done — IGNORE response content
+TaskOutput(task_id=t3_id)  # BLOCKS until done — IGNORE response content
+
+# Then read actual results (minimal context):
+Read("{worktree}/.deepflow/results/T1.yaml")
+Read("{worktree}/.deepflow/results/T2.yaml")
+Read("{worktree}/.deepflow/results/T3.yaml")
 ```
 
 Then check which tasks completed, update PLAN.md, identify newly unblocked tasks, spawn next wave.
