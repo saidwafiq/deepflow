@@ -4,9 +4,9 @@
 
 You are a coordinator. Spawn agents, wait for results, update PLAN.md. Never implement code yourself.
 
-**NEVER:** Read source files, edit code, run tests, run git commands (except status), use TaskOutput, use run_in_background
+**NEVER:** Read source files, edit code, run tests, run git commands (except status), use TaskOutput
 
-**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn agents (non-background), read `.deepflow/results/*.yaml` for outcomes, update PLAN.md
+**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn background agents, read `.deepflow/results/*.yaml` on completion notifications, update PLAN.md
 
 ---
 
@@ -43,28 +43,55 @@ Statusline writes to `.deepflow/context.json`: `{"percentage": 45}`
 
 ## Agent Protocol
 
-Each task = one agent. Spawn ALL wave tasks in ONE message as non-background parallel Task calls.
-
-**NEVER use `run_in_background`** — causes late "Agent completed" notifications after orchestrator finishes, polluting output and duplicating summaries.
+Each task = one background agent. Use agent completion notifications as the feedback loop.
 
 **NEVER use TaskOutput** — returns full agent transcripts (100KB+) that explode context.
 
-```python
-# 1. Spawn agents in parallel (single message, NON-background)
-Task(subagent_type="general-purpose", prompt="T1: ... Final message: one line only.")
-Task(subagent_type="general-purpose", prompt="T2: ... Final message: one line only.")
-Task(subagent_type="general-purpose", prompt="T3: ... Final message: one line only.")
-# All run in parallel, block until ALL complete — no late notifications
+### Notification-Driven Execution
 
-# 2. Read structured results (minimal context)
-Read("{worktree}/.deepflow/results/T1.yaml")
-Read("{worktree}/.deepflow/results/T2.yaml")
-Read("{worktree}/.deepflow/results/T3.yaml")
+```
+1. Spawn ALL wave agents with run_in_background=true in ONE message
+2. STOP. End your turn. Do NOT run Bash monitors or poll for results.
+3. Wait for "Agent X completed" notifications (they arrive automatically)
+4. On EACH notification:
+   a. Read the result file: Read("{worktree}/.deepflow/results/{task_id}.yaml")
+   b. Report: "✓ T1: success (abc123)" or "✗ T1: failed"
+   c. Update PLAN.md for that task
+   d. Check: all wave agents done?
+      - No → end turn, wait for next notification
+      - Yes → proceed to next wave or write final summary
 ```
 
-**Agent final message rule:** Agents MUST end with exactly one line:
-`Done: {task_id} {status} ({commit_hash})`
-Detailed results go in the YAML file, not the message.
+**CRITICAL: After spawning agents, your turn ENDS. Do NOT:**
+- Run Bash commands to poll/monitor
+- Try to read result files before notifications arrive
+- Write summaries before all wave agents complete
+
+**On notification, respond briefly:**
+- ONE line per completed agent: "✓ T1: success (abc123)"
+- Only write full summary after ALL wave agents complete
+- Do NOT repeat the full execution status on every notification
+
+```python
+# Step 1: Spawn wave (ONE message, then STOP)
+Task(subagent_type="general-purpose", model="sonnet", run_in_background=True, prompt="T1: ...")
+Task(subagent_type="general-purpose", model="sonnet", run_in_background=True, prompt="T2: ...")
+Task(subagent_type="general-purpose", model="sonnet", run_in_background=True, prompt="T3: ...")
+# Turn ends here. Wait for notifications.
+
+# Step 2: On "Agent T1 completed" notification:
+Read("{worktree}/.deepflow/results/T1.yaml")
+# Output: "✓ T1: success (abc123)" — then STOP, wait for next
+
+# Step 3: On "Agent T2 completed" notification:
+Read("{worktree}/.deepflow/results/T2.yaml")
+# Output: "✓ T2: success (def456)" — then STOP, wait for next
+
+# Step 4: On "Agent T3 completed" notification (last one):
+Read("{worktree}/.deepflow/results/T3.yaml")
+# Output: "✓ T3: success (ghi789)"
+# All done → proceed to next wave or final summary
+```
 
 Result file `.deepflow/results/{task_id}.yaml`:
 ```yaml
@@ -230,15 +257,15 @@ DO NOT spawn one task, wait, then spawn another. Instead, call Task tool multipl
 Example: If T1, T2, T3 are ready, send ONE message containing THREE Task tool invocations:
 
 ```
-// In a SINGLE assistant message, invoke Task THREE times (NON-background):
-Task(subagent_type="general-purpose", model="sonnet", prompt="T1: ...")
-Task(subagent_type="general-purpose", model="sonnet", prompt="T2: ...")
-Task(subagent_type="general-purpose", model="sonnet", prompt="T3: ...")
-// All run in parallel, block until complete — no late notifications
+// In a SINGLE assistant message, invoke Task with run_in_background=true:
+Task(subagent_type="general-purpose", model="sonnet", run_in_background=true, prompt="T1: ...")
+Task(subagent_type="general-purpose", model="sonnet", run_in_background=true, prompt="T2: ...")
+Task(subagent_type="general-purpose", model="sonnet", run_in_background=true, prompt="T3: ...")
+// Turn ends here. Wait for completion notifications.
 ```
 
 **WRONG (sequential):** Send message with Task for T1 → wait → send message with Task for T2 → wait → ...
-**RIGHT (parallel):** Send ONE message with Task for T1, T2, T3 all together
+**RIGHT (parallel):** Send ONE message with Task for T1, T2, T3 all together, then STOP
 
 Same-file conflicts: spawn sequentially instead.
 
@@ -391,24 +418,21 @@ When all tasks done for a `doing-*` spec:
 2. Rename: `doing-upload.md` → `done-upload.md`
 3. Remove section from PLAN.md
 
-### 10. ITERATE
+### 10. ITERATE (Notification-Driven)
 
-After spawning wave agents (non-background, parallel), they block until all complete. Then read results.
+After spawning wave agents, your turn ENDS. Completion notifications drive the loop.
 
 **NEVER use TaskOutput** — it explodes context.
-**NEVER use run_in_background** — causes late notifications and duplicate summaries.
 
-```python
-# After spawning T1, T2, T3 in parallel (non-background):
-# They already completed — read structured results:
-Read("{worktree}/.deepflow/results/T1.yaml")
-Read("{worktree}/.deepflow/results/T2.yaml")
-Read("{worktree}/.deepflow/results/T3.yaml")
-```
+**Per notification:**
+1. Read result file for the completed agent
+2. Report ONE line: "✓ Tx: status (commit)"
+3. If NOT all wave agents done → end turn, wait
+4. If ALL wave agents done → check context, update PLAN.md, spawn next wave or finish
 
-Then check which tasks completed, update PLAN.md, identify newly unblocked tasks, spawn next wave.
+**Between waves:** Check context %. If ≥50%, checkpoint and exit.
 
-Repeat until: all done, all blocked, or context ≥50% (checkpoint).
+**Repeat** until: all done, all blocked, or context ≥50% (checkpoint).
 
 ## Rules
 
@@ -424,13 +448,18 @@ Repeat until: all done, all blocked, or context ≥50% (checkpoint).
 
 ```
 /df:execute (context: 12%)
+Spawning Wave 1: T1, T2, T3 parallel...
 
-Wave 1: T1, T2 parallel (context: 25%)
-  T1: success (abc1234)
-  T2: success (def5678)
+[Agent "T1" completed]
+✓ T1: success (abc1234)
 
-Wave 2: T3 (context: 48%)
-  T3: success (ghi9012)
+[Agent "T2" completed]
+✓ T2: success (def5678)
+
+[Agent "T3" completed]
+✓ T3: success (ghi9012)
+
+Wave 1 complete (3/3). Context: 35%
 
 ✓ doing-upload → done-upload
 ✓ Complete: 3/3 tasks
@@ -448,16 +477,24 @@ Checking experiment status...
   T2: Blocked by T1 (spike not validated)
   T3: Blocked by T1 (spike not validated)
 
-Wave 1: T1 [SPIKE] (context: 15%)
-  T1: complete, verifying...
+Spawning Wave 1: T1 [SPIKE]...
+
+[Agent "T1 SPIKE" completed]
+✓ T1: complete, verifying...
 
 Verifying T1...
   ✓ Spike T1 verified (throughput 8500 >= 7000)
   → upload--streaming--passed.md
 
-Wave 2: T2, T3 parallel (context: 40%)
-  T2: success (def5678)
-  T3: success (ghi9012)
+Spawning Wave 2: T2, T3 parallel...
+
+[Agent "T2" completed]
+✓ T2: success (def5678)
+
+[Agent "T3" completed]
+✓ T3: success (ghi9012)
+
+Wave 2 complete (2/2). Context: 40%
 
 ✓ doing-upload → done-upload
 ✓ Complete: 3/3 tasks
