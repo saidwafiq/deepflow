@@ -81,15 +81,19 @@ Include patterns in task descriptions for agents to follow.
 
 ### 4. ANALYZE CODEBASE
 
-**Spawn ALL Explore agents in ONE message, then wait for ALL with TaskOutput in ONE message:**
-```
-// Spawn all in single message:
-t1 = Task(subagent_type="Explore", model="haiku", run_in_background=true, prompt="...")
-t2 = Task(subagent_type="Explore", model="haiku", run_in_background=true, prompt="...")
+**NEVER use `run_in_background` for Explore agents** — causes late "Agent completed" notifications that pollute output after work is done.
 
-// Wait all in single message:
-TaskOutput(task_id=t1)
-TaskOutput(task_id=t2)
+**NEVER use TaskOutput** — returns full agent transcripts (100KB+) that explode context.
+
+**Spawn ALL Explore agents in ONE message (non-background, parallel):**
+
+```python
+# All in single message — runs in parallel, blocks until all complete:
+Task(subagent_type="Explore", model="haiku", prompt="Find: ...")
+Task(subagent_type="Explore", model="haiku", prompt="Find: ...")
+Task(subagent_type="Explore", model="haiku", prompt="Find: ...")
+# Each returns agent's final message only (not full transcript)
+# No late notifications — agents complete before orchestrator proceeds
 ```
 
 Scale agent count based on codebase size:
@@ -104,6 +108,7 @@ Scale agent count based on codebase size:
 **Explore Agent Prompt Structure:**
 ```
 Find: [specific question]
+
 Return ONLY:
 - File paths matching criteria
 - One-line description per file
@@ -216,6 +221,8 @@ Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validatio
 `✓ Plan generated — {n} specs, {n} tasks. Run /df:execute`
 
 ## Rules
+- **Never use TaskOutput** — Returns full transcripts that explode context
+- **Never use run_in_background for Explore agents** — Causes late notifications that pollute output
 - **Spike-first** — Generate spike task before full implementation if no `--passed.md` experiment exists
 - **Block on spike** — Full implementation tasks MUST be blocked by spike validation
 - **Learn from failures** — Extract "next hypothesis" from failed experiments, never repeat same approach
