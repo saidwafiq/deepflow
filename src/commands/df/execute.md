@@ -4,11 +4,9 @@
 
 You are a coordinator. Spawn agents, wait for results, update PLAN.md. Never implement code yourself.
 
-**NEVER:** Read source files, edit code, run tests, run git commands (except status), process TaskOutput content
+**NEVER:** Read source files, edit code, run tests, run git commands (except status), use TaskOutput
 
-**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn background agents, use TaskOutput to wait (ignore its content), read `.deepflow/results/*.yaml` for outcomes, update PLAN.md
-
-**CONTEXT CRITICAL:** TaskOutput returns FULL agent transcripts (100KB+). NEVER include this in context. Agents write results to `.deepflow/results/{task_id}.yaml`. Read those files instead.
+**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn background agents, wait with Bash monitor, read `.deepflow/results/*.yaml` for outcomes, update PLAN.md
 
 ---
 
@@ -45,28 +43,53 @@ Statusline writes to `.deepflow/context.json`: `{"percentage": 45}`
 
 ## Agent Protocol
 
-Each task = one background agent. **TaskOutput blocks until agent completes.** Never poll, loop, or repeatedly check for results.
+Each task = one background agent. **NEVER use TaskOutput** — it returns full transcripts (100KB+) that explode context.
 
-**CRITICAL: Context Management**
-- TaskOutput returns the FULL agent transcript (all tool calls, messages, etc.)
-- **DO NOT** process or include TaskOutput response in context — it will explode your token usage
-- **ONLY** use TaskOutput to wait for completion (ignore its content)
-- **ALWAYS** read the result file directly to get the actual outcome
+**Wait Strategy: Bash Monitor**
+- One Bash call that monitors result files
+- Shows progress via streaming (user sees in real-time)
+- Minimal context (just the final output)
+- User can react/cancel if needed
 
 ```python
-# Spawn agents in parallel (single message, multiple Task calls)
-task_id_1 = Task(subagent_type="general-purpose", run_in_background=True, prompt="T1: ...")
-task_id_2 = Task(subagent_type="general-purpose", run_in_background=True, prompt="T2: ...")
+# 1. Spawn agents in parallel (single message, multiple Task calls)
+Task(subagent_type="general-purpose", run_in_background=True, prompt="T1: ...")
+Task(subagent_type="general-purpose", run_in_background=True, prompt="T2: ...")
+Task(subagent_type="general-purpose", run_in_background=True, prompt="T3: ...")
 
-# Wait for completion (single message, multiple TaskOutput calls)
-# TaskOutput BLOCKS — no polling needed
-# IGNORE the response content — read result files instead
-TaskOutput(task_id=task_id_1)
-TaskOutput(task_id=task_id_2)
+# 2. Wait with Bash monitor (ONE call, streams progress to user)
+Bash("""
+RESULTS_DIR="{worktree}/.deepflow/results"
+EXPECTED=3
+TIMEOUT=300
 
-# Read actual results from files (minimal context usage)
+timeout $TIMEOUT bash -c '
+  seen=""
+  while [ $(ls "$0"/*.yaml 2>/dev/null | wc -l) -lt '$EXPECTED' ]; do
+    for f in "$0"/*.yaml 2>/dev/null; do
+      if [ -f "$f" ] && [[ ! "$seen" =~ "$f" ]]; then
+        echo "✓ $(basename "$f" .yaml)"
+        seen="$seen $f"
+      fi
+    done
+    sleep 5
+  done
+  echo "ALL COMPLETE"
+' "$RESULTS_DIR" || echo "TIMEOUT: some tasks did not complete"
+""")
+
+# 3. Read actual results (minimal context)
 Read("{worktree}/.deepflow/results/T1.yaml")
 Read("{worktree}/.deepflow/results/T2.yaml")
+Read("{worktree}/.deepflow/results/T3.yaml")
+```
+
+**User sees streaming:**
+```
+✓ T1
+✓ T3
+✓ T2
+ALL COMPLETE
 ```
 
 Result file `.deepflow/results/{task_id}.yaml`:
@@ -395,17 +418,15 @@ When all tasks done for a `doing-*` spec:
 
 ### 10. ITERATE
 
-After spawning agents, call TaskOutput for ALL running agents in a SINGLE message. **TaskOutput blocks—do NOT loop, poll, or check repeatedly.** One call per agent.
-
-**CRITICAL:** TaskOutput returns FULL agent transcripts. **IGNORE the response content** — it will explode context. Read result files instead.
+After spawning agents, use Bash monitor to wait. **NEVER use TaskOutput** — it explodes context.
 
 ```python
-# After spawning T1, T2, T3 in parallel, wait for all in parallel:
-TaskOutput(task_id=t1_id)  # BLOCKS until done — IGNORE response content
-TaskOutput(task_id=t2_id)  # BLOCKS until done — IGNORE response content
-TaskOutput(task_id=t3_id)  # BLOCKS until done — IGNORE response content
+# After spawning T1, T2, T3 in parallel:
 
-# Then read actual results (minimal context):
+# 1. Wait with Bash monitor (streams progress to user)
+Bash("timeout 300 bash -c '...' ")  # See Agent Protocol for full script
+
+# 2. Read results
 Read("{worktree}/.deepflow/results/T1.yaml")
 Read("{worktree}/.deepflow/results/T2.yaml")
 Read("{worktree}/.deepflow/results/T3.yaml")
