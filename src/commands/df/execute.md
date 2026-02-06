@@ -351,6 +351,13 @@ Do NOT write files to the main project directory.
 
 Implement, test, commit as feat({spec}): {description}.
 Write result to {worktree_absolute_path}/.deepflow/results/{task_id}.yaml
+
+**STOP after writing the result file. Do NOT:**
+- Merge branches or cherry-pick commits
+- Rename or move spec files (doing-* → done-*)
+- Remove worktrees or delete branches
+- Run git checkout on main
+These are handled by the orchestrator and /df:verify.
 ```
 
 **Spike Task:**
@@ -376,6 +383,7 @@ Rules:
 - Worse than baseline = FAILED (baseline 7k, actual 1.5k → FAILED)
 - "Close enough" = FAILED
 - Verifier will check. False positives waste resources.
+- STOP after writing result file. Do NOT merge, rename specs, or clean up worktrees.
 ```
 
 ### 8. FAILURE HANDLING

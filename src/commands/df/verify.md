@@ -48,7 +48,32 @@ Mark each: ✓ satisfied | ✗ missing | ⚠ partial
 ### 3. GENERATE REPORT
 
 Report per spec: requirements count, acceptance count, quality issues.
-If issues: suggest creating fix spec or reopening (`mv done-* doing-*`).
+
+**If all pass:** Proceed to Post-Verification merge.
+
+**If issues found:** Add fix tasks to PLAN.md in the worktree and loop back to execute:
+
+1. Discover worktree (same logic as Post-Verification step 1)
+2. Write new fix tasks to `{worktree_path}/PLAN.md` under the existing spec section
+   - Task IDs continue from last (e.g. if T9 was last, fixes start at T10)
+   - Format: `- [ ] **T10**: Fix {description}` with `Files:` and details
+3. Output report + next step:
+
+```
+done-upload.md: 4/4 reqs ✓, 3/5 acceptance ✗, 1 quality issue
+
+Issues:
+  ✗ AC-3: YAML parsing missing for consolation
+  ⚠ Quality: TODO in parse_config()
+
+Fix tasks added to PLAN.md:
+  T10: Add YAML parsing for consolation section
+  T11: Remove TODO in parse_config()
+
+Run /df:execute --continue to fix in the same worktree.
+```
+
+**Do NOT** create new specs, new worktrees, or merge with issues pending.
 
 ### 4. CAPTURE LEARNINGS
 
@@ -88,7 +113,7 @@ Default: L1-L3 (L4 optional, can be slow)
 - Verify against spec, not assumptions
 - Flag partial implementations
 - Report TODO/FIXME as quality issues
-- Don't auto-fix — report findings for `/df:plan`
+- Don't auto-fix — add fix tasks to PLAN.md, then `/df:execute --continue`
 - Capture learnings — Write experiments for significant approaches
 
 ## Agent Usage
@@ -109,8 +134,9 @@ Task(subagent_type="Explore", model="haiku", prompt="Find: ...")
 
 Scale: 1-2 agents per spec, cap 10.
 
-## Example
+## Examples
 
+### All pass → merge
 ```
 /df:verify
 
@@ -119,14 +145,33 @@ done-auth.md: 2/2 reqs ✓, 3/3 acceptance ✓, clean
 
 ✓ All specs verified
 
+✓ Merged df/upload to main
+✓ Cleaned up worktree and branch
+
 Learnings captured:
   → experiments/perf--streaming-upload--success.md
-  → experiments/auth--jwt-refresh-rotation--success.md
+```
+
+### Issues found → fix tasks added
+```
+/df:verify --doing
+
+doing-upload.md: 4/4 reqs ✓, 3/5 acceptance ✗, 1 quality issue
+
+Issues:
+  ✗ AC-3: YAML parsing missing for consolation
+  ⚠ Quality: TODO in parse_config()
+
+Fix tasks added to PLAN.md:
+  T10: Add YAML parsing for consolation section
+  T11: Remove TODO in parse_config()
+
+Run /df:execute --continue to fix in the same worktree.
 ```
 
 ## Post-Verification: Worktree Merge & Cleanup
 
-After all verification passes:
+**Only runs when ALL specs pass verification.** If issues were found, fix tasks were added to PLAN.md instead (see step 3).
 
 ### 1. DISCOVER WORKTREE
 
