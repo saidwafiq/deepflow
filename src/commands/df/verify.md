@@ -128,12 +128,35 @@ Learnings captured:
 
 After all verification passes:
 
-### 1. MERGE TO MAIN
+### 1. DISCOVER WORKTREE
+
+Find worktree info using two strategies (checkpoint → fallback to git):
 
 ```bash
-# Get worktree info from checkpoint
-WORKTREE_BRANCH=$(cat .deepflow/checkpoint.json | jq -r '.worktree_branch')
+# Strategy 1: checkpoint.json (from interrupted executions)
+if [ -f .deepflow/checkpoint.json ]; then
+  WORKTREE_BRANCH=$(cat .deepflow/checkpoint.json | jq -r '.worktree_branch')
+  WORKTREE_PATH=$(cat .deepflow/checkpoint.json | jq -r '.worktree_path')
+fi
 
+# Strategy 2: Infer from doing-* spec + git worktree list (no checkpoint needed)
+if [ -z "${WORKTREE_BRANCH}" ]; then
+  SPEC_NAME=$(basename specs/doing-*.md .md | sed 's/doing-//')
+  WORKTREE_PATH=".deepflow/worktrees/${SPEC_NAME}"
+  # Get branch from git worktree list
+  WORKTREE_BRANCH=$(git worktree list --porcelain | grep -A2 "${WORKTREE_PATH}" | grep 'branch' | sed 's|branch refs/heads/||')
+fi
+
+# No worktree found — nothing to merge
+if [ -z "${WORKTREE_BRANCH}" ]; then
+  echo "No worktree found — nothing to merge. Workflow may already be on main."
+  exit 0
+fi
+```
+
+### 2. MERGE TO MAIN
+
+```bash
 # Switch to main and merge
 git checkout main
 git merge "${WORKTREE_BRANCH}" --no-ff -m "feat({spec}): merge verified changes"
@@ -144,20 +167,17 @@ git merge "${WORKTREE_BRANCH}" --no-ff -m "feat({spec}): merge verified changes"
 - Output: "Merge conflict detected. Resolve manually, then run /df:verify --merge-only"
 - Exit without cleanup
 
-### 2. CLEANUP WORKTREE
+### 3. CLEANUP WORKTREE
 
 After successful merge:
 
 ```bash
-# Get worktree path from checkpoint
-WORKTREE_PATH=$(cat .deepflow/checkpoint.json | jq -r '.worktree_path')
-
 # Remove worktree and branch
 git worktree remove --force "${WORKTREE_PATH}"
 git branch -d "${WORKTREE_BRANCH}"
 
-# Remove checkpoint
-rm .deepflow/checkpoint.json
+# Remove checkpoint if it exists
+rm -f .deepflow/checkpoint.json
 ```
 
 **Output on success:**
