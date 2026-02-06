@@ -326,6 +326,7 @@ async function uninstall() {
     'skills/atomic-commits',
     'skills/code-completeness',
     'skills/gap-discovery',
+    'skills/release',
     'agents/reasoner.md'
   ];
 
