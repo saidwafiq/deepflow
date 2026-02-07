@@ -21,7 +21,7 @@ Instead of automated research agents, deepflow uses:
 
 ### 3. Minimal Ceremony
 
-- 4 commands, not 27
+- 6 commands, one flow
 - 2 levels (Specs → Tasks), not 5
 - Markdown files, not complex schemas
 
@@ -43,22 +43,43 @@ Every task produces one commit:
 ## The Flow
 
 ```
-Conversation → Spec → Plan → Execute → Verify
-     ↑                          |
-     └──────────────────────────┘
-              (iterate)
+Conversation → Discover → Debate → Spec → Plan → Execute → Verify
+                  ↑                                  |
+                  └──────────────────────────────────┘
+                              (iterate)
 ```
 
 ### Conversation
 
-You describe what you want. The LLM asks clarifying questions:
+You describe what you want. Free-form discussion to establish initial context.
 
-| Category | Purpose |
-|----------|---------|
-| Scope | What's in/out? |
-| Edge cases | What if X happens? |
-| Constraints | Limits, requirements? |
-| Success criteria | How do we know it works? |
+### Discover
+
+Deep problem exploration through Socratic questioning. The LLM asks structured questions across six dimensions:
+
+| Phase | Purpose |
+|-------|---------|
+| Motivation | Why? What problem? Who suffers? |
+| Context | What exists? What's been tried? |
+| Scope | What's in/out? Minimum viable? |
+| Constraints | Technical limits, time, resources? |
+| Success | How to verify? Metrics? |
+| Anti-Goals | What NOT to do? What to avoid? |
+
+No code is read, no agents are spawned. Purely conversational.
+
+### Debate
+
+Multi-perspective analysis before formalizing. Four reasoner agents argue from different angles:
+
+| Perspective | Focus |
+|-------------|-------|
+| User Advocate | UX, simplicity, real needs |
+| Tech Skeptic | Risks, complexity, feasibility |
+| Systems Thinker | Integration, scalability, long-term |
+| LLM Efficiency | Token density, structure, attention budget |
+
+A fifth agent synthesizes consensus, tensions, and open decisions. Output is saved as `specs/.debate-{name}.md`.
 
 ### Spec
 

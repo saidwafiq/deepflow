@@ -31,6 +31,8 @@ Transform conversation context into a structured specification file.
 
 ### 1. GATHER CODEBASE CONTEXT
 
+**Check for debate file first:** If `specs/.debate-{name}.md` exists, read it using the Read tool. Pass its content (especially the Synthesis section) to the reasoner agent in step 3 as additional context. The debate file contains multi-perspective analysis that should inform requirements and constraints.
+
 **NEVER use `run_in_background` for Explore agents** — causes late "Agent completed" notifications that pollute output after work is done.
 
 **NEVER use TaskOutput** — returns full agent transcripts (100KB+) that explode context.

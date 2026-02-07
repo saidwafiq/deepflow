@@ -146,7 +146,7 @@ async function main() {
   console.log(`${c.green}Installation complete!${c.reset}`);
   console.log('');
   console.log(`Installed to ${c.cyan}${CLAUDE_DIR}${c.reset}:`);
-  console.log('  commands/df/     — /df:spec, /df:plan, /df:execute, /df:verify');
+  console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify');
   console.log('  skills/          — gap-discovery, atomic-commits, code-completeness');
   console.log('  agents/          — reasoner');
   if (level === 'global') {
@@ -165,7 +165,7 @@ async function main() {
     console.log('  1. claude');
   }
   console.log('  2. Describe what you want to build');
-  console.log('  3. /df:spec feature-name');
+  console.log('  3. /df:discover feature-name');
   console.log('');
 }
 
