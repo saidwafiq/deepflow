@@ -61,3 +61,17 @@ worktree:
 
   # Keep worktree after failed execution for debugging
   cleanup_on_fail: false
+
+# Quality gates for /df:verify
+quality:
+  # Override auto-detected build command (e.g., "npm run build", "cargo build")
+  build_command: ""
+
+  # Override auto-detected test command (e.g., "npm test", "pytest", "go test ./...")
+  test_command: ""
+
+  # Test timeout in seconds (default: 300 = 5 minutes)
+  test_timeout: 300
+
+  # Retry flaky tests once before failing (default: true)
+  test_retry_on_fail: true

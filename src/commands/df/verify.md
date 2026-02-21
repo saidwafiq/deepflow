@@ -40,16 +40,86 @@ Load:
 
 If no done-* specs: report counts, suggest `--doing`.
 
+### 1.5. DETECT PROJECT COMMANDS
+
+Detect build and test commands by inspecting project files in the worktree.
+
+**Config override always wins.** If `.deepflow/config.yaml` has `quality.test_command` or `quality.build_command`, use those.
+
+**Auto-detection (first match wins):**
+
+| File | Build | Test |
+|------|-------|------|
+| `package.json` with `scripts.build` | `npm run build` | `npm test` (if scripts.test is not default placeholder) |
+| `pyproject.toml` or `setup.py` | — | `pytest` |
+| `Cargo.toml` | `cargo build` | `cargo test` |
+| `go.mod` | `go build ./...` | `go test ./...` |
+| `Makefile` with `test` target | `make build` (if target exists) | `make test` |
+
+**Output:**
+- Commands found: `Build: npm run build | Test: npm test`
+- Nothing found: `⚠ No build/test commands detected. L0/L4 skipped. Set quality.test_command in .deepflow/config.yaml`
+
 ### 2. VERIFY EACH SPEC
+
+**L0: Build check** (if build command detected)
+
+Run the build command in the worktree:
+- Exit code 0 → L0 pass, continue to L1-L3
+- Exit code non-zero → L0 FAIL
+  - Report: "✗ L0: Build failed" with last 30 lines of output
+  - Add fix task: "Fix build errors" to PLAN.md
+  - Do NOT proceed to L1-L4 (no point checking if code doesn't build)
+
+**L1-L3: Static analysis** (via Explore agents)
 
 Check requirements, acceptance criteria, and quality (stubs/TODOs).
 Mark each: ✓ satisfied | ✗ missing | ⚠ partial
 
+**L4: Test execution** (if test command detected)
+
+Run AFTER L0 passes and L1-L3 complete. Run even if L1-L3 found issues — test failures reveal additional problems.
+
+- Run test command in the worktree (timeout from config, default 5 min)
+- Exit code 0 → L4 pass
+- Exit code non-zero → L4 FAIL
+  - Capture last 50 lines of output
+  - Report: "✗ L4: Tests failed (N of M)" with relevant output
+  - Add fix task: "Fix failing tests" with test output in description
+
+**Flaky test handling** (if `quality.test_retry_on_fail: true` in config):
+- If tests fail, re-run ONCE
+- Second run passes → L4 pass with note: "⚠ L4: Passed on retry (possible flaky test)"
+- Second run fails → genuine failure
+
 ### 3. GENERATE REPORT
 
-Report per spec: requirements count, acceptance count, quality issues.
+Report per spec with L0/L4 status, requirements count, acceptance count, quality issues.
 
-**If all pass:** Proceed to Post-Verification merge.
+**Format on success:**
+```
+done-upload.md: L0 ✓ | 4/4 reqs ✓, 5/5 acceptance ✓ | L4 ✓ (12 tests) | 0 quality issues
+```
+
+**Format on failure:**
+```
+done-upload.md: L0 ✓ | 4/4 reqs ✓, 5/5 acceptance ✓ | L4 ✗ (3 failed) | 0 quality issues
+
+Issues:
+  ✗ L4: 3 test failures
+    FAIL src/upload.test.ts > should validate file type
+    FAIL src/upload.test.ts > should reject oversized files
+
+Fix tasks added to PLAN.md:
+  T10: Fix 3 failing tests in upload module
+```
+
+**Gate conditions (ALL must pass to merge):**
+- L0: Build passes (or no build command detected)
+- L1-L3: All requirements satisfied, no stubs, properly wired
+- L4: Tests pass (or no test command detected)
+
+**If all gates pass:** Proceed to Post-Verification merge.
 
 **If issues found:** Add fix tasks to PLAN.md in the worktree and register as native tasks, then loop back to execute:
 
@@ -67,15 +137,19 @@ Report per spec: requirements count, acceptance count, quality issues.
 4. Output report + next step:
 
 ```
-done-upload.md: 4/4 reqs ✓, 3/5 acceptance ✗, 1 quality issue
+done-upload.md: L0 ✓ | 4/4 reqs ✓, 3/5 acceptance ✗ | L4 ✗ (2 failed) | 1 quality issue
 
 Issues:
   ✗ AC-3: YAML parsing missing for consolation
+  ✗ L4: 2 test failures
+    FAIL src/upload.test.ts > should validate file type
+    FAIL src/upload.test.ts > should reject oversized files
   ⚠ Quality: TODO in parse_config()
 
 Fix tasks added to PLAN.md:
   T10: Add YAML parsing for consolation section
-  T11: Remove TODO in parse_config()
+  T11: Fix 2 failing tests in upload module
+  T12: Remove TODO in parse_config()
 
 Run /df:execute --continue to fix in the same worktree.
 ```
@@ -105,14 +179,16 @@ Files: ...
 
 ## Verification Levels
 
-| Level | Check | Method |
-|-------|-------|--------|
-| L1: Exists | File/function exists | Glob/Grep |
-| L2: Substantive | Real code, not stub | Read + analyze |
-| L3: Wired | Integrated into system | Trace imports/calls |
-| L4: Tested | Has passing tests | Run tests |
+| Level | Check | Method | Runner |
+|-------|-------|--------|--------|
+| L0: Builds | Code compiles/builds | Run build command | Orchestrator (Bash) |
+| L1: Exists | File/function exists | Glob/Grep | Explore agents |
+| L2: Substantive | Real code, not stub | Read + analyze | Explore agents |
+| L3: Wired | Integrated into system | Trace imports/calls | Explore agents |
+| L4: Tested | Tests pass | Run test command | Orchestrator (Bash) |
 
-Default: L1-L3 (L4 optional, can be slow)
+**Default: L0 through L4.** L0 and L4 are skipped ONLY if no build/test command is detected (see step 1.5).
+L0 and L4 run directly via Bash — Explore agents cannot execute commands.
 
 ## Rules
 - **Never use TaskOutput** — Returns full transcripts that explode context
@@ -147,10 +223,12 @@ Scale: 1-2 agents per spec, cap 10.
 ```
 /df:verify
 
-done-upload.md: 4/4 reqs ✓, 5/5 acceptance ✓, clean
-done-auth.md: 2/2 reqs ✓, 3/3 acceptance ✓, clean
+Build: npm run build | Test: npm test
 
-✓ All specs verified
+done-upload.md: L0 ✓ | 4/4 reqs ✓, 5/5 acceptance ✓ | L4 ✓ (12 tests) | 0 quality issues
+done-auth.md: L0 ✓ | 2/2 reqs ✓, 3/3 acceptance ✓ | L4 ✓ (8 tests) | 0 quality issues
+
+✓ All gates passed
 
 ✓ Merged df/upload to main
 ✓ Cleaned up worktree and branch
@@ -163,22 +241,29 @@ Learnings captured:
 ```
 /df:verify --doing
 
-doing-upload.md: 4/4 reqs ✓, 3/5 acceptance ✗, 1 quality issue
+Build: npm run build | Test: npm test
+
+doing-upload.md: L0 ✓ | 4/4 reqs ✓, 3/5 acceptance ✗ | L4 ✗ (3 failed) | 1 quality issue
 
 Issues:
   ✗ AC-3: YAML parsing missing for consolation
+  ✗ L4: 3 test failures
+    FAIL src/upload.test.ts > should validate file type
+    FAIL src/upload.test.ts > should reject oversized files
+    FAIL src/upload.test.ts > should handle empty input
   ⚠ Quality: TODO in parse_config()
 
 Fix tasks added to PLAN.md:
   T10: Add YAML parsing for consolation section
-  T11: Remove TODO in parse_config()
+  T11: Fix 3 failing tests in upload module
+  T12: Remove TODO in parse_config()
 
 Run /df:execute --continue to fix in the same worktree.
 ```
 
 ## Post-Verification: Worktree Merge & Cleanup
 
-**Only runs when ALL specs pass verification.** If issues were found, fix tasks were added to PLAN.md instead (see step 3).
+**Only runs when ALL gates pass** (L0 build, L1-L3 static analysis, L4 tests). If any gate fails, fix tasks were added to PLAN.md instead (see step 3).
 
 ### 1. DISCOVER WORKTREE
 

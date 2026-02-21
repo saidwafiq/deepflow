@@ -99,7 +99,15 @@ task: T3
 status: success|failed
 commit: abc1234
 summary: "one line"
+tests_ran: true|false
+test_command: "npm test"
+test_exit_code: 0
+test_output_tail: |
+  PASS src/upload.test.ts
+  Tests: 12 passed, 12 total
 ```
+
+New fields: `tests_ran` (bool), `test_command` (string), `test_exit_code` (int), `test_output_tail` (last 20 lines of output).
 
 **Spike result file** `.deepflow/results/{task_id}.yaml` (additional fields):
 ```yaml
@@ -400,8 +408,18 @@ Example: To edit src/foo.ts, use:
 
 Do NOT write files to the main project directory.
 
-Implement, test, commit as feat({spec}): {description}.
-Write result to {worktree_absolute_path}/.deepflow/results/{task_id}.yaml
+Steps:
+1. Implement the task
+2. Detect test command: check for package.json (npm test), pyproject.toml (pytest),
+   Cargo.toml (cargo test), go.mod (go test ./...), or Makefile (make test)
+3. Run tests if test infrastructure exists:
+   - Run the detected test command
+   - If tests fail: fix the code and re-run until passing
+   - Do NOT commit with failing tests
+4. If NO test infrastructure: set tests_ran: false in result file
+5. Commit as feat({spec}): {description}
+6. Write result file with ALL fields including test evidence (see schema):
+   {worktree_absolute_path}/.deepflow/results/{task_id}.yaml
 
 **STOP after writing the result file. Do NOT:**
 - Merge branches or cherry-pick commits
@@ -427,6 +445,7 @@ Steps:
 3. Write experiment as --active.md (verifier determines final status)
 4. Commit: spike({spec}): validate {hypothesis}
 5. Write result to .deepflow/results/{task_id}.yaml (see spike result schema)
+6. If test infrastructure exists, also run tests and include evidence in result file
 
 Rules:
 - `met: true` ONLY if actual satisfies target
@@ -491,11 +510,15 @@ After spawning wave agents, your turn ENDS. Completion notifications drive the l
 
 **Per notification:**
 1. Read result file for the completed agent
-2. TaskUpdate(taskId: native_id, status: "completed") — auto-unblocks dependent tasks
-3. Update PLAN.md: `[ ]` → `[x]` + commit hash (as before)
-4. Report ONE line: "✓ Tx: status (commit)"
-5. If NOT all wave agents done → end turn, wait
-6. If ALL wave agents done → use TaskList to find newly unblocked tasks, check context, spawn next wave or finish
+2. Validate test evidence:
+   - `tests_ran: true` + `test_exit_code: 0` → trust result
+   - `tests_ran: true` + `test_exit_code: non-zero` → status MUST be failed (flag mismatch if agent said success)
+   - `tests_ran: false` + `status: success` → flag: "⚠ Tx: success but no tests ran"
+3. TaskUpdate(taskId: native_id, status: "completed") — auto-unblocks dependent tasks
+4. Update PLAN.md: `[ ]` → `[x]` + commit hash (as before)
+5. Report: "✓ T1: success (abc123) [12 tests passed]" or "⚠ T1: success (abc123) [no tests]"
+6. If NOT all wave agents done → end turn, wait
+7. If ALL wave agents done → use TaskList to find newly unblocked tasks, check context, spawn next wave or finish
 
 **Between waves:** Check context %. If ≥50%, checkpoint and exit.
 
