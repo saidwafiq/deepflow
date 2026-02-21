@@ -137,8 +137,10 @@ experiment_file: ".deepflow/experiments/upload--streaming--failed.md"
 }
 ```
 
+Note: `completed_tasks` is kept for backward compatibility but is now derivable from PLAN.md `[x]` entries. The native task system (TaskList) is the primary source for runtime task status.
+
 **On checkpoint:** Complete wave → update PLAN.md → save to worktree → exit.
-**Resume:** `--continue` loads checkpoint, verifies worktree, skips completed tasks.
+**Resume:** `--continue` loads checkpoint, verifies worktree, skips completed tasks. Native tasks are re-registered for remaining `[ ]` items only.
 
 ## Behavior
 
@@ -187,6 +189,30 @@ fi
 Load: PLAN.md (required), specs/doing-*.md, .deepflow/config.yaml
 If missing: "No PLAN.md found. Run /df:plan first."
 ```
+
+### 2.5. REGISTER NATIVE TASKS
+
+Parse PLAN.md and create native tasks for tracking, dependency management, and UI spinners.
+
+**For each uncompleted task (`[ ]`) in PLAN.md:**
+
+```
+1. TaskCreate:
+   - subject: "{task_id}: {description}" (e.g. "T1: Create upload endpoint")
+   - description: Full task block from PLAN.md (files, blocked by, type, etc.)
+   - activeForm: "{gerund form of description}" (e.g. "Creating upload endpoint")
+
+2. Store mapping: PLAN.md task_id (T1) → native task ID
+```
+
+**After all tasks created, set up dependencies:**
+
+```
+For each task with "Blocked by: T{n}, T{m}":
+  TaskUpdate(taskId: native_id, addBlockedBy: [native_id_of_Tn, native_id_of_Tm])
+```
+
+**On `--continue`:** Only create tasks for remaining `[ ]` items (skip `[x]` completed).
 
 ### 3. CHECK FOR UNPLANNED SPECS
 
@@ -244,11 +270,29 @@ Topic extraction:
 
 ### 5. IDENTIFY READY TASKS
 
-Ready = `[ ]` + all `blocked_by` complete + experiment validated (if applicable) + not in checkpoint.
+Use TaskList to find ready tasks (replaces manual PLAN.md parsing):
+
+```
+Ready = TaskList results where:
+  - status: "pending"
+  - blockedBy: empty (auto-unblocked by native dependency system)
+```
+
+**Cross-check with experiment validation** (for spike-blocked tasks):
+- If task depends on spike AND experiment not `--passed.md` → still blocked
+  - TaskUpdate to add spike as blocker if not already set
+
+Ready = TaskList pending + empty blockedBy + experiment validated (if applicable).
 
 ### 6. SPAWN AGENTS
 
 Context ≥50%: checkpoint and exit.
+
+**Before spawning each agent**, mark its native task as in_progress:
+```
+TaskUpdate(taskId: native_id, status: "in_progress")
+```
+This activates the UI spinner showing the task's activeForm (e.g. "Creating upload endpoint").
 
 **CRITICAL: Spawn ALL ready tasks in a SINGLE response with MULTIPLE Task tool calls.**
 
@@ -319,8 +363,15 @@ Then rename experiment:
 
 **Gate:**
 ```
-VERIFIED_PASS → Unblock, log "✓ Spike {task_id} verified"
-VERIFIED_FAIL → Block, log "✗ Spike {task_id} failed verification"
+VERIFIED_PASS →
+  TaskUpdate(taskId: spike_native_id, status: "completed")
+  # Native system auto-unblocks dependent tasks
+  Log "✓ Spike {task_id} verified"
+
+VERIFIED_FAIL →
+  # Spike task stays as pending, dependents remain blocked
+  # No TaskUpdate needed — native system keeps them blocked
+  Log "✗ Spike {task_id} failed verification"
   If override: log "⚠ Agent incorrectly marked as passed"
 ```
 
@@ -390,6 +441,12 @@ Rules:
 
 When a task fails and cannot be auto-fixed:
 
+**Native task update:**
+```
+TaskUpdate(taskId: native_id, status: "pending")  # Reset to pending, not deleted
+```
+This keeps the task visible for retry. Dependent tasks remain blocked.
+
 **Behavior:**
 1. Leave worktree intact at `{worktree_path}`
 2. Keep checkpoint.json for potential resume
@@ -434,9 +491,11 @@ After spawning wave agents, your turn ENDS. Completion notifications drive the l
 
 **Per notification:**
 1. Read result file for the completed agent
-2. Report ONE line: "✓ Tx: status (commit)"
-3. If NOT all wave agents done → end turn, wait
-4. If ALL wave agents done → check context, update PLAN.md, spawn next wave or finish
+2. TaskUpdate(taskId: native_id, status: "completed") — auto-unblocks dependent tasks
+3. Update PLAN.md: `[ ]` → `[x]` + commit hash (as before)
+4. Report ONE line: "✓ Tx: status (commit)"
+5. If NOT all wave agents done → end turn, wait
+6. If ALL wave agents done → use TaskList to find newly unblocked tasks, check context, spawn next wave or finish
 
 **Between waves:** Check context %. If ≥50%, checkpoint and exit.
 
@@ -456,18 +515,41 @@ After spawning wave agents, your turn ENDS. Completion notifications drive the l
 
 ```
 /df:execute (context: 12%)
-Spawning Wave 1: T1, T2, T3 parallel...
+
+Loading PLAN.md...
+  T1: Create upload endpoint (ready)
+  T2: Add S3 service (blocked by T1)
+  T3: Add auth guard (blocked by T1)
+
+Registering native tasks...
+  TaskCreate → T1 (native: task-001)
+  TaskCreate → T2 (native: task-002)
+  TaskCreate → T3 (native: task-003)
+  TaskUpdate(task-002, addBlockedBy: [task-001])
+  TaskUpdate(task-003, addBlockedBy: [task-001])
+
+Spawning Wave 1: T1
+  TaskUpdate(task-001, status: "in_progress")  ← spinner: "Creating upload endpoint"
 
 [Agent "T1" completed]
-✓ T1: success (abc1234)
+  TaskUpdate(task-001, status: "completed")  ← auto-unblocks task-002, task-003
+  ✓ T1: success (abc1234)
+
+TaskList → task-002, task-003 now ready (blockedBy empty)
+
+Spawning Wave 2: T2, T3 parallel
+  TaskUpdate(task-002, status: "in_progress")
+  TaskUpdate(task-003, status: "in_progress")
 
 [Agent "T2" completed]
-✓ T2: success (def5678)
+  TaskUpdate(task-002, status: "completed")
+  ✓ T2: success (def5678)
 
 [Agent "T3" completed]
-✓ T3: success (ghi9012)
+  TaskUpdate(task-003, status: "completed")
+  ✓ T3: success (ghi9012)
 
-Wave 1 complete (3/3). Context: 35%
+Wave 2 complete (2/2). Context: 35%
 
 ✓ doing-upload → done-upload
 ✓ Complete: 3/3 tasks
@@ -480,27 +562,43 @@ Next: Run /df:verify to verify specs and merge to main
 ```
 /df:execute (context: 10%)
 
+Loading PLAN.md...
+Registering native tasks...
+  TaskCreate → T1 [SPIKE] (native: task-001)
+  TaskCreate → T2 (native: task-002)
+  TaskCreate → T3 (native: task-003)
+  TaskUpdate(task-002, addBlockedBy: [task-001])
+  TaskUpdate(task-003, addBlockedBy: [task-001])
+
 Checking experiment status...
   T1 [SPIKE]: No experiment yet, spike executable
   T2: Blocked by T1 (spike not validated)
   T3: Blocked by T1 (spike not validated)
 
-Spawning Wave 1: T1 [SPIKE]...
+Spawning Wave 1: T1 [SPIKE]
+  TaskUpdate(task-001, status: "in_progress")
 
 [Agent "T1 SPIKE" completed]
 ✓ T1: complete, verifying...
 
 Verifying T1...
   ✓ Spike T1 verified (throughput 8500 >= 7000)
+  TaskUpdate(task-001, status: "completed")  ← auto-unblocks task-002, task-003
   → upload--streaming--passed.md
 
-Spawning Wave 2: T2, T3 parallel...
+TaskList → task-002, task-003 now ready
+
+Spawning Wave 2: T2, T3 parallel
+  TaskUpdate(task-002, status: "in_progress")
+  TaskUpdate(task-003, status: "in_progress")
 
 [Agent "T2" completed]
-✓ T2: success (def5678)
+  TaskUpdate(task-002, status: "completed")
+  ✓ T2: success (def5678)
 
 [Agent "T3" completed]
-✓ T3: success (ghi9012)
+  TaskUpdate(task-003, status: "completed")
+  ✓ T3: success (ghi9012)
 
 Wave 2 complete (2/2). Context: 40%
 
@@ -515,11 +613,16 @@ Next: Run /df:verify to verify specs and merge to main
 ```
 /df:execute (context: 10%)
 
+Registering native tasks...
+  TaskCreate → T1 [SPIKE], T2, T3 (with dependencies)
+
 Wave 1: T1 [SPIKE] (context: 15%)
+  TaskUpdate(task-001, status: "in_progress")
   T1: complete, verifying...
 
 Verifying T1...
   ✗ Spike T1 failed verification (throughput 1500 < 7000)
+  # Spike stays pending — dependents remain blocked
   → upload--streaming--failed.md
 
 ⚠ Spike T1 invalidated hypothesis
@@ -533,12 +636,17 @@ Next: Run /df:plan to generate new hypothesis spike
 ```
 /df:execute (context: 10%)
 
+Registering native tasks...
+  TaskCreate → T1 [SPIKE], T2, T3 (with dependencies)
+
 Wave 1: T1 [SPIKE] (context: 15%)
+  TaskUpdate(task-001, status: "in_progress")
   T1: complete (agent said: success), verifying...
 
 Verifying T1...
   ✗ Spike T1 failed verification (throughput 1500 < 7000)
   ⚠ Agent incorrectly marked as passed — overriding to FAILED
+  TaskUpdate(task-001, status: "pending")  ← reset, dependents stay blocked
   → upload--streaming--failed.md
 
 ⚠ Spike T1 invalidated hypothesis

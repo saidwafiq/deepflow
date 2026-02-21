@@ -51,13 +51,20 @@ Report per spec: requirements count, acceptance count, quality issues.
 
 **If all pass:** Proceed to Post-Verification merge.
 
-**If issues found:** Add fix tasks to PLAN.md in the worktree and loop back to execute:
+**If issues found:** Add fix tasks to PLAN.md in the worktree and register as native tasks, then loop back to execute:
 
 1. Discover worktree (same logic as Post-Verification step 1)
 2. Write new fix tasks to `{worktree_path}/PLAN.md` under the existing spec section
    - Task IDs continue from last (e.g. if T9 was last, fixes start at T10)
    - Format: `- [ ] **T10**: Fix {description}` with `Files:` and details
-3. Output report + next step:
+3. Register fix tasks as native tasks for immediate tracking:
+   ```
+   For each fix task added:
+     TaskCreate(subject: "T10: Fix {description}", description: "...", activeForm: "Fixing {description}")
+     TaskUpdate(addBlockedBy: [...]) if dependencies exist
+   ```
+   This allows `/df:execute --continue` to find fix tasks via TaskList immediately.
+4. Output report + next step:
 
 ```
 done-upload.md: 4/4 reqs ✓, 3/5 acceptance ✗, 1 quality issue
