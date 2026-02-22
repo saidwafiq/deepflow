@@ -233,6 +233,30 @@ Open decisions:
 Next: Run /df:spec {name} to formalize into a specification
 ```
 
+### 6. CAPTURE DECISIONS
+
+Extract up to 4 candidate decisions from the synthesis (consensus points and resolved tensions). Present them via AskUserQuestion for confirmation:
+
+```python
+AskUserQuestion(
+  question="Which of these decisions from the debate should be recorded?",
+  multiSelect=True,
+  options=[
+    { label: "[APPROACH] {decision}", description: "{rationale}" },
+    # ... up to 4 candidates
+  ]
+)
+```
+
+For each confirmed decision, append to `.deepflow/decisions.md` (create if absent):
+
+```
+### {YYYY-MM-DD} — debate
+- [{TAG}] {decision text} — {rationale}
+```
+
+Tags: [APPROACH] for directional choices, [PROVISIONAL] for tentative ones, [ASSUMPTION] for unverified premises.
+
 ---
 
 ## Rules
