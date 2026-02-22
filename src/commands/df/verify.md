@@ -3,6 +3,8 @@
 ## Purpose
 Check that implemented code satisfies spec requirements and acceptance criteria.
 
+**NEVER:** use EnterPlanMode, use ExitPlanMode
+
 ## Usage
 ```
 /df:verify                  # Verify all done-* specs

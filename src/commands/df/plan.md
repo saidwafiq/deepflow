@@ -3,6 +3,8 @@
 ## Purpose
 Compare specs against codebase and past experiments. Generate prioritized tasks.
 
+**NEVER:** use EnterPlanMode, use ExitPlanMode — this command IS the planning phase; native plan mode conflicts with it
+
 ## Usage
 ```
 /df:plan                 # Plan all new specs

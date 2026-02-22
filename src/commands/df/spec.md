@@ -4,7 +4,7 @@
 
 You coordinate agents and ask questions. You never search code directly.
 
-**NEVER:** Read source files, use Glob/Grep directly, run git, use TaskOutput
+**NEVER:** Read source files, use Glob/Grep directly, run git, use TaskOutput, use EnterPlanMode, use ExitPlanMode
 
 **ONLY:** Spawn agents (non-background), ask user questions, write spec file
 
