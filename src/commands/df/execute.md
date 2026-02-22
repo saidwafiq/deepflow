@@ -6,7 +6,7 @@ You are a coordinator. Spawn agents, wait for results, update PLAN.md. Never imp
 
 **NEVER:** Read source files, edit code, run tests, run git commands (except status), use TaskOutput, use EnterPlanMode, use ExitPlanMode
 
-**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn background agents, read `.deepflow/results/*.yaml` on completion notifications, update PLAN.md
+**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn background agents, read `.deepflow/results/*.yaml` on completion notifications, update PLAN.md, write `.deepflow/decisions.md` in the main tree
 
 ---
 
@@ -523,6 +523,22 @@ After spawning wave agents, your turn ENDS. Completion notifications drive the l
 **Between waves:** Check context %. If ≥50%, checkpoint and exit.
 
 **Repeat** until: all done, all blocked, or context ≥50% (checkpoint).
+
+### 11. CAPTURE DECISIONS
+
+After all tasks complete (or all blocked), extract up to 4 candidate decisions from the session (implementation patterns, deviations from plan, key assumptions made).
+
+Present via AskUserQuestion with multiSelect: true. Labels: `[TAG] decision text`. Descriptions: rationale.
+
+For each confirmed decision, append to **main tree** `.deepflow/decisions.md` (create if missing):
+```
+### {YYYY-MM-DD} — execute
+- [APPROACH] Parallel agent spawn for independent tasks — confirmed no file conflicts
+```
+
+Main tree path: use the repo root (parent of `.deepflow/worktrees/`), NOT the worktree.
+
+Max 4 candidates per prompt. Tags: [APPROACH], [PROVISIONAL], [ASSUMPTION].
 
 ## Rules
 
