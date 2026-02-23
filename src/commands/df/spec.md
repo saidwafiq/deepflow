@@ -176,6 +176,18 @@ Acceptance criteria: {count}
 Next: Run /df:plan to generate tasks
 ```
 
+### 6. CAPTURE DECISIONS
+
+Extract up to 4 candidate decisions (requirements chosen, constraints accepted). Use `AskUserQuestion` with `multiSelect: true`:
+- `label`: `[APPROACH|PROVISIONAL|ASSUMPTION] <decision>`
+- `description`: rationale
+
+Append each confirmed selection to `.deepflow/decisions.md` (create if absent):
+```
+### {YYYY-MM-DD} — spec
+- [TAG] <decision> — <rationale>
+```
+
 ## Rules
 - **Orchestrator never searches** — Spawn agents for all codebase exploration
 - Do NOT generate spec if critical gaps remain

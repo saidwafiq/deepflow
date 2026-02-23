@@ -327,3 +327,17 @@ rm -f .deepflow/checkpoint.json
 
 Workflow complete! Ready for next feature: /df:spec <name>
 ```
+
+### 4. CAPTURE DECISIONS (success path only)
+
+Extract up to 4 candidate decisions (quality findings, patterns validated, lessons learned). Present via AskUserQuestion with `multiSelect: true`; tags: `[APPROACH]`, `[PROVISIONAL]`, `[ASSUMPTION]`.
+
+```
+AskUserQuestion(question: "Which decisions to record?", multiSelect: true,
+  options: [{ label: "[APPROACH] <decision>", description: "<rationale>" }, ...])
+```
+
+For each confirmed decision, append to `.deepflow/decisions.md` (create if missing):
+`### {YYYY-MM-DD} — verify` / `- [TAG] {decision text} — {rationale}`
+
+Skip if user confirms none or declines.

@@ -222,6 +222,17 @@ Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validatio
 
 `✓ Plan generated — {n} specs, {n} tasks. Run /df:execute`
 
+### 11. CAPTURE DECISIONS
+
+Extract up to 4 candidate decisions (approaches chosen, spike strategies, prioritization rationale). Present via AskUserQuestion with `multiSelect: true`. Each option: `label: "[TAG] <decision>"`, `description: "<rationale>"`. Tags: `[APPROACH]`, `[PROVISIONAL]`, `[ASSUMPTION]`.
+
+Append confirmed decisions to `.deepflow/decisions.md` (create if missing):
+```
+### {YYYY-MM-DD} — plan
+- [TAG] Decision text — rationale summary
+```
+If a decision contradicts a prior entry, add: `(supersedes: <prior text>)`
+
 ## Rules
 - **Never use TaskOutput** — Returns full transcripts that explode context
 - **Never use run_in_background for Explore agents** — Causes late notifications that pollute output
