@@ -235,27 +235,14 @@ Next: Run /df:spec {name} to formalize into a specification
 
 ### 6. CAPTURE DECISIONS
 
-Extract up to 4 candidate decisions from the synthesis (consensus points and resolved tensions). Present them via AskUserQuestion for confirmation:
+Extract up to 4 candidates from consensus/resolved tensions. Ask user via `AskUserQuestion(multiSelect=True)` with options like `{ label: "[APPROACH] {decision}", description: "{rationale}" }`.
 
-```python
-AskUserQuestion(
-  question="Which of these decisions from the debate should be recorded?",
-  multiSelect=True,
-  options=[
-    { label: "[APPROACH] {decision}", description: "{rationale}" },
-    # ... up to 4 candidates
-  ]
-)
-```
-
-For each confirmed decision, append to `.deepflow/decisions.md` (create if absent):
-
+For confirmed decisions, append to `.deepflow/decisions.md` (create if absent) using format:
 ```
 ### {YYYY-MM-DD} — debate
 - [{TAG}] {decision text} — {rationale}
 ```
-
-Tags: [APPROACH] for directional choices, [PROVISIONAL] for tentative ones, [ASSUMPTION] for unverified premises.
+Tags: [APPROACH] directional choices · [PROVISIONAL] tentative · [ASSUMPTION] unverified premises. If a new decision contradicts an existing one, note the conflict inline.
 
 ---
 
