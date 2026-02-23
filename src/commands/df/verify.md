@@ -330,24 +330,14 @@ Workflow complete! Ready for next feature: /df:spec <name>
 
 ### 4. CAPTURE DECISIONS (success path only)
 
-Extract up to 4 candidate decisions from this verify session (quality findings, patterns validated, lessons learned). Present via AskUserQuestion:
+Extract up to 4 candidate decisions (quality findings, patterns validated, lessons learned). Present via AskUserQuestion with `multiSelect: true`; tags: `[APPROACH]`, `[PROVISIONAL]`, `[ASSUMPTION]`.
 
 ```
-AskUserQuestion(
-  question: "Which decisions should be recorded from this verify session?",
-  multiSelect: true,
-  options: [
-    { label: "[APPROACH] <decision>", description: "<rationale>" },
-    ...  # up to 4 candidates
-  ]
-)
+AskUserQuestion(question: "Which decisions to record?", multiSelect: true,
+  options: [{ label: "[APPROACH] <decision>", description: "<rationale>" }, ...])
 ```
 
 For each confirmed decision, append to `.deepflow/decisions.md` (create if missing):
-
-```
-### {date} — verify
-- [TAG] {decision text} — {rationale}
-```
+`### {YYYY-MM-DD} — verify` / `- [TAG] {decision text} — {rationale}`
 
 Skip if user confirms none or declines.
