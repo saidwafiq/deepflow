@@ -4,9 +4,9 @@
 
 You coordinate reasoner agents to debate a problem from multiple perspectives, then synthesize their arguments into a structured document.
 
-**NEVER:** Read source files, use Glob/Grep directly, run git, use TaskOutput, use `run_in_background`, use Explore agents, use EnterPlanMode, use ExitPlanMode
+**NEVER:** use TaskOutput, use `run_in_background`, use Explore agents, use EnterPlanMode, use ExitPlanMode
 
-**ONLY:** Spawn reasoner agents (non-background), write debate file, respond conversationally
+**ONLY:** Gather codebase context (Glob/Grep/Read), spawn reasoner agents (non-background), write debate file, respond conversationally
 
 ---
 
@@ -43,12 +43,29 @@ The summary should capture:
 - Constraints and boundaries
 - User's stated preferences and priorities
 
-### 2. SPAWN PERSPECTIVES
+### 2. GATHER CODEBASE CONTEXT
+
+Before spawning perspectives, ground the debate in what actually exists. Use Glob, Grep, and Read to understand the current implementation relevant to the debate topic.
+
+**Steps:**
+1. **Glob** for files related to the topic (e.g., `**/*{topic}*`, `src/**/*.{ts,js,py}`)
+2. **Grep** for key terms, patterns, or interfaces mentioned in the conversation
+3. **Read** the most relevant files (up to 5-6 files — focus on core logic, not boilerplate)
+
+**Produce a ~300 word codebase summary covering:**
+- What already exists (implemented features, patterns, architecture)
+- Key interfaces, types, or contracts in play
+- Current limitations or technical debt visible in the code
+- Dependencies and integration points
+
+This codebase summary is appended to the context passed to every perspective agent, so they argue from facts rather than assumptions.
+
+### 3. SPAWN PERSPECTIVES
 
 **Spawn ALL 4 perspective agents in ONE message (non-background, parallel):**
 
-Each agent receives the same context summary but a different role. Each must:
-- Argue from their perspective
+Each agent receives the same context summary + codebase context but a different role. Each must:
+- Argue from their perspective, grounded in what the codebase actually does
 - Identify risks the other perspectives might miss
 - Propose concrete alternatives where they disagree with the likely approach
 
@@ -59,6 +76,9 @@ You are the USER ADVOCATE in a design debate.
 
 ## Context
 {summary}
+
+## Current Codebase
+{codebase_summary}
 
 ## Your Role
 Argue from the perspective of the end user. Focus on:
@@ -81,6 +101,9 @@ You are the TECH SKEPTIC in a design debate.
 ## Context
 {summary}
 
+## Current Codebase
+{codebase_summary}
+
 ## Your Role
 Challenge technical assumptions and surface hidden complexity. Focus on:
 - What could go wrong technically
@@ -101,6 +124,9 @@ You are the SYSTEMS THINKER in a design debate.
 
 ## Context
 {summary}
+
+## Current Codebase
+{codebase_summary}
 
 ## Your Role
 Analyze how this fits into the broader system. Focus on:
@@ -123,6 +149,9 @@ You are the LLM EFFICIENCY expert in a design debate.
 ## Context
 {summary}
 
+## Current Codebase
+{codebase_summary}
+
 ## Your Role
 Evaluate from the perspective of LLM consumption and interaction. Focus on:
 - Token density: can the output be consumed efficiently by LLMs?
@@ -139,7 +168,7 @@ Keep response under 400 words.
 """)
 ```
 
-### 3. SYNTHESIZE
+### 4. SYNTHESIZE
 
 After all 4 perspectives return, spawn 1 additional reasoner to synthesize:
 
@@ -176,7 +205,7 @@ Keep response under 500 words.
 """)
 ```
 
-### 4. WRITE DEBATE FILE
+### 5. WRITE DEBATE FILE
 
 Create `specs/.debate-{name}.md`:
 
@@ -185,6 +214,9 @@ Create `specs/.debate-{name}.md`:
 
 ## Context
 [~200 word summary from step 1]
+
+## Codebase Context
+[~300 word summary from step 2 — what exists, key patterns, limitations]
 
 ## Perspectives
 
@@ -215,7 +247,7 @@ Create `specs/.debate-{name}.md`:
 [from synthesizer]
 ```
 
-### 5. CONFIRM
+### 6. CONFIRM
 
 After writing the file, present a brief summary to the user:
 
@@ -233,7 +265,7 @@ Open decisions:
 Next: Run /df:spec {name} to formalize into a specification
 ```
 
-### 6. CAPTURE DECISIONS
+### 7. CAPTURE DECISIONS
 
 Extract up to 4 candidates from consensus/resolved tensions. Ask user via `AskUserQuestion(multiSelect=True)` with options like `{ label: "[APPROACH] {decision}", description: "{rationale}" }`.
 
@@ -251,9 +283,9 @@ Tags: [APPROACH] directional choices · [PROVISIONAL] tentative · [ASSUMPTION] 
 - **All 4 perspective agents MUST be spawned in ONE message** (parallel, non-background)
 - **NEVER use `run_in_background`** — causes late notifications that pollute output
 - **NEVER use TaskOutput** — returns full transcripts that explode context
-- **NEVER use Explore agents** — this command doesn't read code
-- **NEVER read source files directly** — agents receive context via prompt only
-- Reasoner agents receive context through their prompt, not by reading files
+- **NEVER use Explore agents** — the orchestrator gathers context directly
+- **Codebase context is gathered by the orchestrator** (step 2) and passed to agents via prompt
+- Reasoner agents receive context through their prompt, not by reading files themselves
 - The debate file goes in `specs/` so `/df:spec` can reference it
 - File name MUST be `.debate-{name}.md` (dot prefix = auxiliary file)
 - Keep each perspective under 400 words, synthesis under 500 words
@@ -263,13 +295,16 @@ Tags: [APPROACH] directional choices · [PROVISIONAL] tentative · [ASSUMPTION] 
 ```
 USER: /df:debate auth
 
-CLAUDE: Let me summarize what we've discussed and get multiple perspectives
-on the authentication design.
+CLAUDE: Let me summarize what we've discussed and understand the current
+codebase before getting multiple perspectives on the authentication design.
 
 [Summarizes: ~200 words about auth requirements from conversation]
 
-[Spawns 4 reasoner agents in parallel — User Advocate, Tech Skeptic,
-Systems Thinker, LLM Efficiency]
+[Globs/Greps/Reads relevant auth files — middleware, routes, config]
+
+[Produces ~300 word codebase summary of what exists]
+
+[Spawns 4 reasoner agents in parallel — each receives both summaries]
 
 [All 4 return their arguments]
 
