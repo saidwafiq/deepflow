@@ -210,19 +210,36 @@ Test risky assumptions before finalizing plan.
 
 **Skip:** Well-known patterns, simple CRUD, clear docs exist
 
-### 8. OUTPUT PLAN.md
+### 8. CLEANUP PLAN.md
+
+Before writing new tasks, prune stale sections:
+
+```
+For each ### section in PLAN.md:
+  Extract spec name from header (e.g. "doing-upload" or "done-upload")
+  If specs/done-{name}.md exists:
+    → Remove the ENTIRE section: header, tasks, execution summary, fix tasks, separators
+  If header references a spec with no matching specs/doing-*.md or specs/done-*.md:
+    → Remove it (orphaned section)
+```
+
+Also recalculate the Summary table (specs analyzed, tasks created/completed/pending) to reflect only remaining sections.
+
+If PLAN.md becomes empty after cleanup, delete the file and recreate fresh.
+
+### 9. OUTPUT PLAN.md
 
 Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validation findings.
 
-### 9. RENAME SPECS
+### 10. RENAME SPECS
 
 `mv specs/feature.md specs/doing-feature.md`
 
-### 10. REPORT
+### 11. REPORT
 
 `✓ Plan generated — {n} specs, {n} tasks. Run /df:execute`
 
-### 11. CAPTURE DECISIONS
+### 12. CAPTURE DECISIONS
 
 Extract up to 4 candidate decisions (approaches chosen, spike strategies, prioritization rationale). Present via AskUserQuestion with `multiSelect: true`. Each option: `label: "[TAG] <decision>"`, `description: "<rationale>"`. Tags: `[APPROACH]`, `[PROVISIONAL]`, `[ASSUMPTION]`.
 

@@ -7,9 +7,9 @@ Check that implemented code satisfies spec requirements and acceptance criteria.
 
 ## Usage
 ```
-/df:verify                  # Verify all done-* specs
-/df:verify --doing          # Also verify in-progress specs
-/df:verify done-upload      # Verify specific spec
+/df:verify                  # Verify doing-* specs with all tasks completed
+/df:verify doing-upload     # Verify specific spec
+/df:verify --re-verify      # Re-verify done-* specs (already merged)
 ```
 
 ## Skills & Agents
@@ -25,8 +25,8 @@ Check that implemented code satisfies spec requirements and acceptance criteria.
 ```
 specs/
   feature.md        → Unplanned (skip)
-  doing-auth.md     → In progress (verify with --doing)
-  done-upload.md    → Completed (default verify target)
+  doing-auth.md     → Executed, ready for verification (default target)
+  done-upload.md    → Already verified and merged (--re-verify only)
 ```
 
 ## Behavior
@@ -35,12 +35,17 @@ specs/
 
 ```
 Load:
-- specs/done-*.md (completed specs to verify)
-- specs/doing-*.md (if --doing flag)
+- specs/doing-*.md (primary verify targets)
+- PLAN.md (check task completion status)
+- specs/done-*.md (only if --re-verify flag)
 - Source code (actual implementation)
 ```
 
-If no done-* specs: report counts, suggest `--doing`.
+**Readiness check:** For each `doing-*` spec, check PLAN.md:
+- All tasks `[x]` → ready for verification (proceed)
+- Some tasks `[ ]` → not ready, warn: "⚠ {spec} has {n} incomplete tasks. Run /df:execute first."
+
+If no `doing-*` specs found: report counts, suggest `/df:execute`.
 
 ### 1.5. DETECT PROJECT COMMANDS
 
@@ -225,15 +230,21 @@ Scale: 1-2 agents per spec, cap 10.
 ```
 /df:verify
 
+Checking doing-* specs...
+  doing-upload.md: all tasks [x] ✓ (ready)
+  doing-auth.md: all tasks [x] ✓ (ready)
+
 Build: npm run build | Test: npm test
 
-done-upload.md: L0 ✓ | 4/4 reqs ✓, 5/5 acceptance ✓ | L4 ✓ (12 tests) | 0 quality issues
-done-auth.md: L0 ✓ | 2/2 reqs ✓, 3/3 acceptance ✓ | L4 ✓ (8 tests) | 0 quality issues
+doing-upload.md: L0 ✓ | 4/4 reqs ✓, 5/5 acceptance ✓ | L4 ✓ (12 tests) | 0 quality issues
+doing-auth.md: L0 ✓ | 2/2 reqs ✓, 3/3 acceptance ✓ | L4 ✓ (8 tests) | 0 quality issues
 
 ✓ All gates passed
 
 ✓ Merged df/upload to main
 ✓ Cleaned up worktree and branch
+✓ doing-upload → done-upload
+✓ doing-auth → done-auth
 
 Learnings captured:
   → experiments/perf--streaming-upload--success.md
@@ -241,7 +252,10 @@ Learnings captured:
 
 ### Issues found → fix tasks added
 ```
-/df:verify --doing
+/df:verify
+
+Checking doing-* specs...
+  doing-upload.md: all tasks [x] ✓ (ready)
 
 Build: npm run build | Test: npm test
 

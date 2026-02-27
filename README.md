@@ -41,29 +41,39 @@ npx deepflow --uninstall
 # In your project
 claude
 
-# 1. Discuss what you want to build
-# 2. Generate spec when ready
+# 1. Explore the problem space
+/df:discover image-upload
+
+# 2. Debate tradeoffs (optional)
+/df:debate upload-strategy
+
+# 3. Generate spec from conversation
 /df:spec image-upload
 
-# 3. Compare specs to code, generate tasks
+# 4. Compare specs to code, generate tasks
 /df:plan
 
-# 4. Execute tasks with parallel agents
+# 5. Execute tasks with parallel agents
 /df:execute
 
-# 5. Verify specs are satisfied
+# 6. Verify specs are satisfied
 /df:verify
 ```
 
 ## The Flow
 
 ```
-CONVERSATION
-    │ Describe what you want
-    │ LLM asks gap questions
+/df:discover <name>
+    │ Socratic questioning (motivation, scope, constraints...)
+    │ Captures decisions to .deepflow/decisions.md
+    ▼
+/df:debate <topic>          ← optional
+    │ 4 perspectives: User Advocate, Tech Skeptic,
+    │   Systems Thinker, LLM Efficiency
+    │ Creates specs/.debate-{topic}.md
     ▼
 /df:spec <name>
-    │ Creates specs/{name}.md
+    │ Creates specs/{name}.md from conversation
     ▼
 /df:plan
     │ Checks past experiments (learn from failures)
@@ -130,10 +140,14 @@ Statusline shows context usage. At ≥50%:
 
 | Command | Purpose |
 |---------|---------|
+| `/df:discover <name>` | Explore problem space with Socratic questioning |
+| `/df:debate <topic>` | Multi-perspective analysis (4 agents) |
 | `/df:spec <name>` | Generate spec from conversation |
 | `/df:plan` | Compare specs to code, create tasks |
 | `/df:execute` | Run tasks with parallel agents |
 | `/df:verify` | Check specs satisfied |
+| `/df:note` | Capture decisions from conversation |
+| `/df:resume` | Session continuity briefing |
 | `/df:update` | Update deepflow to latest |
 
 ## File Structure
@@ -147,6 +161,7 @@ your-project/
 ├── PLAN.md               # active tasks
 └── .deepflow/
     ├── config.yaml       # project settings
+    ├── decisions.md      # captured decisions (/df:note, /df:discover)
     ├── context.json      # context % tracking
     ├── experiments/      # spike results (pass/fail)
     └── worktrees/        # isolated execution

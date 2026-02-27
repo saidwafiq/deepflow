@@ -302,6 +302,8 @@ TaskUpdate(taskId: native_id, status: "in_progress")
 ```
 This activates the UI spinner showing the task's activeForm (e.g. "Creating upload endpoint").
 
+**NEVER use `isolation: "worktree"` on Task tool calls.** Deepflow manages a shared worktree per spec (`.deepflow/worktrees/{spec}/`) so wave 2 agents see wave 1 commits. Claude Code's native isolation creates separate per-agent worktrees (`.claude/worktrees/`) where agents can't see each other's work.
+
 **CRITICAL: Spawn ALL ready tasks in a SINGLE response with MULTIPLE Task tool calls.**
 
 DO NOT spawn one task, wait, then spawn another. Instead, call Task tool multiple times in the SAME message block. This enables true parallelism.
@@ -498,9 +500,15 @@ To discard and start fresh:
 ### 9. COMPLETE SPECS
 
 When all tasks done for a `doing-*` spec:
-1. Embed history in spec: `## Completed` section
+1. Embed history in spec: `## Completed` section with task list and commit hashes
 2. Rename: `doing-upload.md` → `done-upload.md`
-3. Remove section from PLAN.md
+3. Remove the spec's ENTIRE section from PLAN.md:
+   - The `### doing-{spec}` header
+   - All task entries (`- [x] **T{n}**: ...` and their sub-items)
+   - Any `## Execution Summary` block for that spec
+   - Any `### Fix Tasks` sub-section for that spec
+   - Separators (`---`) between removed sections
+4. Recalculate the Summary table at the top of PLAN.md (update counts for completed/pending)
 
 ### 10. ITERATE (Notification-Driven)
 
