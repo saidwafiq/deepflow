@@ -17,17 +17,11 @@ Compare specs against codebase and past experiments. Generate prioritized tasks.
 
 ## Spec File States
 
-```
-specs/
-  feature.md        → New, needs planning (this command reads these)
-  doing-auth.md     → In progress, has tasks in PLAN.md
-  done-payments.md  → Completed, history embedded
-```
-
-**Filtering:**
-- New: `specs/*.md` excluding `doing-*` and `done-*`
-- In progress: `specs/doing-*.md`
-- Completed: `specs/done-*.md`
+| Prefix | State | Action |
+|--------|-------|--------|
+| (none) | New | Plan this |
+| `doing-` | In progress | Skip |
+| `done-` | Completed | Skip |
 
 ## Behavior
 
@@ -83,20 +77,7 @@ Include patterns in task descriptions for agents to follow.
 
 ### 4. ANALYZE CODEBASE
 
-**NEVER use `run_in_background` for Explore agents** — causes late "Agent completed" notifications that pollute output after work is done.
-
-**NEVER use TaskOutput** — returns full agent transcripts (100KB+) that explode context.
-
-**Spawn ALL Explore agents in ONE message (non-background, parallel):**
-
-```python
-# All in single message — runs in parallel, blocks until all complete:
-Task(subagent_type="Explore", model="haiku", prompt="Find: ...")
-Task(subagent_type="Explore", model="haiku", prompt="Find: ...")
-Task(subagent_type="Explore", model="haiku", prompt="Find: ...")
-# Each returns agent's final message only (not full transcript)
-# No late notifications — agents complete before orchestrator proceeds
-```
+Follow `templates/explore-agent.md` for spawn rules, prompt structure, and scope restrictions.
 
 Scale agent count based on codebase size:
 
@@ -107,35 +88,6 @@ Scale agent count based on codebase size:
 | 100-500 | 25-40 |
 | 500+ | 50-100 (cap) |
 
-**Explore Agent Prompt Structure:**
-```
-Find: [specific question]
-
-Return ONLY:
-- File paths matching criteria
-- One-line description per file
-- Integration points (if asked)
-
-DO NOT:
-- Read or summarize spec files
-- Make recommendations
-- Propose solutions
-- Generate tables or lengthy explanations
-
-Max response: 500 tokens (configurable via .deepflow/config.yaml explore.max_tokens)
-```
-
-**Explore Agent Scope Restrictions:**
-- MUST only report factual findings:
-  - Files found
-  - Patterns/conventions observed
-  - Integration points
-- MUST NOT:
-  - Make recommendations
-  - Propose architectures
-  - Read and summarize specs (that's orchestrator's job)
-  - Draw conclusions about what should be built
-
 **Use `code-completeness` skill patterns** to search for:
 - Implementations matching spec requirements
 - TODO, FIXME, HACK comments
@@ -144,28 +96,9 @@ Max response: 500 tokens (configurable via .deepflow/config.yaml explore.max_tok
 
 ### 5. COMPARE & PRIORITIZE
 
-**Use Task tool to spawn reasoner agent:**
-```
-Task tool parameters:
-- subagent_type: "reasoner"
-- model: "opus"
-```
+Spawn `Task(subagent_type="reasoner", model="opus")`. Reasoner maps each requirement to DONE / PARTIAL / MISSING / CONFLICT. Flag spec gaps; don't silently assume.
 
-Reasoner performs analysis:
-
-| Status | Action |
-|--------|--------|
-| DONE | Skip |
-| PARTIAL | Task to complete |
-| MISSING | Task to implement |
-| CONFLICT | Flag for review |
-
-**Spec gaps:** If spec is ambiguous or missing details, note in output (don't silently assume).
-
-**Priority order:**
-1. Dependencies — blockers first
-2. Impact — core features before enhancements
-3. Risk — unknowns early
+**Priority order:** Dependencies → Impact → Risk
 
 ### 6. GENERATE SPIKE TASKS (IF NEEDED)
 
@@ -186,29 +119,11 @@ Reasoner performs analysis:
   - Blocked by: none
 ```
 
-**Blocking Logic:**
-- All implementation tasks MUST have `Blocked by: T{spike}` until spike passes
-- After spike completes:
-  - If passed: Update experiment to `--passed.md`, unblock implementation tasks
-  - If failed: Update experiment to `--failed.md`, DO NOT generate implementation tasks
-
-**Full Implementation Only After Spike:**
-- Only generate full task list when spike validates the approach
-- Never generate 10-task waterfall without validated hypothesis
+**Blocking Logic:** All implementation tasks MUST have `Blocked by: T{spike}` until spike passes. If spike fails: update to `--failed.md`, DO NOT generate implementation tasks.
 
 ### 7. VALIDATE HYPOTHESES
 
-Test risky assumptions before finalizing plan.
-
-**Validate when:** Unfamiliar APIs, multiple approaches possible, external integrations, performance-critical
-
-**Process:**
-1. Prototype in scratchpad (not committed)
-2. Test assumption
-3. If fails → Write `.deepflow/experiments/{topic}--{hypothesis}--failed.md`
-4. Adjust approach, document in task
-
-**Skip:** Well-known patterns, simple CRUD, clear docs exist
+For unfamiliar APIs, ambiguous approaches, or performance-critical work: prototype in scratchpad (not committed). If assumption fails, write `.deepflow/experiments/{topic}--{hypothesis}--failed.md`. Skip for well-known patterns/simple CRUD.
 
 ### 8. CLEANUP PLAN.md
 
@@ -241,28 +156,16 @@ Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validatio
 
 ### 12. CAPTURE DECISIONS
 
-Extract up to 4 candidate decisions (approaches chosen, spike strategies, prioritization rationale). Present via AskUserQuestion with `multiSelect: true`. Each option: `label: "[TAG] <decision>"`, `description: "<rationale>"`. Tags: `[APPROACH]`, `[PROVISIONAL]`, `[ASSUMPTION]`.
-
-Append confirmed decisions to `.deepflow/decisions.md` (create if missing):
-```
-### {YYYY-MM-DD} — plan
-- [TAG] Decision text — rationale summary
-```
-If a decision contradicts a prior entry, add: `(supersedes: <prior text>)`
+Follow the **default** variant from `templates/decision-capture.md`. Command name: `plan`.
 
 ## Rules
-- **Never use TaskOutput** — Returns full transcripts that explode context
-- **Never use run_in_background for Explore agents** — Causes late notifications that pollute output
 - **Spike-first** — Generate spike task before full implementation if no `--passed.md` experiment exists
 - **Block on spike** — Full implementation tasks MUST be blocked by spike validation
 - **Learn from failures** — Extract "next hypothesis" from failed experiments, never repeat same approach
-- **Learn from history** — Check past experiments before proposing approaches
-- **Plan only** — Do NOT implement anything (except quick validation prototypes)
-- **Validate before commit** — Test risky assumptions with minimal experiments
+- **Plan only** — Do NOT implement (except quick validation prototypes)
 - **Confirm before assume** — Search code before marking "missing"
 - **One task = one logical unit** — Atomic, committable
-- Prefer existing utilities over new code
-- Flag spec gaps, don't silently ignore
+- Prefer existing utilities over new code; flag spec gaps
 
 ## Agent Scaling
 
@@ -271,7 +174,7 @@ If a decision contradicts a prior entry, add: `(supersedes: <prior text>)`
 | Explore (search) | haiku | 10 | +1 per 20 files |
 | Reasoner (analyze) | opus | 5 | +1 per 2 specs |
 
-**IMPORTANT**: Always use the `Task` tool with explicit `subagent_type` and `model` parameters. Do NOT use Glob/Grep/Read directly for codebase analysis - spawn agents instead.
+Always use the `Task` tool with explicit `subagent_type` and `model`. Do NOT use Glob/Grep/Read directly.
 
 ## Example
 
