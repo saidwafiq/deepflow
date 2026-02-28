@@ -31,63 +31,17 @@ Transform conversation context into a structured specification file.
 
 ### 1. GATHER CODEBASE CONTEXT
 
-**Check for debate file first:** If `specs/.debate-{name}.md` exists, read it using the Read tool. Pass its content (especially the Synthesis section) to the reasoner agent in step 3 as additional context. The debate file contains multi-perspective analysis that should inform requirements and constraints.
+**Check for debate file first:** If `specs/.debate-{name}.md` exists, read it using the Read tool. Pass its content (especially the Synthesis section) to the reasoner agent in step 3 as additional context.
 
-**NEVER use `run_in_background` for Explore agents** — causes late "Agent completed" notifications that pollute output after work is done.
+Follow `templates/explore-agent.md` for spawn rules, prompt structure, and scope restrictions.
 
-**NEVER use TaskOutput** — returns full agent transcripts (100KB+) that explode context.
-
-**Spawn ALL Explore agents in ONE message (non-background, parallel):**
-
-```python
-# All in single message — runs in parallel, blocks until all complete:
-Task(subagent_type="Explore", model="haiku", prompt="Find: ...")
-Task(subagent_type="Explore", model="haiku", prompt="Find: ...")
-Task(subagent_type="Explore", model="haiku", prompt="Find: ...")
-# Each returns agent's final message only (not full transcript)
-# No late notifications — agents complete before orchestrator proceeds
-```
-
-Find:
-- Related existing implementations
-- Code patterns and conventions
-- Integration points relevant to the feature
-- Existing TODOs or placeholders in related areas
+Find: related implementations, code patterns/conventions, integration points, existing TODOs.
 
 | Codebase Size | Agents |
 |---------------|--------|
 | <20 files | 2-3 |
 | 20-100 | 5-8 |
 | 100+ | 10-15 |
-
-**Explore Agent Prompt Structure:**
-```
-Find: [specific question]
-
-Return ONLY:
-- File paths matching criteria
-- One-line description per file
-- Integration points (if asked)
-
-DO NOT:
-- Read or summarize spec files
-- Make recommendations
-- Propose solutions
-- Generate tables or lengthy explanations
-
-Max response: 500 tokens (configurable via .deepflow/config.yaml explore.max_tokens)
-```
-
-**Explore Agent Scope Restrictions:**
-- MUST only report factual findings:
-  - Files found
-  - Patterns/conventions observed
-  - Integration points
-- MUST NOT:
-  - Make recommendations
-  - Propose architectures
-  - Read and summarize specs (that's orchestrator's job)
-  - Draw conclusions about what should be built
 
 ### 2. GAP CHECK
 Use the `gap-discovery` skill to analyze conversation + agent findings.
@@ -178,15 +132,7 @@ Next: Run /df:plan to generate tasks
 
 ### 6. CAPTURE DECISIONS
 
-Extract up to 4 candidate decisions (requirements chosen, constraints accepted). Use `AskUserQuestion` with `multiSelect: true`:
-- `label`: `[APPROACH|PROVISIONAL|ASSUMPTION] <decision>`
-- `description`: rationale
-
-Append each confirmed selection to `.deepflow/decisions.md` (create if absent):
-```
-### {YYYY-MM-DD} — spec
-- [TAG] <decision> — <rationale>
-```
+Follow the **default** variant from `templates/decision-capture.md`. Command name: `spec`.
 
 ## Rules
 - **Orchestrator never searches** — Spawn agents for all codebase exploration

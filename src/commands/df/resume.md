@@ -93,13 +93,7 @@ Word count target: 200-500 words. Do not pad. Do not truncate important informat
 
 ## Rules
 
-- **NEVER write any file** — not decisions.md, not PLAN.md, not any new file
-- **NEVER use AskUserQuestion** — this command is read-only, no interaction
-- **NEVER spawn agents** — read directly using Bash (git log) and Read tool
-- **NEVER use TaskOutput** — returns full transcripts that explode context
-- **NEVER use EnterPlanMode or ExitPlanMode**
 - Read sources in a single pass — do not loop or re-read
-- If a source file is missing, skip it and note it only if relevant
 - Contradicted decisions: show newest entry per topic only
 - Token budget: stay within ~2500 tokens of input to produce ~500 words of output
 

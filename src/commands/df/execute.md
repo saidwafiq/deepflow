@@ -62,36 +62,7 @@ Each task = one background agent. Use agent completion notifications as the feed
       - Yes → proceed to next wave or write final summary
 ```
 
-**CRITICAL: After spawning agents, your turn ENDS. Do NOT:**
-- Run Bash commands to poll/monitor
-- Try to read result files before notifications arrive
-- Write summaries before all wave agents complete
-
-**On notification, respond briefly:**
-- ONE line per completed agent: "✓ T1: success (abc123)"
-- Only write full summary after ALL wave agents complete
-- Do NOT repeat the full execution status on every notification
-
-```python
-# Step 1: Spawn wave (ONE message, then STOP)
-Task(subagent_type="general-purpose", model="sonnet", run_in_background=True, prompt="T1: ...")
-Task(subagent_type="general-purpose", model="sonnet", run_in_background=True, prompt="T2: ...")
-Task(subagent_type="general-purpose", model="sonnet", run_in_background=True, prompt="T3: ...")
-# Turn ends here. Wait for notifications.
-
-# Step 2: On "Agent T1 completed" notification:
-Read("{worktree}/.deepflow/results/T1.yaml")
-# Output: "✓ T1: success (abc123)" — then STOP, wait for next
-
-# Step 3: On "Agent T2 completed" notification:
-Read("{worktree}/.deepflow/results/T2.yaml")
-# Output: "✓ T2: success (def456)" — then STOP, wait for next
-
-# Step 4: On "Agent T3 completed" notification (last one):
-Read("{worktree}/.deepflow/results/T3.yaml")
-# Output: "✓ T3: success (ghi789)"
-# All done → proceed to next wave or final summary
-```
+After spawning, your turn ENDS. Per notification: read result file, output ONE line ("✓ T1: success (abc123)"), update PLAN.md. Write full summary only after ALL wave agents complete.
 
 Result file `.deepflow/results/{task_id}.yaml`:
 ```yaml
@@ -145,10 +116,8 @@ experiment_file: ".deepflow/experiments/upload--streaming--failed.md"
 }
 ```
 
-Note: `completed_tasks` is kept for backward compatibility but is now derivable from PLAN.md `[x]` entries. The native task system (TaskList) is the primary source for runtime task status.
-
 **On checkpoint:** Complete wave → update PLAN.md → save to worktree → exit.
-**Resume:** `--continue` loads checkpoint, verifies worktree, skips completed tasks. Native tasks are re-registered for remaining `[ ]` items only.
+**Resume:** `--continue` loads checkpoint, verifies worktree, skips completed tasks.
 
 ## Behavior
 
@@ -200,27 +169,7 @@ If missing: "No PLAN.md found. Run /df:plan first."
 
 ### 2.5. REGISTER NATIVE TASKS
 
-Parse PLAN.md and create native tasks for tracking, dependency management, and UI spinners.
-
-**For each uncompleted task (`[ ]`) in PLAN.md:**
-
-```
-1. TaskCreate:
-   - subject: "{task_id}: {description}" (e.g. "T1: Create upload endpoint")
-   - description: Full task block from PLAN.md (files, blocked by, type, etc.)
-   - activeForm: "{gerund form of description}" (e.g. "Creating upload endpoint")
-
-2. Store mapping: PLAN.md task_id (T1) → native task ID
-```
-
-**After all tasks created, set up dependencies:**
-
-```
-For each task with "Blocked by: T{n}, T{m}":
-  TaskUpdate(taskId: native_id, addBlockedBy: [native_id_of_Tn, native_id_of_Tm])
-```
-
-**On `--continue`:** Only create tasks for remaining `[ ]` items (skip `[x]` completed).
+For each `[ ]` task in PLAN.md: `TaskCreate(subject: "{task_id}: {description}", activeForm: "{gerund}", description: full block)`. Store task_id → native ID mapping. Then set dependencies: `TaskUpdate(addBlockedBy: [...])` for each "Blocked by:" entry. On `--continue`: only register remaining `[ ]` items.
 
 ### 3. CHECK FOR UNPLANNED SPECS
 
@@ -304,24 +253,7 @@ This activates the UI spinner showing the task's activeForm (e.g. "Creating uplo
 
 **NEVER use `isolation: "worktree"` on Task tool calls.** Deepflow manages a shared worktree per spec (`.deepflow/worktrees/{spec}/`) so wave 2 agents see wave 1 commits. Claude Code's native isolation creates separate per-agent worktrees (`.claude/worktrees/`) where agents can't see each other's work.
 
-**CRITICAL: Spawn ALL ready tasks in a SINGLE response with MULTIPLE Task tool calls.**
-
-DO NOT spawn one task, wait, then spawn another. Instead, call Task tool multiple times in the SAME message block. This enables true parallelism.
-
-Example: If T1, T2, T3 are ready, send ONE message containing THREE Task tool invocations:
-
-```
-// In a SINGLE assistant message, invoke Task with run_in_background=true:
-Task(subagent_type="general-purpose", model="sonnet", run_in_background=true, prompt="T1: ...")
-Task(subagent_type="general-purpose", model="sonnet", run_in_background=true, prompt="T2: ...")
-Task(subagent_type="general-purpose", model="sonnet", run_in_background=true, prompt="T3: ...")
-// Turn ends here. Wait for completion notifications.
-```
-
-**WRONG (sequential):** Send message with Task for T1 → wait → send message with Task for T2 → wait → ...
-**RIGHT (parallel):** Send ONE message with Task for T1, T2, T3 all together, then STOP
-
-Same-file conflicts: spawn sequentially instead.
+**Spawn ALL ready tasks in ONE message** with multiple Task tool calls (true parallelism). Same-file conflicts: spawn sequentially.
 
 **Spike Task Execution:**
 When spawning a spike task, the agent MUST:
@@ -380,66 +312,46 @@ VERIFIED_PASS →
 
 VERIFIED_FAIL →
   # Spike task stays as pending, dependents remain blocked
-  # No TaskUpdate needed — native system keeps them blocked
   Log "✗ Spike {task_id} failed verification"
   If override: log "⚠ Agent incorrectly marked as passed"
 ```
 
-**On failure, use Task tool to spawn reasoner:**
-```
-Task tool parameters:
-- subagent_type: "reasoner"
-- model: "opus"
-- prompt: "Debug failure: {error details}"
-```
+On task failure: spawn `Task(subagent_type="reasoner", model="opus", prompt="Debug failure: {error details}")`.
 
 ### 7. PER-TASK (agent prompt)
 
-**Standard Task:**
+**Common preamble (include in all agent prompts):**
+```
+Working directory: {worktree_absolute_path}
+All file operations MUST use this absolute path as base. Do NOT write files to the main project directory.
+Commit format: {commit_type}({spec}): {description}
+Result file: {worktree_absolute_path}/.deepflow/results/{task_id}.yaml
+
+STOP after writing the result file. Do NOT merge branches, rename spec files, remove worktrees, or run git checkout on main. These are handled by the orchestrator and /df:verify.
+```
+
+**Standard Task (append after preamble):**
 ```
 {task_id}: {description from PLAN.md}
 Files: {target files}
 Spec: {spec_name}
 
-**IMPORTANT: Working Directory**
-All file operations MUST use this absolute path as base:
-{worktree_absolute_path}
-
-Example: To edit src/foo.ts, use:
-{worktree_absolute_path}/src/foo.ts
-
-Do NOT write files to the main project directory.
-
 Steps:
 1. Implement the task
-2. Detect test command: check for package.json (npm test), pyproject.toml (pytest),
-   Cargo.toml (cargo test), go.mod (go test ./...), or Makefile (make test)
-3. Run tests if test infrastructure exists:
-   - Run the detected test command
-   - If tests fail: fix the code and re-run until passing
-   - Do NOT commit with failing tests
-4. If NO test infrastructure: set tests_ran: false in result file
-5. Commit as feat({spec}): {description}
-6. Write result file with ALL fields including test evidence (see schema):
-   {worktree_absolute_path}/.deepflow/results/{task_id}.yaml
-
-**STOP after writing the result file. Do NOT:**
-- Merge branches or cherry-pick commits
-- Rename or move spec files (doing-* → done-*)
-- Remove worktrees or delete branches
-- Run git checkout on main
-These are handled by the orchestrator and /df:verify.
+2. Detect and run the project's test command if test infrastructure exists
+   - If tests fail: fix and re-run until passing. Do NOT commit with failing tests
+   - If NO test infrastructure: set tests_ran: false in result file
+3. Commit as feat({spec}): {description}
+4. Write result file with ALL fields including test evidence (see schema)
 ```
 
-**Spike Task:**
+**Spike Task (append after preamble):**
 ```
 {task_id} [SPIKE]: {hypothesis}
 Type: spike
 Method: {minimal steps}
 Success criteria: {measurable targets}
 Experiment file: {worktree_absolute_path}/.deepflow/experiments/{topic}--{hypothesis}--active.md
-
-Working directory: {worktree_absolute_path}
 
 Steps:
 1. Execute method
@@ -455,47 +367,13 @@ Rules:
 - Worse than baseline = FAILED (baseline 7k, actual 1.5k → FAILED)
 - "Close enough" = FAILED
 - Verifier will check. False positives waste resources.
-- STOP after writing result file. Do NOT merge, rename specs, or clean up worktrees.
 ```
 
 ### 8. FAILURE HANDLING
 
 When a task fails and cannot be auto-fixed:
 
-**Native task update:**
-```
-TaskUpdate(taskId: native_id, status: "pending")  # Reset to pending, not deleted
-```
-This keeps the task visible for retry. Dependent tasks remain blocked.
-
-**Behavior:**
-1. Leave worktree intact at `{worktree_path}`
-2. Keep checkpoint.json for potential resume
-3. Output debugging instructions
-
-**Output:**
-```
-✗ Task T3 failed after retry
-
-Worktree preserved for debugging:
-  Path: .deepflow/worktrees/upload
-  Branch: df/upload
-
-To investigate:
-  cd .deepflow/worktrees/upload
-  # examine files, run tests, etc.
-
-To resume after fixing:
-  /df:execute --continue
-
-To discard and start fresh:
-  /df:execute --fresh
-```
-
-**Key points:**
-- Never auto-delete worktree on failure (cleanup_on_fail: false by default)
-- Always provide the exact cleanup commands
-- Checkpoint remains so --continue can work after manual fix
+`TaskUpdate(taskId: native_id, status: "pending")` — keeps task visible for retry; dependents remain blocked. Leave worktree intact, keep checkpoint.json, output: worktree path/branch, `cd {worktree_path}` to investigate, `/df:execute --continue` to resume, `/df:execute --fresh` to discard.
 
 ### 9. COMPLETE SPECS
 
@@ -513,8 +391,6 @@ When all tasks done for a `doing-*` spec:
 ### 10. ITERATE (Notification-Driven)
 
 After spawning wave agents, your turn ENDS. Completion notifications drive the loop.
-
-**NEVER use TaskOutput** — it explodes context.
 
 **Per notification:**
 1. Read result file for the completed agent
@@ -534,19 +410,7 @@ After spawning wave agents, your turn ENDS. Completion notifications drive the l
 
 ### 11. CAPTURE DECISIONS
 
-After all tasks complete (or all blocked), extract up to 4 candidate decisions from the session (implementation patterns, deviations from plan, key assumptions made).
-
-Present via AskUserQuestion with multiSelect: true. Labels: `[TAG] decision text`. Descriptions: rationale.
-
-For each confirmed decision, append to **main tree** `.deepflow/decisions.md` (create if missing):
-```
-### {YYYY-MM-DD} — execute
-- [APPROACH] Parallel agent spawn for independent tasks — confirmed no file conflicts
-```
-
-Main tree path: use the repo root (parent of `.deepflow/worktrees/`), NOT the worktree.
-
-Max 4 candidates per prompt. Tags: [APPROACH], [PROVISIONAL], [ASSUMPTION].
+Follow the **main-tree** variant from `templates/decision-capture.md`. Command name: `execute`.
 
 ## Rules
 
@@ -563,48 +427,22 @@ Max 4 candidates per prompt. Tags: [APPROACH], [PROVISIONAL], [ASSUMPTION].
 ```
 /df:execute (context: 12%)
 
-Loading PLAN.md...
-  T1: Create upload endpoint (ready)
-  T2: Add S3 service (blocked by T1)
-  T3: Add auth guard (blocked by T1)
+Loading PLAN.md... T1 ready, T2/T3 blocked by T1
+Registering native tasks: TaskCreate T1/T2/T3, TaskUpdate(T2 blockedBy T1), TaskUpdate(T3 blockedBy T1)
 
-Registering native tasks...
-  TaskCreate → T1 (native: task-001)
-  TaskCreate → T2 (native: task-002)
-  TaskCreate → T3 (native: task-003)
-  TaskUpdate(task-002, addBlockedBy: [task-001])
-  TaskUpdate(task-003, addBlockedBy: [task-001])
+Wave 1: TaskUpdate(T1, in_progress)
+[Agent "T1" completed] TaskUpdate(T1, completed) → auto-unblocks T2, T3
+✓ T1: success (abc1234)
 
-Spawning Wave 1: T1
-  TaskUpdate(task-001, status: "in_progress")  ← spinner: "Creating upload endpoint"
-
-[Agent "T1" completed]
-  TaskUpdate(task-001, status: "completed")  ← auto-unblocks task-002, task-003
-  ✓ T1: success (abc1234)
-
-TaskList → task-002, task-003 now ready (blockedBy empty)
-
-Spawning Wave 2: T2, T3 parallel
-  TaskUpdate(task-002, status: "in_progress")
-  TaskUpdate(task-003, status: "in_progress")
-
-[Agent "T2" completed]
-  TaskUpdate(task-002, status: "completed")
-  ✓ T2: success (def5678)
-
-[Agent "T3" completed]
-  TaskUpdate(task-003, status: "completed")
-  ✓ T3: success (ghi9012)
-
-Wave 2 complete (2/2). Context: 35%
-
-✓ doing-upload → done-upload
-✓ Complete: 3/3 tasks
+Wave 2: TaskUpdate(T2/T3, in_progress)
+[Agent "T2" completed] ✓ T2: success (def5678)
+[Agent "T3" completed] ✓ T3: success (ghi9012)
+Context: 35% — ✓ doing-upload → done-upload. Complete: 3/3
 
 Next: Run /df:verify to verify specs and merge to main
 ```
 
-### Spike-First Execution
+### Spike with Failure (Agent or Verifier Override)
 
 ```
 /df:execute (context: 10%)
@@ -619,56 +457,17 @@ Registering native tasks...
 
 Checking experiment status...
   T1 [SPIKE]: No experiment yet, spike executable
-  T2: Blocked by T1 (spike not validated)
-  T3: Blocked by T1 (spike not validated)
+  T2, T3: Blocked by T1 (spike not validated)
 
 Spawning Wave 1: T1 [SPIKE]
   TaskUpdate(task-001, status: "in_progress")
 
 [Agent "T1 SPIKE" completed]
-✓ T1: complete, verifying...
-
-Verifying T1...
-  ✓ Spike T1 verified (throughput 8500 >= 7000)
-  TaskUpdate(task-001, status: "completed")  ← auto-unblocks task-002, task-003
-  → upload--streaming--passed.md
-
-TaskList → task-002, task-003 now ready
-
-Spawning Wave 2: T2, T3 parallel
-  TaskUpdate(task-002, status: "in_progress")
-  TaskUpdate(task-003, status: "in_progress")
-
-[Agent "T2" completed]
-  TaskUpdate(task-002, status: "completed")
-  ✓ T2: success (def5678)
-
-[Agent "T3" completed]
-  TaskUpdate(task-003, status: "completed")
-  ✓ T3: success (ghi9012)
-
-Wave 2 complete (2/2). Context: 40%
-
-✓ doing-upload → done-upload
-✓ Complete: 3/3 tasks
-
-Next: Run /df:verify to verify specs and merge to main
-```
-
-### Spike Failed (Agent Correctly Reported)
-
-```
-/df:execute (context: 10%)
-
-Registering native tasks...
-  TaskCreate → T1 [SPIKE], T2, T3 (with dependencies)
-
-Wave 1: T1 [SPIKE] (context: 15%)
-  TaskUpdate(task-001, status: "in_progress")
-  T1: complete, verifying...
+✓ T1: complete (agent said: success), verifying...
 
 Verifying T1...
   ✗ Spike T1 failed verification (throughput 1500 < 7000)
+  ⚠ Agent incorrectly marked as passed — overriding to FAILED
   # Spike stays pending — dependents remain blocked
   → upload--streaming--failed.md
 
@@ -678,29 +477,7 @@ Complete: 1/3 tasks (2 blocked by failed experiment)
 Next: Run /df:plan to generate new hypothesis spike
 ```
 
-### Spike Failed (Verifier Override)
-
-```
-/df:execute (context: 10%)
-
-Registering native tasks...
-  TaskCreate → T1 [SPIKE], T2, T3 (with dependencies)
-
-Wave 1: T1 [SPIKE] (context: 15%)
-  TaskUpdate(task-001, status: "in_progress")
-  T1: complete (agent said: success), verifying...
-
-Verifying T1...
-  ✗ Spike T1 failed verification (throughput 1500 < 7000)
-  ⚠ Agent incorrectly marked as passed — overriding to FAILED
-  TaskUpdate(task-001, status: "pending")  ← reset, dependents stay blocked
-  → upload--streaming--failed.md
-
-⚠ Spike T1 invalidated hypothesis
-Complete: 1/3 tasks (2 blocked by failed experiment)
-
-Next: Run /df:plan to generate new hypothesis spike
-```
+Note: If the agent correctly reports `status: failed`, the "overriding to FAILED" line is omitted — the verifier simply confirms failure.
 
 ### With Checkpoint
 
