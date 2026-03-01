@@ -130,10 +130,6 @@ Acceptance criteria: {count}
 Next: Run /df:plan to generate tasks
 ```
 
-### 6. CAPTURE DECISIONS
-
-Follow the **default** variant from `templates/decision-capture.md`. Command name: `spec`.
-
 ## Rules
 - **Orchestrator never searches** — Spawn agents for all codebase exploration
 - Do NOT generate spec if critical gaps remain

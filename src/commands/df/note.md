@@ -132,6 +132,7 @@ No decisions saved.
 - `[APPROACH]` — deliberate design or implementation choice
 - `[PROVISIONAL]` — works for now, will revisit at scale or with more information
 - `[ASSUMPTION]` — treating something as true without full confirmation
+- `[DEBT]` — needs revisiting; produced only by `/df:consolidate`, never manually assigned
 
 **Contradiction handling:** Never delete prior entries. When a new decision contradicts an older one, include a reference in the rationale: `was "X", now "Y" because Z`.
 

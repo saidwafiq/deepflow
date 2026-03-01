@@ -196,6 +196,7 @@ async function configureHooks(claudeDir) {
   const settingsPath = path.join(claudeDir, 'settings.json');
   const statuslineCmd = `node "${path.join(claudeDir, 'hooks', 'df-statusline.js')}"`;
   const updateCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-check-update.js')}"`;
+  const consolidationCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-consolidation-check.js')}"`;
 
   let settings = {};
 
@@ -234,7 +235,7 @@ async function configureHooks(claudeDir) {
   // Remove any existing deepflow update check hooks
   settings.hooks.SessionStart = settings.hooks.SessionStart.filter(hook => {
     const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-check-update');
+    return !cmd.includes('df-check-update') && !cmd.includes('df-consolidation-check');
   });
 
   // Add update check hook
@@ -242,6 +243,14 @@ async function configureHooks(claudeDir) {
     hooks: [{
       type: 'command',
       command: updateCheckCmd
+    }]
+  });
+
+  // Add consolidation check hook
+  settings.hooks.SessionStart.push({
+    hooks: [{
+      type: 'command',
+      command: consolidationCheckCmd
     }]
   });
   log('SessionStart hook configured');
@@ -330,7 +339,7 @@ async function uninstall() {
   ];
 
   if (level === 'global') {
-    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js');
+    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-consolidation-check.js');
   }
 
   for (const item of toRemove) {
@@ -359,7 +368,7 @@ async function uninstall() {
         if (settings.hooks?.SessionStart) {
           settings.hooks.SessionStart = settings.hooks.SessionStart.filter(hook => {
             const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-check-update');
+            return !cmd.includes('df-check-update') && !cmd.includes('df-consolidation-check');
           });
           if (settings.hooks.SessionStart.length === 0) {
             delete settings.hooks.SessionStart;

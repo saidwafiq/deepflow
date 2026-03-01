@@ -380,13 +380,19 @@ When a task fails and cannot be auto-fixed:
 When all tasks done for a `doing-*` spec:
 1. Embed history in spec: `## Completed` section with task list and commit hashes
 2. Rename: `doing-upload.md` → `done-upload.md`
-3. Remove the spec's ENTIRE section from PLAN.md:
+3. Extract decisions from done-* spec: Read the `done-{name}.md` file. Model-extract architectural decisions — look for explicit choices (→ `[APPROACH]`), unvalidated assumptions (→ `[ASSUMPTION]`), and "for now" decisions (→ `[PROVISIONAL]`). Append as a new section to **main tree** `.deepflow/decisions.md`:
+   ```
+   ### {YYYY-MM-DD} — {spec-name}
+   - [TAG] decision text — rationale
+   ```
+   After successful append, delete `specs/done-{name}.md`. If write fails, preserve the file.
+4. Remove the spec's ENTIRE section from PLAN.md:
    - The `### doing-{spec}` header
    - All task entries (`- [x] **T{n}**: ...` and their sub-items)
    - Any `## Execution Summary` block for that spec
    - Any `### Fix Tasks` sub-section for that spec
    - Separators (`---`) between removed sections
-4. Recalculate the Summary table at the top of PLAN.md (update counts for completed/pending)
+5. Recalculate the Summary table at the top of PLAN.md (update counts for completed/pending)
 
 ### 10. ITERATE (Notification-Driven)
 
@@ -407,10 +413,6 @@ After spawning wave agents, your turn ENDS. Completion notifications drive the l
 **Between waves:** Check context %. If ≥50%, checkpoint and exit.
 
 **Repeat** until: all done, all blocked, or context ≥50% (checkpoint).
-
-### 11. CAPTURE DECISIONS
-
-Follow the **main-tree** variant from `templates/decision-capture.md`. Command name: `execute`.
 
 ## Rules
 
