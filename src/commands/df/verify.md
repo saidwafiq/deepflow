@@ -208,6 +208,21 @@ rm -f .deepflow/checkpoint.json
 mv specs/doing-${SPEC_NAME}.md specs/done-${SPEC_NAME}.md
 ```
 
+### 5. EXTRACT DECISIONS
+
+Read the renamed `specs/done-${SPEC_NAME}.md` file. Model-extract architectural decisions:
+- Explicit choices → `[APPROACH]`
+- Unvalidated assumptions → `[ASSUMPTION]`
+- "For now" decisions → `[PROVISIONAL]`
+
+Append to `.deepflow/decisions.md`:
+```
+### {YYYY-MM-DD} — {spec-name}
+- [TAG] decision text — rationale
+```
+
+After successful append, delete `specs/done-${SPEC_NAME}.md`. If write fails, preserve the file.
+
 Output:
 ```
 ✓ Merged df/upload to main
