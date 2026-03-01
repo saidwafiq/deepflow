@@ -27,6 +27,7 @@
 - **Spike-first planning** — Validate risky hypotheses before full implementation
 - **Worktree isolation** — Main branch stays clean during execution
 - **Parallel execution** with context-aware checkpointing
+- **Automatic decision capture** on spec completion, periodic consolidation
 - **Atomic commits** for clean rollback
 
 ## Quick Start
@@ -65,7 +66,6 @@ claude
 ```
 /df:discover <name>
     │ Socratic questioning (motivation, scope, constraints...)
-    │ Captures decisions to .deepflow/decisions.md
     ▼
 /df:debate <topic>          ← optional
     │ 4 perspectives: User Advocate, Tech Skeptic,
@@ -90,7 +90,8 @@ claude
 /df:verify
     │ Checks requirements met
     │ Merges worktree to main, cleans up
-    │ Renames: doing-feature.md → done-feature.md
+    │ Extracts decisions → .deepflow/decisions.md
+    │ Deletes done-* spec after extraction
 ```
 
 ## Spec Lifecycle
@@ -99,7 +100,7 @@ claude
 specs/
   feature.md        → new, needs /df:plan
   doing-feature.md  → in progress, has tasks in PLAN.md
-  done-feature.md   → completed, history embedded
+  done-feature.md   → transient (decisions extracted, then deleted)
 ```
 
 ## Works With Any Project
@@ -145,8 +146,9 @@ Statusline shows context usage. At ≥50%:
 | `/df:spec <name>` | Generate spec from conversation |
 | `/df:plan` | Compare specs to code, create tasks |
 | `/df:execute` | Run tasks with parallel agents |
-| `/df:verify` | Check specs satisfied |
-| `/df:note` | Capture decisions from conversation |
+| `/df:verify` | Check specs satisfied, merge to main |
+| `/df:note` | Capture decisions ad-hoc from conversation |
+| `/df:consolidate` | Deduplicate and clean up decisions.md |
 | `/df:resume` | Session continuity briefing |
 | `/df:update` | Update deepflow to latest |
 
@@ -156,16 +158,16 @@ Statusline shows context usage. At ≥50%:
 your-project/
 ├── specs/
 │   ├── auth.md           # new spec
-│   ├── doing-upload.md   # in progress
-│   └── done-payments.md  # completed
+│   └── doing-upload.md   # in progress
 ├── PLAN.md               # active tasks
 └── .deepflow/
-    ├── config.yaml       # project settings
-    ├── decisions.md      # captured decisions (/df:note, /df:discover)
-    ├── context.json      # context % tracking
-    ├── experiments/      # spike results (pass/fail)
-    └── worktrees/        # isolated execution
-        └── upload/       # one worktree per spec
+    ├── config.yaml            # project settings
+    ├── decisions.md           # auto-extracted + ad-hoc decisions
+    ├── last-consolidated.json # consolidation timestamp
+    ├── context.json           # context % tracking
+    ├── experiments/           # spike results (pass/fail)
+    └── worktrees/             # isolated execution
+        └── upload/            # one worktree per spec
 ```
 
 ## Configuration
