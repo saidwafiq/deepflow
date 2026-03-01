@@ -160,10 +160,6 @@ Create `specs/.debate-{name}.md` with sections: Context · Codebase Context · P
 
 Present key tensions and open decisions, then: `Next: Run /df:spec {name} to formalize into a specification`
 
-### 7. CAPTURE DECISIONS
-
-Follow the **default** variant from `templates/decision-capture.md`. Command name: `debate`.
-
 ---
 
 ## Rules

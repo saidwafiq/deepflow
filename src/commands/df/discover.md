@@ -85,8 +85,6 @@ Example questions:
 - Keep your responses short between questions — don't lecture
 - Acknowledge answers briefly before asking the next question
 
-### Decision Capture
-Follow the **default** variant from `templates/decision-capture.md`. Command name: `discover`.
 ### When the User Wants to Move On
 When the user signals they want to advance (e.g., "I think that's enough", "let's move on", "ready for next step"):
 

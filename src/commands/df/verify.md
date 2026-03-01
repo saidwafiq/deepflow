@@ -217,6 +217,3 @@ Output:
 Workflow complete! Ready for next feature: /df:spec <name>
 ```
 
-### 5. CAPTURE DECISIONS (success path only)
-
-Follow the **success-path-only** variant from `templates/decision-capture.md`. Command name: `verify`.

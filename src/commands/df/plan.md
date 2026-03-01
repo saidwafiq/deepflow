@@ -154,10 +154,6 @@ Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validatio
 
 `✓ Plan generated — {n} specs, {n} tasks. Run /df:execute`
 
-### 12. CAPTURE DECISIONS
-
-Follow the **default** variant from `templates/decision-capture.md`. Command name: `plan`.
-
 ## Rules
 - **Spike-first** — Generate spike task before full implementation if no `--passed.md` experiment exists
 - **Block on spike** — Full implementation tasks MUST be blocked by spike validation

@@ -408,10 +408,6 @@ After spawning wave agents, your turn ENDS. Completion notifications drive the l
 
 **Repeat** until: all done, all blocked, or context ≥50% (checkpoint).
 
-### 11. CAPTURE DECISIONS
-
-Follow the **main-tree** variant from `templates/decision-capture.md`. Command name: `execute`.
-
 ## Rules
 
 | Rule | Detail |
