@@ -142,6 +142,11 @@ async function main() {
     await configureHooks(CLAUDE_DIR);
   }
 
+  // Configure project settings (project only)
+  if (level === 'project') {
+    configureProjectSettings(CLAUDE_DIR);
+  }
+
   console.log('');
   console.log(`${c.green}Installation complete!${c.reset}`);
   console.log('');
@@ -261,6 +266,27 @@ async function configureHooks(claudeDir) {
   log('SessionStart hook configured');
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+}
+
+function configureProjectSettings(claudeDir) {
+  const settingsPath = path.join(claudeDir, 'settings.local.json');
+
+  let settings = {};
+
+  if (fs.existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    } catch (e) {
+      settings = {};
+    }
+  }
+
+  // Enable LSP tool
+  if (!settings.env) settings.env = {};
+  settings.env.ENABLE_LSP_TOOL = "1";
+
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  log('LSP tool enabled (project)');
 }
 
 function ask(question) {
