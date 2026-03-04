@@ -72,6 +72,7 @@ Run the build command in the worktree:
 
 Check requirements, acceptance criteria, and quality (stubs/TODOs).
 Mark each: ✓ satisfied | ✗ missing | ⚠ partial
+Prefer LSP tools (goToDefinition, findReferences, workspaceSymbol) when available; fall back to Grep/Glob silently.
 
 **L4: Test execution** (if test command detected)
 
@@ -141,9 +142,9 @@ Files: ...
 | Level | Check | Method | Runner |
 |-------|-------|--------|--------|
 | L0: Builds | Code compiles/builds | Run build command | Orchestrator (Bash) |
-| L1: Exists | File/function exists | Glob/Grep | Explore agents |
+| L1: Exists | File/function exists | Glob/Grep (prefer workspaceSymbol if available) | Explore agents |
 | L2: Substantive | Real code, not stub | Read + analyze | Explore agents |
-| L3: Wired | Integrated into system | Trace imports/calls | Explore agents |
+| L3: Wired | Integrated into system | Trace imports/calls (prefer findReferences if available) | Explore agents |
 | L4: Tested | Tests pass | Run test command | Orchestrator (Bash) |
 
 **Default: L0 through L4.** L0 and L4 skipped ONLY if no build/test command detected (see step 1.5). L0 and L4 run via Bash — Explore agents cannot execute commands.

@@ -328,6 +328,9 @@ Commit format: {commit_type}({spec}): {description}
 Result file: {worktree_absolute_path}/.deepflow/results/{task_id}.yaml
 
 STOP after writing the result file. Do NOT merge branches, rename spec files, remove worktrees, or run git checkout on main. These are handled by the orchestrator and /df:verify.
+
+Navigation: Prefer LSP tools (goToDefinition, findReferences, workspaceSymbol) over Grep/Glob for code navigation. Fall back to Grep/Glob if LSP unavailable.
+If LSP errors, install the language server (TS→typescript-language-server, Python→pyright, Rust→rust-analyzer, Go→gopls) and retry. If still unavailable, use Grep/Glob.
 ```
 
 **Standard Task (append after preamble):**
