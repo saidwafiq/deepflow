@@ -157,6 +157,7 @@ async function main() {
   if (level === 'global') {
     console.log('  hooks/           — statusline, update checker');
   }
+  console.log('  env/             — ENABLE_LSP_TOOL (code navigation via goToDefinition, findReferences, workspaceSymbol)');
   console.log('');
   if (level === 'project') {
     console.log(`${c.dim}Note: Statusline is only available with global install.${c.reset}`);

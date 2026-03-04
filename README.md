@@ -130,6 +130,16 @@ Execution happens in an isolated git worktree:
 - Resume with `/df:execute --continue`
 - On success, `/df:verify` merges to main and cleans up
 
+## LSP Integration
+
+deepflow automatically enables Claude Code's LSP tools during install, giving agents access to `goToDefinition`, `findReferences`, and `workspaceSymbol` for precise code navigation instead of grep-based searching.
+
+- **Global install:** sets `ENABLE_LSP_TOOL=1` in `~/.claude/settings.json`
+- **Project install:** sets it in `.claude/settings.local.json`
+- **Uninstall:** cleans up automatically
+
+Agents prefer LSP tools when available and fall back to Grep/Glob silently. You'll need a language server installed for your language (e.g. `typescript-language-server`, `pyright`, `rust-analyzer`, `gopls`).
+
 ## Context-Aware Execution
 
 Statusline shows context usage. At ≥50%:
