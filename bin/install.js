@@ -414,6 +414,44 @@ async function uninstall() {
         // Fail silently
       }
     }
+
+    // Remove ENABLE_LSP_TOOL from global settings
+    if (fs.existsSync(settingsPath)) {
+      try {
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        if (settings.env?.ENABLE_LSP_TOOL) {
+          delete settings.env.ENABLE_LSP_TOOL;
+          if (settings.env && Object.keys(settings.env).length === 0) delete settings.env;
+          fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+          console.log(`  ${c.green}✓${c.reset} Removed ENABLE_LSP_TOOL from settings`);
+        }
+      } catch (e) {
+        // Fail silently
+      }
+    }
+  }
+
+  // Remove ENABLE_LSP_TOOL from project settings.local.json
+  if (level === 'project') {
+    const localSettingsPath = path.join(PROJECT_DIR, 'settings.local.json');
+    if (fs.existsSync(localSettingsPath)) {
+      try {
+        const localSettings = JSON.parse(fs.readFileSync(localSettingsPath, 'utf8'));
+        if (localSettings.env?.ENABLE_LSP_TOOL) {
+          delete localSettings.env.ENABLE_LSP_TOOL;
+          if (localSettings.env && Object.keys(localSettings.env).length === 0) delete localSettings.env;
+          if (Object.keys(localSettings).length === 0) {
+            fs.unlinkSync(localSettingsPath);
+            console.log(`  ${c.green}✓${c.reset} Removed settings.local.json (empty after cleanup)`);
+          } else {
+            fs.writeFileSync(localSettingsPath, JSON.stringify(localSettings, null, 2));
+            console.log(`  ${c.green}✓${c.reset} Removed ENABLE_LSP_TOOL from settings.local.json`);
+          }
+        }
+      } catch (e) {
+        // Fail silently
+      }
+    }
   }
 
   console.log('');
