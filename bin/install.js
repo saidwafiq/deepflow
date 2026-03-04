@@ -208,6 +208,11 @@ async function configureHooks(claudeDir) {
     }
   }
 
+  // Enable LSP tool
+  if (!settings.env) settings.env = {};
+  settings.env.ENABLE_LSP_TOOL = "1";
+  log('LSP tool enabled');
+
   // Configure statusline
   if (settings.statusLine) {
     const answer = await ask(
