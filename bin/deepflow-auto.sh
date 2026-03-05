@@ -230,10 +230,227 @@ Output ONLY the JSON array. No markdown fences, no explanation, no extra text. J
   return 0
 }
 
+run_single_spike() {
+  local spec_name="$1"
+  local slug="$2"
+  local hypothesis="$3"
+  local method="$4"
+
+  local worktree_path="${PROJECT_ROOT}/.deepflow/worktrees/${spec_name}-${slug}"
+  local branch_name="df/${spec_name}-${slug}"
+
+  auto_log "Starting spike for ${spec_name}/${slug}"
+
+  # Create worktree and branch
+  if [[ -d "$worktree_path" ]]; then
+    auto_log "Worktree already exists at ${worktree_path}, reusing"
+  else
+    git worktree add -b "$branch_name" "$worktree_path" HEAD 2>/dev/null || {
+      # Branch may already exist from a previous run
+      git worktree add "$worktree_path" "$branch_name" 2>/dev/null || {
+        auto_log "ERROR: failed to create worktree for ${slug}"
+        return 1
+      }
+    }
+  fi
+
+  # Build spike prompt
+  local spike_prompt
+  spike_prompt="You are running a spike experiment to validate a hypothesis for spec '${spec_name}'.
+
+--- HYPOTHESIS ---
+Slug: ${slug}
+Hypothesis: ${hypothesis}
+Method: ${method}
+--- END HYPOTHESIS ---
+
+Your tasks:
+1. Validate this hypothesis by implementing the minimum necessary to prove or disprove it.
+2. Write an experiment file at: .deepflow/experiments/${spec_name}--${slug}--active.md
+   The experiment file should contain:
+   - ## Hypothesis: restate the hypothesis
+   - ## Method: what you did to validate
+   - ## Results: what you observed
+   - ## Conclusion: PASSED or FAILED with reasoning
+3. Write a result YAML file at: .deepflow/results/spike-${slug}.yaml
+   The YAML must contain:
+   - slug: ${slug}
+   - spec: ${spec_name}
+   - status: passed OR failed
+   - summary: one-line summary of the result
+4. Stage and commit all changes with message: spike(${spec_name}): validate ${slug}
+
+Important:
+- Create the .deepflow/experiments and .deepflow/results directories if they don't exist.
+- Be concise and focused — this is a spike, not a full implementation.
+- If the hypothesis is not viable, mark it as failed and explain why."
+
+  # Run claude -p in the worktree
+  (
+    cd "$worktree_path"
+    echo "$spike_prompt" | claude -p --dangerously-skip-permissions --output-format text 2>/dev/null
+  )
+  local exit_code=$?
+
+  if [[ $exit_code -ne 0 ]]; then
+    auto_log "ERROR: claude -p exited with code ${exit_code} for spike ${slug}"
+  else
+    auto_log "Spike ${slug} claude -p completed successfully"
+  fi
+
+  return $exit_code
+}
+
 run_spikes() {
   local spec_file="$1"
-  auto_log "STUB run_spikes called for ${spec_file}"
-  echo "[stub] run_spikes: ${spec_file}" >&2
+  local spec_name="$2"
+  local cycle="$3"
+
+  local hypotheses_file="${PROJECT_ROOT}/.deepflow/hypotheses/${spec_name}-cycle-${cycle}.json"
+
+  if [[ ! -f "$hypotheses_file" ]]; then
+    auto_log "ERROR: hypotheses file not found: ${hypotheses_file}"
+    echo "Error: hypotheses file not found: ${hypotheses_file}" >&2
+    return 1
+  fi
+
+  auto_log "run_spikes starting for ${spec_name} cycle ${cycle}"
+
+  # Parse hypotheses from JSON — extract slug, hypothesis, method for each entry
+  local -a slugs=()
+  local -a hypotheses_arr=()
+  local -a methods_arr=()
+
+  # Use a while loop to parse the JSON entries
+  while IFS= read -r slug; do
+    slugs+=("$slug")
+  done < <(grep -o '"slug"[[:space:]]*:[[:space:]]*"[^"]*"' "$hypotheses_file" | sed 's/.*"slug"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+
+  while IFS= read -r hyp; do
+    hypotheses_arr+=("$hyp")
+  done < <(grep -o '"hypothesis"[[:space:]]*:[[:space:]]*"[^"]*"' "$hypotheses_file" | sed 's/.*"hypothesis"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+
+  while IFS= read -r meth; do
+    methods_arr+=("$meth")
+  done < <(grep -o '"method"[[:space:]]*:[[:space:]]*"[^"]*"' "$hypotheses_file" | sed 's/.*"method"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+
+  local count=${#slugs[@]}
+  if [[ "$count" -eq 0 ]]; then
+    auto_log "ERROR: no hypotheses parsed from ${hypotheses_file}"
+    echo "Error: no hypotheses found in ${hypotheses_file}" >&2
+    return 1
+  fi
+
+  auto_log "Parsed ${count} hypotheses for spiking"
+
+  # Create required directories
+  mkdir -p "${PROJECT_ROOT}/.deepflow/experiments"
+  mkdir -p "${PROJECT_ROOT}/.deepflow/results"
+
+  # Spawn spikes with semaphore pattern for --parallel=N
+  local -a pids=()
+  local i
+  for ((i = 0; i < count; i++)); do
+    local slug="${slugs[$i]}"
+    local hypothesis="${hypotheses_arr[$i]}"
+    local method="${methods_arr[$i]}"
+
+    # Semaphore: if PARALLEL > 0 and we have hit the limit, wait for one to finish
+    if [[ $PARALLEL -gt 0 ]] && [[ ${#pids[@]} -ge $PARALLEL ]]; then
+      wait -n 2>/dev/null || true
+      # Remove finished PIDs
+      local -a new_pids=()
+      local pid
+      for pid in "${pids[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+          new_pids+=("$pid")
+        fi
+      done
+      pids=("${new_pids[@]}")
+    fi
+
+    auto_log "Spawning spike for ${slug} (hypothesis ${i}/${count})"
+    echo "Spawning spike: ${slug}"
+
+    run_single_spike "$spec_name" "$slug" "$hypothesis" "$method" &
+    pids+=($!)
+  done
+
+  # Wait for all remaining spikes to complete
+  auto_log "Waiting for all ${#pids[@]} spike(s) to complete..."
+  wait
+  auto_log "All spikes completed for ${spec_name} cycle ${cycle}"
+
+  # Collect results and process
+  local -a passed_slugs=()
+  for ((i = 0; i < count; i++)); do
+    local slug="${slugs[$i]}"
+    local worktree_path="${PROJECT_ROOT}/.deepflow/worktrees/${spec_name}-${slug}"
+    local result_file="${worktree_path}/.deepflow/results/spike-${slug}.yaml"
+    local experiment_active="${worktree_path}/.deepflow/experiments/${spec_name}--${slug}--active.md"
+
+    if [[ -f "$result_file" ]]; then
+      # Read status from result YAML
+      local status
+      status="$(grep -m1 '^status:' "$result_file" | sed 's/^status:[[:space:]]*//' | tr -d '[:space:]')" || status="unknown"
+
+      if [[ "$status" == "passed" ]]; then
+        auto_log "PASSED spike: ${slug} (spec=${spec_name}, cycle=${cycle})"
+        echo "Spike PASSED: ${slug}"
+        passed_slugs+=("$slug")
+      else
+        auto_log "FAILED spike: ${slug} status=${status} (spec=${spec_name}, cycle=${cycle})"
+        echo "Spike FAILED: ${slug}"
+        # Rename active experiment to failed
+        if [[ -f "$experiment_active" ]]; then
+          local experiment_failed="${worktree_path}/.deepflow/experiments/${spec_name}--${slug}--failed.md"
+          mv "$experiment_active" "$experiment_failed"
+          # Also copy the failed experiment to the main project for future reference
+          mkdir -p "${PROJECT_ROOT}/.deepflow/experiments"
+          cp "$experiment_failed" "${PROJECT_ROOT}/.deepflow/experiments/"
+        fi
+      fi
+    else
+      auto_log "MISSING result for spike: ${slug} — treating as failed (spec=${spec_name}, cycle=${cycle})"
+      echo "Spike MISSING RESULT: ${slug} (treating as failed)"
+      # Rename active experiment to failed if it exists
+      if [[ -f "$experiment_active" ]]; then
+        local experiment_failed="${worktree_path}/.deepflow/experiments/${spec_name}--${slug}--failed.md"
+        mv "$experiment_active" "$experiment_failed"
+        mkdir -p "${PROJECT_ROOT}/.deepflow/experiments"
+        cp "$experiment_failed" "${PROJECT_ROOT}/.deepflow/experiments/"
+      fi
+    fi
+  done
+
+  # Write passed hypotheses to a file for the implementation phase
+  local passed_file="${PROJECT_ROOT}/.deepflow/hypotheses/${spec_name}-cycle-${cycle}-passed.json"
+  if [[ ${#passed_slugs[@]} -gt 0 ]]; then
+    # Build a filtered JSON array of passed hypotheses
+    local passed_json="["
+    local first=true
+    for slug in "${passed_slugs[@]}"; do
+      if [[ "$first" == "true" ]]; then
+        first=false
+      else
+        passed_json="${passed_json},"
+      fi
+      # Extract the full object for this slug from the original hypotheses file
+      local hyp_text method_text
+      hyp_text="$(grep -A1 "\"slug\"[[:space:]]*:[[:space:]]*\"${slug}\"" "$hypotheses_file" | grep '"hypothesis"' | sed 's/.*"hypothesis"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')" || hyp_text=""
+      method_text="$(grep -A2 "\"slug\"[[:space:]]*:[[:space:]]*\"${slug}\"" "$hypotheses_file" | grep '"method"' | sed 's/.*"method"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')" || method_text=""
+      passed_json="${passed_json}{\"slug\":\"${slug}\",\"hypothesis\":\"${hyp_text}\",\"method\":\"${method_text}\"}"
+    done
+    passed_json="${passed_json}]"
+    echo "$passed_json" > "$passed_file"
+    auto_log "Wrote ${#passed_slugs[@]} passed hypotheses to ${passed_file}"
+    echo "${#passed_slugs[@]} spike(s) passed -> ${passed_file}"
+  else
+    echo "[]" > "$passed_file"
+    auto_log "No spikes passed for ${spec_name} cycle ${cycle}"
+    echo "No spikes passed for ${spec_name} cycle ${cycle}"
+  fi
+
   return 0
 }
 
@@ -285,7 +502,7 @@ run_spec_cycle() {
     echo "--- Cycle ${cycle} for $(basename "$spec_file") ---"
 
     generate_hypotheses "$spec_file" "$spec_name" "$cycle" "$HYPOTHESES"
-    run_spikes "$spec_file"
+    run_spikes "$spec_file" "$spec_name" "$cycle"
     run_implementations "$spec_file"
 
     if run_selection "$spec_file"; then
