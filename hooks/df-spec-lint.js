@@ -88,6 +88,48 @@ function validateSpec(content, { mode = 'interactive' } = {}) {
     seenIds.set(id, true);
   }
 
+  // ── Advisory checks ──────────────────────────────────────────────────
+
+  // (adv-a) Line count > 100
+  const lineCount = content.split('\n').length;
+  if (lineCount > 100) {
+    advisory.push(`Spec exceeds 100 lines (${lineCount} lines)`);
+  }
+
+  // (adv-b) Orphaned REQ-N IDs not referenced in Acceptance Criteria
+  if (reqSection !== null && acSection !== null) {
+    const reqIds = [];
+    const reqLinePattern = /\*{0,2}(REQ-\d+)\*{0,2}\s*:/g;
+    let reqMatch;
+    while ((reqMatch = reqLinePattern.exec(reqSection)) !== null) {
+      reqIds.push(reqMatch[1]);
+    }
+    for (const id of reqIds) {
+      if (!acSection.includes(id)) {
+        advisory.push(`Orphaned requirement: ${id} not found in Acceptance Criteria`);
+      }
+    }
+  }
+
+  // (adv-c) Technical Notes section > 10 lines
+  const techNotes = extractSection(content, 'Technical Notes');
+  if (techNotes !== null) {
+    const techLines = techNotes.split('\n').filter((l) => l.trim().length > 0);
+    if (techLines.length > 10) {
+      advisory.push(`Technical Notes section too long (${techLines.length} non-empty lines, limit 10)`);
+    }
+  }
+
+  // (adv-d) More than 12 requirements
+  if (seenIds.size > 12) {
+    advisory.push(`Too many requirements (${seenIds.size}, limit 12)`);
+  }
+
+  // ── Auto-mode escalation ─────────────────────────────────────────────
+  if (mode === 'auto') {
+    hard.push(...advisory.splice(0, advisory.length));
+  }
+
   return { hard, advisory };
 }
 
