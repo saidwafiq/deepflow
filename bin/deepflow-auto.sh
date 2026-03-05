@@ -21,6 +21,13 @@ HYPOTHESES=2
 MAX_CYCLES=0        # 0 = unlimited
 CONTINUE=false
 FRESH=false
+INTERRUPTED=false
+
+# Associative array for per-spec status tracking
+# Values: "converged", "halted", "in-progress"
+declare -A SPEC_STATUS
+# Associative array for per-spec winner slugs
+declare -A SPEC_WINNER
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -803,9 +810,138 @@ WINNER_EOF
 }
 
 generate_report() {
-  local spec_file="$1"
-  auto_log "STUB generate_report called for ${spec_file}"
-  echo "[stub] generate_report: ${spec_file}" >&2
+  auto_log "generate_report called (INTERRUPTED=${INTERRUPTED})"
+
+  local report_file="${PROJECT_ROOT}/.deepflow/auto-report.md"
+  mkdir -p "${PROJECT_ROOT}/.deepflow"
+
+  # -----------------------------------------------------------------
+  # Determine overall status and build per-spec status table
+  # -----------------------------------------------------------------
+  local overall_status="converged"
+  local -a all_spec_names=()
+
+  # Discover all spec names from doing-*.md files
+  local specs_dir="${PROJECT_ROOT}/specs"
+  if [[ -d "$specs_dir" ]]; then
+    for f in "${specs_dir}"/doing-*.md; do
+      [[ -e "$f" ]] || continue
+      local sname
+      sname="$(basename "$f" .md)"
+      all_spec_names+=("$sname")
+
+      # If status was not set by the main loop, determine it now
+      if [[ -z "${SPEC_STATUS[$sname]+x}" ]]; then
+        # Check if winner file exists
+        if [[ -f "${PROJECT_ROOT}/.deepflow/selection/${sname}-winner.json" ]]; then
+          SPEC_STATUS[$sname]="converged"
+          # Extract winner slug
+          local w_slug
+          w_slug="$(grep -o '"winner"[[:space:]]*:[[:space:]]*"[^"]*"' "${PROJECT_ROOT}/.deepflow/selection/${sname}-winner.json" | sed 's/.*"winner"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')" || w_slug=""
+          SPEC_WINNER[$sname]="$w_slug"
+        elif [[ "$INTERRUPTED" == "true" ]]; then
+          SPEC_STATUS[$sname]="in-progress"
+        else
+          SPEC_STATUS[$sname]="halted"
+        fi
+      fi
+    done
+  fi
+
+  # If interrupted, override any unfinished specs
+  if [[ "$INTERRUPTED" == "true" ]]; then
+    for sname in "${all_spec_names[@]}"; do
+      if [[ "${SPEC_STATUS[$sname]}" != "converged" ]]; then
+        SPEC_STATUS[$sname]="in-progress"
+      fi
+    done
+    overall_status="in-progress"
+  else
+    # Determine overall status from per-spec statuses
+    for sname in "${all_spec_names[@]}"; do
+      local s="${SPEC_STATUS[$sname]}"
+      if [[ "$s" == "halted" ]]; then
+        overall_status="halted"
+      elif [[ "$s" == "in-progress" ]]; then
+        overall_status="in-progress"
+      fi
+    done
+  fi
+
+  # -----------------------------------------------------------------
+  # Build report
+  # -----------------------------------------------------------------
+  {
+    # Section 1: Resultado
+    echo "## Resultado"
+    echo ""
+    echo "Status: ${overall_status}"
+    echo ""
+
+    # Winner info (if converged)
+    if [[ "$overall_status" == "converged" ]]; then
+      for sname in "${all_spec_names[@]}"; do
+        local w="${SPEC_WINNER[$sname]:-}"
+        if [[ -n "$w" ]]; then
+          local summary=""
+          local winner_file="${PROJECT_ROOT}/.deepflow/selection/${sname}-winner.json"
+          if [[ -f "$winner_file" ]]; then
+            summary="$(grep -o '"winner"[[:space:]]*:[[:space:]]*"[^"]*"' "$winner_file" | sed 's/.*"\([^"]*\)".*/\1/')" || summary=""
+          fi
+          echo "Winner: ${w} (spec: ${sname})"
+        fi
+      done
+      echo ""
+    fi
+
+    # Per-spec status table
+    echo "| Spec | Status | Winner |"
+    echo "|------|--------|--------|"
+    for sname in "${all_spec_names[@]}"; do
+      local s="${SPEC_STATUS[$sname]:-unknown}"
+      local w="${SPEC_WINNER[$sname]:--}"
+      echo "| ${sname} | ${s} | ${w} |"
+    done
+    echo ""
+
+    # Section 2: Mudancas
+    echo "## Mudancas"
+    echo ""
+
+    local has_changes=false
+    for sname in "${all_spec_names[@]}"; do
+      local w="${SPEC_WINNER[$sname]:-}"
+      if [[ -n "$w" ]]; then
+        has_changes=true
+        local branch_name="df/${sname}-${w}"
+        echo "### ${sname} (winner: ${w})"
+        echo ""
+        echo '```'
+        git diff --stat "main...${branch_name}" 2>/dev/null || echo "(branch ${branch_name} not found)"
+        echo '```'
+        echo ""
+      fi
+    done
+    if [[ "$has_changes" == "false" ]]; then
+      echo "No changes selected"
+      echo ""
+    fi
+
+    # Section 3: Decisoes
+    echo "## Decisoes"
+    echo ""
+
+    local decisions_log="${PROJECT_ROOT}/.deepflow/auto-decisions.log"
+    if [[ -f "$decisions_log" ]]; then
+      cat "$decisions_log"
+    else
+      echo "No decisions logged"
+    fi
+    echo ""
+  } > "$report_file"
+
+  auto_log "Report written to ${report_file}"
+  echo "Report written to ${report_file}"
   return 0
 }
 
@@ -840,6 +976,11 @@ run_spec_cycle() {
     if run_selection "$spec_file" "$spec_name" "$cycle"; then
       auto_log "Selection accepted for ${spec_file} at cycle ${cycle}"
       echo "Selection accepted for $(basename "$spec_file") at cycle ${cycle}"
+      # Track convergence
+      SPEC_STATUS[$spec_name]="converged"
+      local w_slug
+      w_slug="$(grep -o '"winner"[[:space:]]*:[[:space:]]*"[^"]*"' "${PROJECT_ROOT}/.deepflow/selection/${spec_name}-winner.json" | sed 's/.*"winner"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')" || w_slug=""
+      SPEC_WINNER[$spec_name]="$w_slug"
       break
     fi
 
@@ -847,7 +988,10 @@ run_spec_cycle() {
     cycle=$((cycle + 1))
   done
 
-  generate_report "$spec_file"
+  # If we exited the loop without converging, mark as halted
+  if [[ "${SPEC_STATUS[$spec_name]:-}" != "converged" ]]; then
+    SPEC_STATUS[$spec_name]="halted"
+  fi
 }
 
 main() {
@@ -899,9 +1043,26 @@ main() {
     run_spec_cycle "$spec_file"
   done
 
+  generate_report
+
   auto_log "deepflow-auto finished"
   echo "deepflow-auto: done."
 }
+
+# ---------------------------------------------------------------------------
+# Signal handling
+# ---------------------------------------------------------------------------
+
+handle_signal() {
+  echo ""
+  echo "deepflow-auto: interrupted, generating report..."
+  INTERRUPTED=true
+  generate_report
+  auto_log "deepflow-auto interrupted by signal, exiting"
+  exit 130
+}
+
+trap handle_signal SIGINT SIGTERM
 
 # Safety assertions: this script must never modify spec files or push to remotes.
 # These constraints are enforced by design — no write/push commands exist in this script.
