@@ -456,8 +456,148 @@ run_spikes() {
 
 run_implementations() {
   local spec_file="$1"
-  auto_log "STUB run_implementations called for ${spec_file}"
-  echo "[stub] run_implementations: ${spec_file}" >&2
+  local spec_name="$2"
+  local cycle="$3"
+
+  local passed_file="${PROJECT_ROOT}/.deepflow/hypotheses/${spec_name}-cycle-${cycle}-passed.json"
+
+  if [[ ! -f "$passed_file" ]]; then
+    auto_log "No passed hypotheses file found: ${passed_file} — skipping implementations"
+    echo "No passed hypotheses to implement for ${spec_name} cycle ${cycle}"
+    return 0
+  fi
+
+  # Parse passed slugs
+  local -a slugs=()
+  while IFS= read -r slug; do
+    slugs+=("$slug")
+  done < <(grep -o '"slug"[[:space:]]*:[[:space:]]*"[^"]*"' "$passed_file" | sed 's/.*"slug"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+
+  local count=${#slugs[@]}
+  if [[ "$count" -eq 0 ]]; then
+    auto_log "No passed hypotheses found in ${passed_file} — skipping implementations"
+    echo "No passed hypotheses to implement for ${spec_name} cycle ${cycle}"
+    return 0
+  fi
+
+  auto_log "run_implementations starting for ${spec_name} cycle ${cycle} with ${count} passed spike(s)"
+
+  # Read spec content once for all implementation prompts
+  local spec_content
+  spec_content="$(cat "$spec_file")"
+
+  # Spawn implementation agents in parallel
+  local -a pids=()
+  local -a impl_slugs=()
+  local i
+  for ((i = 0; i < count; i++)); do
+    local slug="${slugs[$i]}"
+    local worktree_path="${PROJECT_ROOT}/.deepflow/worktrees/${spec_name}-${slug}"
+    local experiment_file=".deepflow/experiments/${spec_name}--${slug}--passed.md"
+
+    if [[ ! -d "$worktree_path" ]]; then
+      auto_log "ERROR: worktree not found for implementation: ${worktree_path}"
+      echo "Skipping implementation for ${slug}: worktree not found" >&2
+      continue
+    fi
+
+    # Semaphore: if PARALLEL > 0 and we have hit the limit, wait for one to finish
+    if [[ $PARALLEL -gt 0 ]] && [[ ${#pids[@]} -ge $PARALLEL ]]; then
+      wait -n 2>/dev/null || true
+      # Remove finished PIDs
+      local -a new_pids=()
+      local pid
+      for pid in "${pids[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+          new_pids+=("$pid")
+        fi
+      done
+      pids=("${new_pids[@]}")
+    fi
+
+    # Build implementation prompt
+    local impl_prompt
+    impl_prompt="You are implementing tasks for spec '${spec_name}' in an autonomous development workflow.
+The spike experiment for approach '${slug}' has passed validation. Now implement the full solution.
+
+--- SPEC CONTENT ---
+${spec_content}
+--- END SPEC ---
+
+The validated experiment file is at: ${experiment_file}
+Review it to understand the approach that was validated during the spike.
+
+Your tasks:
+1. Read the spec carefully and generate a list of implementation tasks from it.
+2. Implement each task with atomic commits. Each commit message must follow the format:
+   feat(${spec_name}): {task description}
+3. For each completed task, write a result YAML file at:
+   .deepflow/results/{task-slug}.yaml
+   Each YAML must contain:
+   - task: short task name
+   - spec: ${spec_name}
+   - status: passed OR failed
+   - summary: one-line summary of what was implemented
+4. Create the .deepflow/results directory if it does not exist.
+
+Important:
+- Build on top of the spike commits already in this worktree.
+- Be thorough — this is the full implementation, not a spike.
+- Stage and commit each task separately for clean atomic commits."
+
+    auto_log "Spawning implementation for ${slug} (spec=${spec_name}, cycle=${cycle})"
+    echo "Spawning implementation: ${slug}"
+
+    (
+      cd "$worktree_path"
+      echo "$impl_prompt" | claude -p --dangerously-skip-permissions --output-format text 2>/dev/null
+    ) &
+    pids+=($!)
+    impl_slugs+=("$slug")
+  done
+
+  # Wait for all implementations to complete
+  auto_log "Waiting for all ${#pids[@]} implementation(s) to complete..."
+  wait
+  auto_log "All implementations completed for ${spec_name} cycle ${cycle}"
+
+  # Collect results
+  for slug in "${impl_slugs[@]}"; do
+    local worktree_path="${PROJECT_ROOT}/.deepflow/worktrees/${spec_name}-${slug}"
+    local results_dir="${worktree_path}/.deepflow/results"
+
+    if [[ -d "$results_dir" ]]; then
+      local result_count=0
+      local pass_count=0
+      local fail_count=0
+
+      for result_file in "${results_dir}"/*.yaml; do
+        [[ -e "$result_file" ]] || continue
+        result_count=$((result_count + 1))
+
+        local status
+        status="$(grep -m1 '^status:' "$result_file" | sed 's/^status:[[:space:]]*//' | tr -d '[:space:]')" || status="unknown"
+
+        local task_name
+        task_name="$(basename "$result_file" .yaml)"
+
+        if [[ "$status" == "passed" ]]; then
+          pass_count=$((pass_count + 1))
+          auto_log "PASSED implementation task: ${task_name} (slug=${slug}, spec=${spec_name})"
+        else
+          fail_count=$((fail_count + 1))
+          auto_log "FAILED implementation task: ${task_name} status=${status} (slug=${slug}, spec=${spec_name})"
+        fi
+      done
+
+      auto_log "Implementation results for ${slug}: ${result_count} tasks, ${pass_count} passed, ${fail_count} failed"
+      echo "Implementation ${slug}: ${result_count} tasks (${pass_count} passed, ${fail_count} failed)"
+    else
+      auto_log "No result files found for implementation ${slug} (spec=${spec_name})"
+      echo "Implementation ${slug}: no result files found"
+    fi
+  done
+
   return 0
 }
 
@@ -503,7 +643,7 @@ run_spec_cycle() {
 
     generate_hypotheses "$spec_file" "$spec_name" "$cycle" "$HYPOTHESES"
     run_spikes "$spec_file" "$spec_name" "$cycle"
-    run_implementations "$spec_file"
+    run_implementations "$spec_file" "$spec_name" "$cycle"
 
     if run_selection "$spec_file"; then
       auto_log "Selection accepted for ${spec_file} at cycle ${cycle}"
