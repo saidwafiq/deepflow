@@ -677,6 +677,33 @@ main() {
 
   # Process each spec
   echo "$specs" | while read -r spec_file; do
+    local spec_name
+    spec_name="$(basename "$spec_file" .md)"
+
+    # Validate spec before processing
+    local lint_script=""
+    if [[ -f "${PROJECT_ROOT}/bin/df-spec-lint.js" ]]; then
+      lint_script="${PROJECT_ROOT}/bin/df-spec-lint.js"
+    elif [[ -f "${PROJECT_ROOT}/hooks/df-spec-lint.js" ]]; then
+      lint_script="${PROJECT_ROOT}/hooks/df-spec-lint.js"
+    fi
+
+    if [[ -n "$lint_script" ]]; then
+      if command -v node &>/dev/null; then
+        if node "$lint_script" "$spec_file" --mode=auto 2>/dev/null; then
+          auto_log "PASS: Spec $spec_name passed validation"
+        else
+          auto_log "SKIP: Spec $spec_name failed validation"
+          echo "⚠ Skipping $spec_name: spec validation failed"
+          continue
+        fi
+      else
+        auto_log "WARN: node not available, skipping spec validation for $spec_name"
+      fi
+    else
+      auto_log "WARN: df-spec-lint.js not found, skipping spec validation for $spec_name"
+    fi
+
     run_spec_cycle "$spec_file"
   done
 
