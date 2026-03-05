@@ -603,11 +603,203 @@ Important:
 
 run_selection() {
   local spec_file="$1"
-  auto_log "STUB run_selection called for ${spec_file}"
-  echo "[stub] run_selection: ${spec_file}" >&2
-  # Return 1 to indicate "not accepted" (keeps cycling).
-  # When implemented, return 0 for accepted.
-  return 1
+  local spec_name="$2"
+  local cycle="$3"
+
+  auto_log "run_selection called for ${spec_name} cycle ${cycle}"
+
+  # -----------------------------------------------------------------------
+  # 1. Gather artifacts from all implementation worktrees for this spec+cycle
+  # -----------------------------------------------------------------------
+  local -a approach_slugs=()
+  local artifacts_block=""
+
+  # Parse slugs from the hypotheses file for this cycle
+  local hypotheses_file="${PROJECT_ROOT}/.deepflow/hypotheses/${spec_name}-cycle-${cycle}.json"
+  if [[ ! -f "$hypotheses_file" ]]; then
+    auto_log "ERROR: hypotheses file not found for selection: ${hypotheses_file}"
+    echo "Error: no hypotheses file for selection" >&2
+    return 1
+  fi
+
+  while IFS= read -r slug; do
+    approach_slugs+=("$slug")
+  done < <(grep -o '"slug"[[:space:]]*:[[:space:]]*"[^"]*"' "$hypotheses_file" | sed 's/.*"slug"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+
+  if [[ ${#approach_slugs[@]} -eq 0 ]]; then
+    auto_log "ERROR: no approaches found for selection (spec=${spec_name}, cycle=${cycle})"
+    echo "Error: no approaches to select from" >&2
+    return 1
+  fi
+
+  local approach_index=0
+  for slug in "${approach_slugs[@]}"; do
+    approach_index=$((approach_index + 1))
+    local worktree_path="${PROJECT_ROOT}/.deepflow/worktrees/${spec_name}-${slug}"
+
+    artifacts_block="${artifacts_block}
+=== APPROACH ${approach_index}: ${slug} ===
+"
+
+    # Collect result YAMLs from worktree
+    local results_dir="${worktree_path}/.deepflow/results"
+    if [[ -d "$results_dir" ]]; then
+      for yaml_file in "${results_dir}"/*.yaml; do
+        [[ -e "$yaml_file" ]] || continue
+        artifacts_block="${artifacts_block}
+--- Result: $(basename "$yaml_file") ---
+$(cat "$yaml_file")
+"
+      done
+    else
+      artifacts_block="${artifacts_block}
+[No result YAML files found]
+"
+    fi
+
+    # Collect experiment files (passed experiments from main project dir)
+    local experiment_file="${PROJECT_ROOT}/.deepflow/experiments/${spec_name}--${slug}--passed.md"
+    if [[ -f "$experiment_file" ]]; then
+      artifacts_block="${artifacts_block}
+--- Experiment: $(basename "$experiment_file") ---
+$(cat "$experiment_file")
+"
+    fi
+
+    artifacts_block="${artifacts_block}
+=== END APPROACH ${approach_index} ===
+"
+  done
+
+  # -----------------------------------------------------------------------
+  # 2. Build selection prompt
+  # -----------------------------------------------------------------------
+  local selection_prompt
+  selection_prompt="You are an adversarial quality judge in an autonomous development workflow.
+Your job is to compare implementation approaches for spec '${spec_name}' and select the best one — or reject all if quality is insufficient.
+
+IMPORTANT:
+- This selection phase ALWAYS runs, even with only 1 approach. With a single approach you act as a quality gate.
+- You CAN and SHOULD reject all approaches if the quality is insufficient. Do not rubber-stamp poor work.
+- Base your judgment ONLY on the artifacts provided below. Do NOT read code files.
+
+There are ${#approach_slugs[@]} approach(es) to evaluate:
+
+${artifacts_block}
+
+Respond with ONLY a JSON object (no markdown fences, no explanation). The JSON must have this exact structure:
+
+{
+  \"winner\": \"slug-of-winner-or-empty-string-if-rejecting-all\",
+  \"rankings\": [
+    {\"slug\": \"approach-slug\", \"rank\": 1, \"rationale\": \"why this rank\"},
+    {\"slug\": \"approach-slug\", \"rank\": 2, \"rationale\": \"why this rank\"}
+  ],
+  \"reject_all\": false,
+  \"rejection_rationale\": \"\"
+}
+
+Rules for the JSON:
+- rankings must include ALL approaches, ranked from best (1) to worst
+- If reject_all is true, winner must be an empty string and rejection_rationale must explain why
+- If reject_all is false, winner must be the slug of the rank-1 approach
+- Output ONLY the JSON object. No other text."
+
+  # -----------------------------------------------------------------------
+  # 3. Spawn fresh claude -p (NOT in any worktree)
+  # -----------------------------------------------------------------------
+  auto_log "Spawning fresh claude -p for selection (spec=${spec_name}, cycle=${cycle})"
+
+  local raw_output
+  raw_output="$(echo "$selection_prompt" | claude -p --dangerously-skip-permissions --output-format text 2>/dev/null)" || {
+    auto_log "ERROR: claude -p failed for selection (spec=${spec_name}, cycle=${cycle})"
+    echo "Error: claude -p failed for selection" >&2
+    return 1
+  }
+
+  # Parse JSON from output
+  local json_output
+  json_output="$(echo "$raw_output" | sed -n '/^{/,/^}/p')"
+  if [[ -z "$json_output" ]]; then
+    json_output="$(echo "$raw_output" | grep -o '{.*}')" || true
+  fi
+  if [[ -z "$json_output" ]]; then
+    auto_log "ERROR: could not parse JSON from selection output (spec=${spec_name}, cycle=${cycle})"
+    echo "Error: failed to parse selection JSON" >&2
+    echo "Raw output: ${raw_output}" >&2
+    return 1
+  fi
+
+  # Extract fields from JSON
+  local reject_all winner rejection_rationale
+  reject_all="$(echo "$json_output" | grep -o '"reject_all"[[:space:]]*:[[:space:]]*[a-z]*' | sed 's/.*:[[:space:]]*//')" || reject_all="false"
+  winner="$(echo "$json_output" | grep -o '"winner"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"winner"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')" || winner=""
+  rejection_rationale="$(echo "$json_output" | grep -o '"rejection_rationale"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"rejection_rationale"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')" || rejection_rationale=""
+
+  # -----------------------------------------------------------------------
+  # 4. Process verdict
+  # -----------------------------------------------------------------------
+  if [[ "$reject_all" == "true" ]]; then
+    auto_log "REJECTED ALL approaches for ${spec_name} cycle ${cycle}: ${rejection_rationale}"
+    echo "Selection REJECTED ALL approaches for ${spec_name}: ${rejection_rationale}"
+
+    # Find the best-ranked slug to keep
+    local best_slug=""
+    best_slug="$(echo "$json_output" | grep -o '"slug"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"slug"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')" || true
+
+    # Clean up worktrees — keep only the best-ranked one
+    for slug in "${approach_slugs[@]}"; do
+      if [[ "$slug" == "$best_slug" ]]; then
+        auto_log "Keeping best-ranked rejected worktree: ${slug}"
+        continue
+      fi
+      local wt_path="${PROJECT_ROOT}/.deepflow/worktrees/${spec_name}-${slug}"
+      if [[ -d "$wt_path" ]]; then
+        git worktree remove --force "$wt_path" 2>/dev/null || true
+        git branch -D "df/${spec_name}-${slug}" 2>/dev/null || true
+        auto_log "Cleaned up rejected worktree: ${slug}"
+      fi
+    done
+
+    return 1
+  fi
+
+  # Winner selected
+  if [[ -z "$winner" ]]; then
+    auto_log "ERROR: no winner slug in selection output (spec=${spec_name}, cycle=${cycle})"
+    echo "Error: selection returned no winner" >&2
+    return 1
+  fi
+
+  auto_log "SELECTED winner '${winner}' for ${spec_name} cycle ${cycle}"
+  echo "Selection WINNER: ${winner} for ${spec_name}"
+
+  # Store winner
+  mkdir -p "${PROJECT_ROOT}/.deepflow/selection"
+  cat > "${PROJECT_ROOT}/.deepflow/selection/${spec_name}-winner.json" <<WINNER_EOF
+{
+  "spec": "${spec_name}",
+  "cycle": ${cycle},
+  "winner": "${winner}",
+  "selection_output": $(echo "$json_output" | head -50)
+}
+WINNER_EOF
+  auto_log "Wrote winner file: .deepflow/selection/${spec_name}-winner.json"
+
+  # Clean up non-winner worktrees
+  for slug in "${approach_slugs[@]}"; do
+    if [[ "$slug" == "$winner" ]]; then
+      continue
+    fi
+    local wt_path="${PROJECT_ROOT}/.deepflow/worktrees/${spec_name}-${slug}"
+    if [[ -d "$wt_path" ]]; then
+      git worktree remove --force "$wt_path" 2>/dev/null || true
+      git branch -D "df/${spec_name}-${slug}" 2>/dev/null || true
+      auto_log "Cleaned up non-winner worktree: ${slug}"
+    fi
+  done
+
+  return 0
 }
 
 generate_report() {
@@ -645,7 +837,7 @@ run_spec_cycle() {
     run_spikes "$spec_file" "$spec_name" "$cycle"
     run_implementations "$spec_file" "$spec_name" "$cycle"
 
-    if run_selection "$spec_file"; then
+    if run_selection "$spec_file" "$spec_name" "$cycle"; then
       auto_log "Selection accepted for ${spec_file} at cycle ${cycle}"
       echo "Selection accepted for $(basename "$spec_file") at cycle ${cycle}"
       break
