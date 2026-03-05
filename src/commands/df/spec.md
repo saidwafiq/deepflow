@@ -86,10 +86,16 @@ The reasoner will:
 - Identify constraints from existing architecture
 - Suggest requirements based on patterns found
 - Flag potential conflicts with existing code
+- Verify every REQ-N has at least one corresponding Acceptance Criterion; flag any uncovered requirements
+- Identify and flag vague or untestable requirements before finalizing (e.g., "should be fast" without a metric)
 
 ### 4. GENERATE SPEC
 
-Once gaps covered and context gathered, create `specs/{name}.md`:
+Once gaps covered and context gathered, run `validateSpec` on the generated content **before** writing the file.
+- **Hard failure:** Do NOT write the file. Show errors to the user with actionable fix suggestions and re-synthesize.
+- **Advisory warnings:** Write the file but display the warnings to the user after confirmation.
+
+Create `specs/{name}.md`:
 
 ```markdown
 # {Name}
