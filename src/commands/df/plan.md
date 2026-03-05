@@ -36,6 +36,8 @@ Load:
 Determine source_dir from config or default to src/
 ```
 
+Run `validateSpec` on each loaded spec. Hard failures → skip that spec entirely and emit an error line. Advisory warnings → include them in plan output.
+
 If no new specs: report counts, suggest `/df:execute`.
 
 ### 2. CHECK PAST EXPERIMENTS (SPIKE-FIRST)
@@ -97,6 +99,8 @@ Scale agent count based on codebase size:
 ### 5. COMPARE & PRIORITIZE
 
 Spawn `Task(subagent_type="reasoner", model="opus")`. Reasoner maps each requirement to DONE / PARTIAL / MISSING / CONFLICT. Flag spec gaps; don't silently assume.
+
+Check spec health: verify REQ-AC alignment, requirement clarity, and completeness. Note any issues (orphan ACs, vague requirements) in plan output.
 
 **Priority order:** Dependencies → Impact → Risk
 
