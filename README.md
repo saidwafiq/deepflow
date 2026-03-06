@@ -75,25 +75,40 @@ claude
 You write the specs, then walk away. The AI runs the full pipeline — hypothesis generation, parallel spikes, implementation, adversarial self-selection, verification — without any human intervention.
 
 ```bash
-# You define WHAT (the specs already exist as doing-*)
-# The AI figures out HOW, overnight
+# You define WHAT (the specs), the AI figures out HOW, overnight
 
-deepflow auto                    # process all doing-* specs
+deepflow auto                    # process all specs in specs/
 deepflow auto --parallel=3       # 3 approaches in parallel
 deepflow auto --hypotheses=4     # 4 hypotheses per cycle
 deepflow auto --max-cycles=5     # cap retry cycles
 ```
 
 **What the AI does alone:**
-1. Reads each `doing-*` spec
-2. Generates N hypotheses for how to implement it
+1. Discovers specs (auto-promotes plain specs to `doing-*`)
+2. Generates N hypotheses for how to implement each spec
 3. Runs parallel spikes in isolated worktrees (one per hypothesis)
 4. Implements the passing approaches
 5. Adversarial selection: a fresh AI context compares approaches by artifacts only (never reads code), picks the best or rejects all
 6. If rejected: generates new hypotheses, retries (up to max-cycles)
 7. On convergence: verifies, merges to main
 
-**What you do:** Write specs (via interactive mode or manually), run `deepflow auto`, read the morning report at `.deepflow/auto-report.md`.
+**What you do:** Write specs (via interactive mode or manually) in `specs/`, run `deepflow auto`, read the morning report at `.deepflow/auto-report.md`. No need to run `/df:plan` first — auto mode promotes plain specs to `doing-*` automatically.
+
+**How to use:**
+```bash
+# In Claude Code — create and approve a spec
+$ claude
+> /df:discover auth
+> /df:spec auth          # creates specs/auth.md
+> /exit
+
+# In your terminal — run auto mode and walk away
+$ deepflow auto
+
+# Next morning — check what happened
+$ cat .deepflow/auto-report.md
+$ git log --oneline
+```
 
 **Safety:** Never pushes to remote. Failed approaches recorded in `.deepflow/experiments/` and never repeated. Specs validated before processing (malformed specs are skipped).
 
@@ -109,7 +124,7 @@ deepflow auto --max-cycles=5     # cap retry cycles
                                     Merge or retry
  Read morning report
  ─────────────────────────────────  ──────────────────────────────────
-         specs/doing-*.md is the handoff point
+         specs/*.md is the handoff point
 ```
 
 ## The Flow (Interactive)
@@ -150,6 +165,7 @@ deepflow auto --max-cycles=5     # cap retry cycles
 
 ```
 deepflow auto
+    | Discover specs (auto-promote plain specs to doing-*)
     | For each doing-* spec:
     |
     |   Validate spec (malformed? skip)

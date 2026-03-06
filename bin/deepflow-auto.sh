@@ -114,14 +114,30 @@ discover_specs() {
     exit 1
   fi
 
-  # Collect doing-*.md files (read-only — we never modify these)
+  # Collect doing-*.md files
   for f in "${specs_dir}"/doing-*.md; do
     [[ -e "$f" ]] || continue
     found+=("$f")
   done
 
+  # Auto-promote plain specs (not doing-*, done-*, or .debate-*) to doing-*
+  for f in "${specs_dir}"/*.md; do
+    [[ -e "$f" ]] || continue
+    local base
+    base="$(basename "$f")"
+    # Skip already-prefixed and auxiliary files
+    case "$base" in
+      doing-*|done-*|.debate-*|.*) continue ;;
+    esac
+    local new_path="${specs_dir}/doing-${base}"
+    mv "$f" "$new_path"
+    auto_log "Auto-promoted spec: ${base} -> doing-${base}"
+    echo "Promoted: ${base} -> doing-${base}" >&2
+    found+=("$new_path")
+  done
+
   if [[ ${#found[@]} -eq 0 ]]; then
-    echo "Error: no specs/doing-*.md files found in ${specs_dir}" >&2
+    echo "Error: no specs found in ${specs_dir}" >&2
     exit 1
   fi
 
