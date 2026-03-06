@@ -170,7 +170,8 @@ if (require.main === module) {
   }
 
   const content = fs.readFileSync(filePath, 'utf8');
-  const result = validateSpec(content, { mode: 'auto' });
+  const mode = process.argv.includes('--auto') ? 'auto' : 'interactive';
+  const result = validateSpec(content, { mode });
 
   if (result.hard.length > 0) {
     console.error('HARD invariant failures:');
