@@ -8,6 +8,18 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const readline = require('readline');
+const { execFileSync } = require('child_process');
+
+// Subcommand routing: `deepflow auto [...]` -> bin/deepflow-auto.sh
+if (process.argv[2] === 'auto') {
+  const scriptPath = path.join(__dirname, 'deepflow-auto.sh');
+  try {
+    execFileSync('bash', [scriptPath, ...process.argv.slice(3)], { stdio: 'inherit' });
+  } catch (e) {
+    process.exit(e.status || 1);
+  }
+  process.exit(0);
+}
 
 // Colors
 const c = {
@@ -116,6 +128,13 @@ async function main() {
       }
       log('Hooks installed');
     }
+  }
+
+  // Ensure deepflow-auto.sh is executable
+  const autoScript = path.join(PACKAGE_DIR, 'bin', 'deepflow-auto.sh');
+  if (fs.existsSync(autoScript)) {
+    fs.chmodSync(autoScript, 0o755);
+    log('deepflow-auto.sh marked executable');
   }
 
   // Get version from package.json (single source of truth)
