@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> •
-  <a href="#the-flow">The Flow</a> •
+  <a href="#two-modes">Two Modes</a> •
   <a href="#commands">Commands</a>
 </p>
 
@@ -21,13 +21,11 @@
 
 ## Philosophy
 
-- **Stay in flow** — Minimize context switches, maximize deep work
-- **Conversational ideation** with proactive gap discovery
 - **Specs define intent**, tasks close reality gaps
+- **You decide WHAT to build** — the AI decides HOW
+- **Two modes:** interactive (human-in-the-loop) and autonomous (overnight, unattended)
 - **Spike-first planning** — Validate risky hypotheses before full implementation
 - **Worktree isolation** — Main branch stays clean during execution
-- **Parallel execution** with context-aware checkpointing
-- **Automatic decision capture** on spec completion, periodic consolidation
 - **Atomic commits** for clean rollback
 
 ## Quick Start
@@ -38,69 +36,144 @@ npx deepflow
 
 # Uninstall
 npx deepflow --uninstall
+```
 
-# In your project
+## Two Modes
+
+deepflow has two modes of operation. Both start from the same artifact: a **spec**.
+
+### Interactive Mode (human-in-the-loop)
+
+You drive each step inside a Claude Code session. Good for when you want control over the process, are exploring a new domain, or want to iterate on the spec.
+
+```bash
 claude
 
-# 1. Explore the problem space
+# 1. Explore the problem space (conversation with you)
 /df:discover image-upload
 
-# 2. Debate tradeoffs (optional)
+# 2. Debate tradeoffs (optional, 4 AI perspectives)
 /df:debate upload-strategy
 
 # 3. Generate spec from conversation
 /df:spec image-upload
 
-# 4. Compare specs to code, generate tasks
+# 4. Generate task plan from spec
 /df:plan
 
-# 5. Execute tasks with parallel agents
+# 5. Execute tasks (parallel agents, you watch)
 /df:execute
 
-# 6. Verify specs are satisfied
+# 6. Verify and merge to main
 /df:verify
 ```
 
-## The Flow
+**What requires you:** Steps 1-3 (defining the problem and approving the spec). Steps 4-6 run autonomously but you trigger each one and can intervene.
+
+### Autonomous Mode (unattended)
+
+You write the specs, then walk away. The AI runs the full pipeline — hypothesis generation, parallel spikes, implementation, adversarial self-selection, verification — without any human intervention.
+
+```bash
+# You define WHAT (the specs already exist as doing-*)
+# The AI figures out HOW, overnight
+
+deepflow auto                    # process all doing-* specs
+deepflow auto --parallel=3       # 3 approaches in parallel
+deepflow auto --hypotheses=4     # 4 hypotheses per cycle
+deepflow auto --max-cycles=5     # cap retry cycles
+```
+
+**What the AI does alone:**
+1. Reads each `doing-*` spec
+2. Generates N hypotheses for how to implement it
+3. Runs parallel spikes in isolated worktrees (one per hypothesis)
+4. Implements the passing approaches
+5. Adversarial selection: a fresh AI context compares approaches by artifacts only (never reads code), picks the best or rejects all
+6. If rejected: generates new hypotheses, retries (up to max-cycles)
+7. On convergence: verifies, merges to main
+
+**What you do:** Write specs (via interactive mode or manually), run `deepflow auto`, read the morning report at `.deepflow/auto-report.md`.
+
+**Safety:** Never pushes to remote. Failed approaches recorded in `.deepflow/experiments/` and never repeated. Specs validated before processing (malformed specs are skipped).
+
+### The Boundary
+
+```
+ YOU (the human)                    AI (autonomous)
+ ─────────────────────────────────  ──────────────────────────────────
+ Define the problem                 Generate hypotheses
+ Write/approve the spec             Spike, implement, compare
+ Set constraints & acceptance       Self-judge via adversarial selection
+ criteria                           Verify against YOUR criteria
+                                    Merge or retry
+ Read morning report
+ ─────────────────────────────────  ──────────────────────────────────
+         specs/doing-*.md is the handoff point
+```
+
+## The Flow (Interactive)
 
 ```
 /df:discover <name>
-    │ Socratic questioning (motivation, scope, constraints...)
-    ▼
-/df:debate <topic>          ← optional
-    │ 4 perspectives: User Advocate, Tech Skeptic,
-    │   Systems Thinker, LLM Efficiency
-    │ Creates specs/.debate-{topic}.md
-    ▼
+    | Socratic questioning (motivation, scope, constraints...)
+    v
+/df:debate <topic>          <- optional
+    | 4 perspectives: User Advocate, Tech Skeptic,
+    |   Systems Thinker, LLM Efficiency
+    | Creates specs/.debate-{topic}.md
+    v
 /df:spec <name>
-    │ Creates specs/{name}.md from conversation
-    ▼
+    | Creates specs/{name}.md from conversation
+    | Validates structure before writing
+    v
 /df:plan
-    │ Checks past experiments (learn from failures)
-    │ Risky work? → generates spike task first
-    │ Creates PLAN.md with prioritized tasks
-    │ Renames: feature.md → doing-feature.md
-    ▼
+    | Checks past experiments (learn from failures)
+    | Risky work? -> generates spike task first
+    | Creates PLAN.md with prioritized tasks
+    | Renames: feature.md -> doing-feature.md
+    v
 /df:execute
-    │ Creates isolated worktree (main stays clean)
-    │ Spike tasks run first, verified before continuing
-    │ Parallel agents, file conflicts serialize
-    │ Context-aware (≥50% → checkpoint)
-    ▼
+    | Creates isolated worktree (main stays clean)
+    | Spike tasks run first, verified before continuing
+    | Parallel agents, file conflicts serialize
+    | Context-aware (>=50% -> checkpoint)
+    v
 /df:verify
-    │ Checks requirements met
-    │ Merges worktree to main, cleans up
-    │ Extracts decisions → .deepflow/decisions.md
-    │ Deletes done-* spec after extraction
+    | Checks requirements met
+    | Merges worktree to main, cleans up
+    | Extracts decisions -> .deepflow/decisions.md
+    | Deletes done-* spec after extraction
+```
+
+## The Flow (Autonomous)
+
+```
+deepflow auto
+    | For each doing-* spec:
+    |
+    |   Validate spec (malformed? skip)
+    |       v
+    |   Generate N hypotheses
+    |       v
+    |   Parallel spikes (one worktree per hypothesis)
+    |     | Pass? -> implement in same worktree
+    |     | Fail? -> record experiment, discard
+    |       v
+    |   Adversarial selection (fresh context, artifacts only)
+    |     | Winner? -> verify & merge
+    |     | Reject all? -> new hypotheses, retry
+    |       v
+    |   Morning report -> .deepflow/auto-report.md
 ```
 
 ## Spec Lifecycle
 
 ```
 specs/
-  feature.md        → new, needs /df:plan
-  doing-feature.md  → in progress, has tasks in PLAN.md
-  done-feature.md   → transient (decisions extracted, then deleted)
+  feature.md        -> new, needs /df:plan
+  doing-feature.md  -> in progress (active contract between you and the AI)
+  done-feature.md   -> transient (decisions extracted, then deleted)
 ```
 
 ## Works With Any Project
@@ -115,9 +188,9 @@ For risky or uncertain work, `/df:plan` generates a **spike task** first:
 
 ```
 Spike: Validate streaming upload handles 10MB+ files
-  │ Run minimal experiment
-  │ Pass? → Unblock implementation tasks
-  │ Fail? → Record learning, generate new hypothesis
+  | Run minimal experiment
+  | Pass? -> Unblock implementation tasks
+  | Fail? -> Record learning, generate new hypothesis
 ```
 
 Experiments are tracked in `.deepflow/experiments/`. Failed approaches won't be repeated.
@@ -140,9 +213,18 @@ deepflow automatically enables Claude Code's LSP tools during install, giving ag
 
 Agents prefer LSP tools when available and fall back to Grep/Glob silently. You'll need a language server installed for your language (e.g. `typescript-language-server`, `pyright`, `rust-analyzer`, `gopls`).
 
+## Spec Validation
+
+Specs are validated before downstream consumption by `/df:spec`, `/df:plan`, and `deepflow auto`:
+
+- **Hard invariants** (block on failure): required sections present, REQ-N prefixes, checkbox ACs, no duplicate IDs
+- **Advisory warnings** (warn interactively, block in auto mode): long specs, orphaned requirements, excessive technical notes
+
+Run manually: `node hooks/df-spec-lint.js specs/my-spec.md`
+
 ## Context-Aware Execution
 
-Statusline shows context usage. At ≥50%:
+Statusline shows context usage. At >=50%:
 - Waits for running agents
 - Checkpoints state
 - Resume with `/df:execute --continue`
@@ -161,23 +243,26 @@ Statusline shows context usage. At ≥50%:
 | `/df:consolidate` | Deduplicate and clean up decisions.md |
 | `/df:resume` | Session continuity briefing |
 | `/df:update` | Update deepflow to latest |
+| `deepflow auto` | Autonomous overnight execution (no human needed) |
 
 ## File Structure
 
 ```
 your-project/
-├── specs/
-│   ├── auth.md           # new spec
-│   └── doing-upload.md   # in progress
-├── PLAN.md               # active tasks
-└── .deepflow/
-    ├── config.yaml            # project settings
-    ├── decisions.md           # auto-extracted + ad-hoc decisions
-    ├── last-consolidated.json # consolidation timestamp
-    ├── context.json           # context % tracking
-    ├── experiments/           # spike results (pass/fail)
-    └── worktrees/             # isolated execution
-        └── upload/            # one worktree per spec
++-- specs/
+|   +-- auth.md           # new spec
+|   +-- doing-upload.md   # in progress
++-- PLAN.md               # active tasks
++-- .deepflow/
+    +-- config.yaml            # project settings
+    +-- decisions.md           # auto-extracted + ad-hoc decisions
+    +-- auto-report.md         # morning report (autonomous mode)
+    +-- auto-decisions.log     # AI decision log (autonomous mode)
+    +-- last-consolidated.json # consolidation timestamp
+    +-- context.json           # context % tracking
+    +-- experiments/           # spike results (pass/fail)
+    +-- worktrees/             # isolated execution
+        +-- upload/            # one worktree per spec
 ```
 
 ## Configuration
@@ -200,7 +285,7 @@ worktree:
 
 ## Principles
 
-1. **Stay in flow** — Uninterrupted deep work
+1. **You define WHAT, AI figures out HOW** — Specs are the contract
 2. **Confirm before assume** — Search code before marking "missing"
 3. **Complete implementations** — No stubs, no placeholders
 4. **Atomic commits** — One task = one commit

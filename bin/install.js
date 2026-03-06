@@ -173,9 +173,11 @@ async function main() {
   console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:note, /df:resume, /df:update');
   console.log('  skills/          — gap-discovery, atomic-commits, code-completeness');
   console.log('  agents/          — reasoner');
+  console.log('  bin/             — deepflow auto (autonomous overnight execution)');
   if (level === 'global') {
     console.log('  hooks/           — statusline, update checker');
   }
+  console.log('  hooks/df-spec-*  — spec validation (auto-enforced by /df:spec and /df:plan)');
   console.log('  env/             — ENABLE_LSP_TOOL (code navigation via goToDefinition, findReferences, workspaceSymbol)');
   console.log('');
   if (level === 'project') {
