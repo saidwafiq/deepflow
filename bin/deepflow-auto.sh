@@ -436,6 +436,7 @@ run_single_spike() {
   local slug="$2"
   local hypothesis="$3"
   local method="$4"
+  local spec_file="$5"
 
   local worktree_path="${PROJECT_ROOT}/.deepflow/worktrees/${spec_name}-${slug}"
   local branch_name="df/${spec_name}-${slug}"
@@ -455,6 +456,12 @@ run_single_spike() {
     }
   fi
 
+  # Extract acceptance criteria from spec (the human's judgment proxy)
+  local acceptance_criteria=""
+  if [[ -f "$spec_file" ]]; then
+    acceptance_criteria="$(sed -n '/^## Acceptance Criteria/,/^## /{ /^## Acceptance Criteria/d; /^## /d; p; }' "$spec_file")"
+  fi
+
   # Build spike prompt
   local spike_prompt
   spike_prompt="You are running a spike experiment to validate a hypothesis for spec '${spec_name}'.
@@ -465,13 +472,19 @@ Hypothesis: ${hypothesis}
 Method: ${method}
 --- END HYPOTHESIS ---
 
+--- ACCEPTANCE CRITERIA (from spec — the human's judgment proxy) ---
+${acceptance_criteria}
+--- END ACCEPTANCE CRITERIA ---
+
 Your tasks:
 1. Validate this hypothesis by implementing the minimum necessary to prove or disprove it.
+   The spike must demonstrate that the approach can satisfy the acceptance criteria above.
 2. Write an experiment file at: .deepflow/experiments/${spec_name}--${slug}--active.md
    The experiment file should contain:
    - ## Hypothesis: restate the hypothesis
    - ## Method: what you did to validate
    - ## Results: what you observed
+   - ## Criteria Check: for each acceptance criterion, can this approach satisfy it? (yes/no/unclear)
    - ## Conclusion: PASSED or FAILED with reasoning
 3. Write a result YAML file at: .deepflow/results/spike-${slug}.yaml
    The YAML must contain:
@@ -573,7 +586,7 @@ run_spikes() {
     auto_log "Spawning spike for ${slug} (hypothesis ${i}/${count})"
     echo "Spawning spike: ${slug}"
 
-    run_single_spike "$spec_name" "$slug" "$hypothesis" "$method" &
+    run_single_spike "$spec_name" "$slug" "$hypothesis" "$method" "$spec_file" &
     pids+=($!)
   done
 
@@ -875,6 +888,13 @@ $(cat "$experiment_file")
   # -----------------------------------------------------------------------
   # 2. Build selection prompt
   # -----------------------------------------------------------------------
+
+  # Extract acceptance criteria from spec (the human's judgment proxy)
+  local acceptance_criteria=""
+  if [[ -f "$spec_file" ]]; then
+    acceptance_criteria="$(sed -n '/^## Acceptance Criteria/,/^## /{ /^## Acceptance Criteria/d; /^## /d; p; }' "$spec_file")"
+  fi
+
   local selection_prompt
   selection_prompt="You are an adversarial quality judge in an autonomous development workflow.
 Your job is to compare implementation approaches for spec '${spec_name}' and select the best one — or reject all if quality is insufficient.
@@ -883,6 +903,11 @@ IMPORTANT:
 - This selection phase ALWAYS runs, even with only 1 approach. With a single approach you act as a quality gate.
 - You CAN and SHOULD reject all approaches if the quality is insufficient. Do not rubber-stamp poor work.
 - Base your judgment ONLY on the artifacts provided below. Do NOT read code files.
+- Judge each approach against the ACCEPTANCE CRITERIA below — these represent the human's intent.
+
+--- ACCEPTANCE CRITERIA (from spec) ---
+${acceptance_criteria}
+--- END ACCEPTANCE CRITERIA ---
 
 There are ${#approach_slugs[@]} approach(es) to evaluate:
 
