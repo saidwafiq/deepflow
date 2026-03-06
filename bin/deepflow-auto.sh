@@ -8,8 +8,8 @@ unset CLAUDECODE
 # NOTE: Child `claude -p` processes will need `--dangerously-skip-permissions`
 # to run without interactive approval prompts.
 
-# NOTE: context.json is NOT available in `-p` mode. Alternative monitoring
-# (e.g., token counting in output) will be needed for context window management.
+# Context window monitoring is handled by run_claude_monitored(), which parses
+# stream-json output for token usage and restarts when hitting the threshold.
 
 # ---------------------------------------------------------------------------
 # Globals
@@ -22,6 +22,11 @@ MAX_CYCLES=0        # 0 = unlimited
 CONTINUE=false
 FRESH=false
 INTERRUPTED=false
+
+# Context window monitoring threshold (percentage). When token usage reaches
+# this fraction of the context window, the claude -p process is killed and
+# restarted with --resume to get a fresh context window.
+CONTEXT_THRESHOLD_PCT=50
 
 # Associative array for per-spec status tracking
 # Values: "converged", "halted", "in-progress"
@@ -125,6 +130,179 @@ discover_specs() {
 }
 
 # ---------------------------------------------------------------------------
+# Context-monitored claude -p wrapper
+# ---------------------------------------------------------------------------
+
+# run_claude_monitored <working_dir> <prompt_text> [session_id]
+#
+# Runs `claude -p --output-format stream-json` and monitors token usage in
+# real time. If usage reaches CONTEXT_THRESHOLD_PCT% of the context window the
+# process is killed and automatically restarted with `--resume <session_id>` so
+# it gets a fresh context window.
+#
+# The final result text is written to stdout. A side-effect context.json is
+# written to <working_dir>/.deepflow/context.json for statusline consumption.
+run_claude_monitored() {
+  local working_dir="$1"
+  local prompt_text="$2"
+  local session_id="${3:-}"
+
+  local result_tmp
+  result_tmp="$(mktemp)"
+
+  # Outer loop: may restart with --resume when threshold is hit
+  while true; do
+    # Build command arguments
+    local -a cmd_args=(claude -p --output-format stream-json --dangerously-skip-permissions)
+    if [[ -n "$session_id" ]]; then
+      cmd_args+=(--resume --session-id "$session_id")
+    fi
+
+    # Accumulated token count and context window size across events
+    local total_tokens=0
+    local context_window=0
+    local current_session_id=""
+    local threshold_hit=false
+    local claude_pid=""
+
+    # Launch claude -p in background, capture its PID so we can kill it
+    if [[ -n "$session_id" ]]; then
+      # When resuming, no prompt is piped
+      "${cmd_args[@]}" < /dev/null 2>/dev/null &
+      claude_pid=$!
+    else
+      echo "$prompt_text" | "${cmd_args[@]}" 2>/dev/null &
+      claude_pid=$!
+    fi
+
+    # Read stdout from the backgrounded process via /dev/fd — we need a pipe.
+    # Re-architect: use a FIFO so we can read line-by-line while also holding
+    # the PID for killing.
+    # Kill the background process we just started (we'll redo with a FIFO).
+    kill "$claude_pid" 2>/dev/null || true
+    wait "$claude_pid" 2>/dev/null || true
+
+    local fifo_path
+    fifo_path="$(mktemp -u)"
+    mkfifo "$fifo_path"
+
+    if [[ -n "$session_id" ]]; then
+      "${cmd_args[@]}" < /dev/null > "$fifo_path" 2>/dev/null &
+      claude_pid=$!
+    else
+      echo "$prompt_text" | "${cmd_args[@]}" > "$fifo_path" 2>/dev/null &
+      claude_pid=$!
+    fi
+
+    # Read the FIFO line-by-line
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+
+      local parsed
+      parsed="$(node -e "
+        try {
+          const e = JSON.parse(process.argv[1]);
+          if (e.session_id) {
+            console.log('SESSION_ID:' + e.session_id);
+          }
+          if (e.type === 'assistant' && e.message && e.message.usage) {
+            const u = e.message.usage;
+            const tokens = (u.input_tokens||0) + (u.cache_creation_input_tokens||0) + (u.cache_read_input_tokens||0) + (u.output_tokens||0);
+            console.log('TOKENS:' + tokens);
+          } else if (e.type === 'result') {
+            const mu = e.modelUsage || {};
+            const model = Object.keys(mu)[0];
+            const cw = model ? mu[model].contextWindow : 0;
+            console.log('CONTEXT_WINDOW:' + cw);
+            console.log('RESULT_START');
+            console.log(e.result || '');
+            console.log('RESULT_END');
+          }
+        } catch(err) {}
+      " "$line" 2>/dev/null)" || true
+
+      # Parse the node output
+      local IFS_save="$IFS"
+      IFS=$'\n'
+      for pline in $parsed; do
+        case "$pline" in
+          SESSION_ID:*)
+            current_session_id="${pline#SESSION_ID:}"
+            ;;
+          TOKENS:*)
+            total_tokens="${pline#TOKENS:}"
+            ;;
+          CONTEXT_WINDOW:*)
+            context_window="${pline#CONTEXT_WINDOW:}"
+            ;;
+          RESULT_START)
+            # Next lines until RESULT_END are the result text
+            local capturing_result=true
+            ;;
+          RESULT_END)
+            capturing_result=false
+            ;;
+          *)
+            if [[ "${capturing_result:-false}" == "true" ]]; then
+              echo "$pline" >> "$result_tmp"
+            fi
+            ;;
+        esac
+      done
+      IFS="$IFS_save"
+
+      # Check threshold
+      if [[ "$context_window" -gt 0 && "$total_tokens" -gt 0 ]]; then
+        local pct=$(( total_tokens * 100 / context_window ))
+
+        # Write context.json for statusline
+        mkdir -p "${working_dir}/.deepflow"
+        printf '{"percentage": %d, "timestamp": "%s"}\n' "$pct" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "${working_dir}/.deepflow/context.json"
+
+        if [[ "$pct" -ge "$CONTEXT_THRESHOLD_PCT" ]]; then
+          auto_log "Context threshold hit: ${pct}% >= ${CONTEXT_THRESHOLD_PCT}% (tokens=${total_tokens}, window=${context_window}). Restarting with --resume."
+          threshold_hit=true
+          kill "$claude_pid" 2>/dev/null || true
+          wait "$claude_pid" 2>/dev/null || true
+          break
+        fi
+      fi
+    done < "$fifo_path"
+
+    # Clean up FIFO
+    rm -f "$fifo_path"
+
+    # Wait for claude process to finish (if it hasn't been killed)
+    wait "$claude_pid" 2>/dev/null || true
+
+    if [[ "$threshold_hit" == "true" && -n "$current_session_id" ]]; then
+      # Restart with --resume and the captured session_id
+      session_id="$current_session_id"
+      total_tokens=0
+      context_window=0
+      auto_log "Restarting claude -p with --resume session_id=${session_id}"
+      continue
+    fi
+
+    # Normal exit — break out of the restart loop
+    break
+  done
+
+  # Write final context.json
+  if [[ "$context_window" -gt 0 && "$total_tokens" -gt 0 ]]; then
+    local final_pct=$(( total_tokens * 100 / context_window ))
+    mkdir -p "${working_dir}/.deepflow"
+    printf '{"percentage": %d, "timestamp": "%s"}\n' "$final_pct" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "${working_dir}/.deepflow/context.json"
+  fi
+
+  # Output the result text
+  if [[ -f "$result_tmp" ]]; then
+    cat "$result_tmp"
+    rm -f "$result_tmp"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Stub functions — to be implemented by T3–T7
 # ---------------------------------------------------------------------------
 
@@ -190,7 +368,7 @@ Output ONLY the JSON array. No markdown fences, no explanation, no extra text. J
   mkdir -p "${PROJECT_ROOT}/.deepflow/hypotheses"
 
   local raw_output
-  raw_output="$(echo "$prompt" | claude -p --dangerously-skip-permissions --output-format text 2>/dev/null)" || {
+  raw_output="$(run_claude_monitored "${PROJECT_ROOT}" "$prompt")" || {
     auto_log "ERROR: claude -p failed for generate_hypotheses (spec=${spec_name}, cycle=${cycle})"
     echo "Error: claude -p failed for hypothesis generation" >&2
     return 1
@@ -292,10 +470,10 @@ Important:
 - Be concise and focused — this is a spike, not a full implementation.
 - If the hypothesis is not viable, mark it as failed and explain why."
 
-  # Run claude -p in the worktree
+  # Run claude -p in the worktree with context monitoring
   (
     cd "$worktree_path"
-    echo "$spike_prompt" | claude -p --dangerously-skip-permissions --output-format text 2>/dev/null
+    run_claude_monitored "$worktree_path" "$spike_prompt" > /dev/null
   )
   local exit_code=$?
 
@@ -557,7 +735,7 @@ Important:
 
     (
       cd "$worktree_path"
-      echo "$impl_prompt" | claude -p --dangerously-skip-permissions --output-format text 2>/dev/null
+      run_claude_monitored "$worktree_path" "$impl_prompt" > /dev/null
     ) &
     pids+=($!)
     impl_slugs+=("$slug")
@@ -718,7 +896,7 @@ Rules for the JSON:
   auto_log "Spawning fresh claude -p for selection (spec=${spec_name}, cycle=${cycle})"
 
   local raw_output
-  raw_output="$(echo "$selection_prompt" | claude -p --dangerously-skip-permissions --output-format text 2>/dev/null)" || {
+  raw_output="$(run_claude_monitored "${PROJECT_ROOT}" "$selection_prompt")" || {
     auto_log "ERROR: claude -p failed for selection (spec=${spec_name}, cycle=${cycle})"
     echo "Error: claude -p failed for selection" >&2
     return 1
