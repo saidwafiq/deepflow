@@ -461,10 +461,10 @@ run_single_spike() {
     auto_log "Worktree already exists at ${worktree_path}, reusing"
   else
     local wt_err
-    wt_err="$(git worktree add -b "$branch_name" "$worktree_path" HEAD 2>&1)" || {
+    wt_err="$(git -C "$PROJECT_ROOT" worktree add -b "$branch_name" "$worktree_path" HEAD 2>&1)" || {
       auto_log "worktree add -b failed: ${wt_err}"
       # Branch may already exist from a previous run
-      wt_err="$(git worktree add "$worktree_path" "$branch_name" 2>&1)" || {
+      wt_err="$(git -C "$PROJECT_ROOT" worktree add "$worktree_path" "$branch_name" 2>&1)" || {
         auto_log "ERROR: failed to create worktree for ${slug}: ${wt_err}"
         echo "Worktree error for ${slug}: ${wt_err}" >&2
         return 1
@@ -1231,6 +1231,14 @@ run_spec_cycle() {
 
 main() {
   parse_flags "$@"
+
+  # Require git repository
+  if ! git -C "$PROJECT_ROOT" rev-parse --git-dir &>/dev/null; then
+    echo "Error: ${PROJECT_ROOT} is not a git repository." >&2
+    echo "deepflow auto requires git for worktree-based parallel spikes." >&2
+    echo "Run: git init && git add . && git commit -m 'initial commit'" >&2
+    exit 1
+  fi
 
   auto_log "deepflow-auto started (parallel=${PARALLEL}, hypotheses=${HYPOTHESES}, max_cycles=${MAX_CYCLES}, continue=${CONTINUE}, fresh=${FRESH})"
 
