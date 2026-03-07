@@ -184,6 +184,8 @@ run_claude_monitored() {
 
   local result_tmp
   result_tmp="$(mktemp)"
+  local error_log
+  error_log="$(mktemp)"
 
   # Outer loop: may restart with --resume when threshold is hit
   while true; do
@@ -200,37 +202,22 @@ run_claude_monitored() {
     local threshold_hit=false
     local claude_pid=""
 
-    # Launch claude -p in background, capture its PID so we can kill it
-    if [[ -n "$session_id" ]]; then
-      # When resuming, no prompt is piped
-      "${cmd_args[@]}" < /dev/null 2>/dev/null &
-      claude_pid=$!
-    else
-      echo "$prompt_text" | "${cmd_args[@]}" 2>/dev/null &
-      claude_pid=$!
-    fi
-
-    # Read stdout from the backgrounded process via /dev/fd — we need a pipe.
-    # Re-architect: use a FIFO so we can read line-by-line while also holding
-    # the PID for killing.
-    # Kill the background process we just started (we'll redo with a FIFO).
-    kill "$claude_pid" 2>/dev/null || true
-    wait "$claude_pid" 2>/dev/null || true
-
+    # Use a FIFO so we can read line-by-line while holding the PID for killing
     local fifo_path
     fifo_path="$(mktemp -u)"
     mkfifo "$fifo_path"
 
     if [[ -n "$session_id" ]]; then
-      "${cmd_args[@]}" < /dev/null > "$fifo_path" 2>/dev/null &
+      "${cmd_args[@]}" < /dev/null > "$fifo_path" 2>>"$error_log" &
       claude_pid=$!
     else
-      echo "$prompt_text" | "${cmd_args[@]}" > "$fifo_path" 2>/dev/null &
+      echo "$prompt_text" | "${cmd_args[@]}" > "$fifo_path" 2>>"$error_log" &
       claude_pid=$!
     fi
 
     # Read the FIFO line-by-line
-    while IFS= read -r line; do
+    local capturing_result=false
+    while IFS= read -r line || [[ -n "$line" ]]; do
       [[ -z "$line" ]] && continue
 
       local parsed
@@ -271,14 +258,13 @@ run_claude_monitored() {
             context_window="${pline#CONTEXT_WINDOW:}"
             ;;
           RESULT_START)
-            # Next lines until RESULT_END are the result text
-            local capturing_result=true
+            capturing_result=true
             ;;
           RESULT_END)
             capturing_result=false
             ;;
           *)
-            if [[ "${capturing_result:-false}" == "true" ]]; then
+            if [[ "$capturing_result" == "true" ]]; then
               echo "$pline" >> "$result_tmp"
             fi
             ;;
@@ -310,6 +296,12 @@ run_claude_monitored() {
     # Wait for claude process to finish (if it hasn't been killed)
     wait "$claude_pid" 2>/dev/null || true
 
+    # Log stderr if any
+    if [[ -s "$error_log" ]]; then
+      auto_log "claude stderr: $(cat "$error_log")"
+      : > "$error_log"
+    fi
+
     if [[ "$threshold_hit" == "true" && -n "$current_session_id" ]]; then
       # Restart with --resume and the captured session_id
       session_id="$current_session_id"
@@ -322,6 +314,8 @@ run_claude_monitored() {
     # Normal exit — break out of the restart loop
     break
   done
+
+  rm -f "$error_log"
 
   # Write final context.json
   if [[ "$context_window" -gt 0 && "$total_tokens" -gt 0 ]]; then
@@ -466,10 +460,13 @@ run_single_spike() {
   if [[ -d "$worktree_path" ]]; then
     auto_log "Worktree already exists at ${worktree_path}, reusing"
   else
-    git worktree add -b "$branch_name" "$worktree_path" HEAD 2>/dev/null || {
+    local wt_err
+    wt_err="$(git worktree add -b "$branch_name" "$worktree_path" HEAD 2>&1)" || {
+      auto_log "worktree add -b failed: ${wt_err}"
       # Branch may already exist from a previous run
-      git worktree add "$worktree_path" "$branch_name" 2>/dev/null || {
-        auto_log "ERROR: failed to create worktree for ${slug}"
+      wt_err="$(git worktree add "$worktree_path" "$branch_name" 2>&1)" || {
+        auto_log "ERROR: failed to create worktree for ${slug}: ${wt_err}"
+        echo "Worktree error for ${slug}: ${wt_err}" >&2
         return 1
       }
     }
