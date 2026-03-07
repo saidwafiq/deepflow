@@ -9,13 +9,14 @@
 
 'use strict';
 
+// Each entry: [canonical name, ...aliases that also satisfy the requirement]
 const REQUIRED_SECTIONS = [
-  'Objective',
-  'Requirements',
-  'Constraints',
-  'Out of Scope',
-  'Acceptance Criteria',
-  'Technical Notes',
+  ['Objective', 'overview', 'goal', 'goals', 'summary'],
+  ['Requirements', 'functional requirements'],
+  ['Constraints', 'tech constraints', 'technical constraints'],
+  ['Out of Scope', 'out of scope (mvp)', 'non-goals', 'exclusions'],
+  ['Acceptance Criteria'],
+  ['Technical Notes', 'architecture notes', 'architecture', 'tech notes', 'implementation notes'],
 ];
 
 /**
@@ -34,36 +35,42 @@ function validateSpec(content, { mode = 'interactive' } = {}) {
   const headersFound = [];
   for (const line of content.split('\n')) {
     const m = line.match(/^##\s+(.+)/i);
-    if (m) headersFound.push(m[1].trim());
-  }
-
-  for (const section of REQUIRED_SECTIONS) {
-    const found = headersFound.some(
-      (h) => h.toLowerCase() === section.toLowerCase()
-    );
-    if (!found) {
-      hard.push(`Missing required section: "## ${section}"`);
+    if (m) {
+      // Strip leading numbering like "1.", "2.", "3." from headers
+      const raw = m[1].trim().replace(/^\d+\.\s*/, '');
+      headersFound.push(raw);
     }
   }
 
-  // ── (b) Requirement lines must have REQ-N: prefix ───────────────────
+  for (const [canonical, ...aliases] of REQUIRED_SECTIONS) {
+    const allNames = [canonical, ...aliases].map((n) => n.toLowerCase());
+    const found = headersFound.some((h) => allNames.includes(h.toLowerCase()));
+    if (!found) {
+      // Inline *AC: lines satisfy the Acceptance Criteria requirement
+      if (canonical === 'Acceptance Criteria' && /\*AC[:.]/.test(content)) continue;
+      hard.push(`Missing required section: "## ${canonical}"`);
+    }
+  }
+
+  // ── (b) Check that requirements have REQ-N identifiers ──────────────
+  // Requirements can be formatted as:
+  //   - List items:  "- REQ-1: ..." or "- **REQ-1** — ..."
+  //   - Paragraphs:  "**REQ-1 — Title**"
+  // We verify that at least one REQ-N identifier exists in the section.
+  // Sub-bullets (detail items) are not flagged.
   const reqSection = extractSection(content, 'Requirements');
   if (reqSection !== null) {
-    const lines = reqSection.split('\n');
-    for (const line of lines) {
-      // Only consider list items (lines starting with - or *)
-      if (!/^\s*[-*]\s+/.test(line)) continue;
-      // Must match REQ-\d+: with optional bold markers
-      if (!/^\s*[-*]\s*\*{0,2}(REQ-\d+)\*{0,2}\s*:/.test(line)) {
-        hard.push(
-          `Requirement line missing REQ-N: prefix: "${line.trim()}"`
-        );
-      }
+    const hasReqIds = /REQ-\d+/.test(reqSection);
+    if (!hasReqIds) {
+      hard.push('Requirements section has no REQ-N identifiers');
     }
   }
 
-  // ── (c) Acceptance Criteria must use checkbox format ─────────────────
+  // ── (c) Acceptance Criteria ────────────────────────────────────────
+  // Accept either a dedicated ## Acceptance Criteria section with checkboxes,
+  // or inline *AC: lines within the requirements section.
   const acSection = extractSection(content, 'Acceptance Criteria');
+  const hasInlineAC = /\*AC[:.]/.test(content);
   if (acSection !== null) {
     const lines = acSection.split('\n');
     for (const line of lines) {
@@ -74,10 +81,12 @@ function validateSpec(content, { mode = 'interactive' } = {}) {
         );
       }
     }
+  } else if (!hasInlineAC) {
+    // No dedicated section and no inline ACs — already flagged by missing section check
   }
 
   // ── (d) No duplicate REQ-N IDs ──────────────────────────────────────
-  const reqIdPattern = /\*{0,2}(REQ-\d+)\*{0,2}\s*:/g;
+  const reqIdPattern = /\*{0,2}(REQ-\d+[a-z]?)\*{0,2}\s*(?:[:\u2014]|—)/g;
   const seenIds = new Map();
   let match;
   while ((match = reqIdPattern.exec(content)) !== null) {
@@ -90,16 +99,17 @@ function validateSpec(content, { mode = 'interactive' } = {}) {
 
   // ── Advisory checks ──────────────────────────────────────────────────
 
-  // (adv-a) Line count > 100
+  // (adv-a) Line count > 200
   const lineCount = content.split('\n').length;
-  if (lineCount > 100) {
-    advisory.push(`Spec exceeds 100 lines (${lineCount} lines)`);
+  if (lineCount > 200) {
+    advisory.push(`Spec exceeds 200 lines (${lineCount} lines)`);
   }
 
   // (adv-b) Orphaned REQ-N IDs not referenced in Acceptance Criteria
+  // Skip this check when ACs are inline within requirements
   if (reqSection !== null && acSection !== null) {
     const reqIds = [];
-    const reqLinePattern = /\*{0,2}(REQ-\d+)\*{0,2}\s*:/g;
+    const reqLinePattern = /\*{0,2}(REQ-\d+[a-z]?)\*{0,2}\s*[:\u2014-]/g;
     let reqMatch;
     while ((reqMatch = reqLinePattern.exec(reqSection)) !== null) {
       reqIds.push(reqMatch[1]);
@@ -120,9 +130,9 @@ function validateSpec(content, { mode = 'interactive' } = {}) {
     }
   }
 
-  // (adv-d) More than 12 requirements
-  if (seenIds.size > 12) {
-    advisory.push(`Too many requirements (${seenIds.size}, limit 12)`);
+  // (adv-d) More than 20 requirements
+  if (seenIds.size > 20) {
+    advisory.push(`Too many requirements (${seenIds.size}, limit 20)`);
   }
 
   // ── Auto-mode escalation ─────────────────────────────────────────────
@@ -138,15 +148,24 @@ function validateSpec(content, { mode = 'interactive' } = {}) {
  * Returns null if the section is not found.
  */
 function extractSection(content, sectionName) {
+  // Find the matching aliases for this section name
+  const entry = REQUIRED_SECTIONS.find(
+    ([canonical]) => canonical.toLowerCase() === sectionName.toLowerCase()
+  );
+  const allNames = entry
+    ? [entry[0], ...entry.slice(1)].map((n) => n.toLowerCase())
+    : [sectionName.toLowerCase()];
+
   const lines = content.split('\n');
   let capturing = false;
   const captured = [];
 
   for (const line of lines) {
-    const headerMatch = line.match(/^## \s*(.+)/);
+    const headerMatch = line.match(/^##\s+(.+)/);
     if (headerMatch) {
       if (capturing) break; // hit the next section
-      if (headerMatch[1].trim().toLowerCase() === sectionName.toLowerCase()) {
+      const normalized = headerMatch[1].trim().replace(/^\d+\.\s*/, '').toLowerCase();
+      if (allNames.includes(normalized)) {
         capturing = true;
       }
       continue;
