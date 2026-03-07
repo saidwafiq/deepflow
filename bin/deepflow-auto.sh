@@ -1257,6 +1257,10 @@ main() {
       lint_script="${PROJECT_ROOT}/bin/df-spec-lint.js"
     elif [[ -f "${PROJECT_ROOT}/hooks/df-spec-lint.js" ]]; then
       lint_script="${PROJECT_ROOT}/hooks/df-spec-lint.js"
+    elif [[ -f "${PROJECT_ROOT}/.claude/hooks/df-spec-lint.js" ]]; then
+      lint_script="${PROJECT_ROOT}/.claude/hooks/df-spec-lint.js"
+    elif [[ -f "${HOME}/.claude/hooks/df-spec-lint.js" ]]; then
+      lint_script="${HOME}/.claude/hooks/df-spec-lint.js"
     fi
 
     if [[ -n "$lint_script" ]]; then
