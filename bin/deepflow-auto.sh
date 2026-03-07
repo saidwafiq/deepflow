@@ -1232,12 +1232,13 @@ run_spec_cycle() {
 main() {
   parse_flags "$@"
 
-  # Require git repository
+  # Ensure git repository exists (needed for worktree-based parallel spikes)
   if ! git -C "$PROJECT_ROOT" rev-parse --git-dir &>/dev/null; then
-    echo "Error: ${PROJECT_ROOT} is not a git repository." >&2
-    echo "deepflow auto requires git for worktree-based parallel spikes." >&2
-    echo "Run: git init && git add . && git commit -m 'initial commit'" >&2
-    exit 1
+    echo "Initializing git repository in ${PROJECT_ROOT}..."
+    git -C "$PROJECT_ROOT" init -q
+    git -C "$PROJECT_ROOT" add -A
+    git -C "$PROJECT_ROOT" commit -q -m "initial commit"
+    auto_log "Auto-initialized git repository in ${PROJECT_ROOT}"
   fi
 
   auto_log "deepflow-auto started (parallel=${PARALLEL}, hypotheses=${HYPOTHESES}, max_cycles=${MAX_CYCLES}, continue=${CONTINUE}, fresh=${FRESH})"
