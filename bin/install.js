@@ -35,6 +35,23 @@ const GLOBAL_DIR = path.join(os.homedir(), '.claude');
 const PROJECT_DIR = path.join(process.cwd(), '.claude');
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 
+function updateGlobalPackage() {
+  const currentVersion = require(path.join(PACKAGE_DIR, 'package.json')).version;
+  try {
+    const globalPkgPath = execFileSync('node', ['-e',
+      "try{console.log(require(require('path').join(require('child_process').execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim(),'deepflow','package.json')).version)}catch(e){console.log('')}"
+    ], { encoding: 'utf8' }).trim();
+
+    if (globalPkgPath && globalPkgPath !== currentVersion) {
+      console.log(`Updating global npm package (${globalPkgPath} → ${currentVersion})...`);
+      execFileSync('npm', ['install', '-g', `deepflow@${currentVersion}`], { stdio: 'inherit' });
+      console.log('');
+    }
+  } catch (e) {
+    // No global installation or npm not available - skip silently
+  }
+}
+
 async function main() {
   // Handle --uninstall flag
   if (process.argv.includes('--uninstall')) {
@@ -44,6 +61,9 @@ async function main() {
   console.log('');
   console.log(`${c.cyan}deepflow installer${c.reset}`);
   console.log('');
+
+  // Update global npm package if stale
+  updateGlobalPackage();
 
   // Detect existing installations
   const globalInstalled = isInstalled(GLOBAL_DIR);
