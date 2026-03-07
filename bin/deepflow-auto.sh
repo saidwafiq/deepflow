@@ -608,9 +608,29 @@ run_spikes() {
     pids+=($!)
   done
 
-  # Wait for all remaining spikes to complete
+  # Wait for all remaining spikes with progress heartbeat
   auto_log "Waiting for all ${#pids[@]} spike(s) to complete..."
-  wait
+  local wait_start=$SECONDS
+  while true; do
+    local -a still_running=()
+    local pid
+    for pid in "${pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        still_running+=("$pid")
+      fi
+    done
+    if [[ ${#still_running[@]} -eq 0 ]]; then
+      break
+    fi
+    local elapsed=$(( SECONDS - wait_start ))
+    local mins=$(( elapsed / 60 ))
+    local secs=$(( elapsed % 60 ))
+    printf "\r  ⏳ %d spike(s) running... [%dm%02ds]  " "${#still_running[@]}" "$mins" "$secs"
+    pids=("${still_running[@]}")
+    sleep 5
+  done
+  printf "\r                                        \r"
+  wait 2>/dev/null || true
   auto_log "All spikes completed for ${spec_name} cycle ${cycle}"
 
   # Collect results and process
@@ -788,9 +808,29 @@ Important:
     impl_slugs+=("$slug")
   done
 
-  # Wait for all implementations to complete
+  # Wait for all implementations with progress heartbeat
   auto_log "Waiting for all ${#pids[@]} implementation(s) to complete..."
-  wait
+  local wait_start=$SECONDS
+  while true; do
+    local -a still_running=()
+    local pid
+    for pid in "${pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        still_running+=("$pid")
+      fi
+    done
+    if [[ ${#still_running[@]} -eq 0 ]]; then
+      break
+    fi
+    local elapsed=$(( SECONDS - wait_start ))
+    local mins=$(( elapsed / 60 ))
+    local secs=$(( elapsed % 60 ))
+    printf "\r  ⏳ %d implementation(s) running... [%dm%02ds]  " "${#still_running[@]}" "$mins" "$secs"
+    pids=("${still_running[@]}")
+    sleep 5
+  done
+  printf "\r                                              \r"
+  wait 2>/dev/null || true
   auto_log "All implementations completed for ${spec_name} cycle ${cycle}"
 
   # Collect results
