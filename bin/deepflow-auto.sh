@@ -215,8 +215,9 @@ run_claude_monitored() {
       claude_pid=$!
     fi
 
-    # Read the FIFO line-by-line
+    # Read the FIFO line-by-line (set +e to tolerate EINTR from signals)
     local capturing_result=false
+    set +e
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ -z "$line" ]] && continue
 
@@ -289,6 +290,7 @@ run_claude_monitored() {
         fi
       fi
     done < "$fifo_path"
+    set -e
 
     # Clean up FIFO
     rm -f "$fifo_path"
