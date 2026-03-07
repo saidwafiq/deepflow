@@ -28,11 +28,30 @@ INTERRUPTED=false
 # restarted with --resume to get a fresh context window.
 CONTEXT_THRESHOLD_PCT=50
 
-# Associative array for per-spec status tracking
-# Values: "converged", "halted", "in-progress"
-declare -A SPEC_STATUS
-# Associative array for per-spec winner slugs
-declare -A SPEC_WINNER
+# Per-spec status/winner tracking (bash 3.2 compatible, no associative arrays)
+# Uses a temp directory with one file per key.
+_SPEC_MAP_DIR=""
+_spec_map_init() {
+  if [[ -z "$_SPEC_MAP_DIR" ]]; then
+    _SPEC_MAP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/deepflow-spec-map.XXXXXX")"
+  fi
+}
+_spec_set() {   # usage: _spec_set STATUS myspec converged
+  _spec_map_init
+  printf '%s' "$3" > "${_SPEC_MAP_DIR}/${1}__${2}"
+}
+_spec_get() {   # usage: _spec_get STATUS myspec [default]
+  _spec_map_init
+  local f="${_SPEC_MAP_DIR}/${1}__${2}"
+  if [[ -f "$f" ]]; then cat "$f"; else printf '%s' "${3:-}"; fi
+}
+_spec_isset() { # usage: _spec_isset STATUS myspec
+  _spec_map_init
+  [[ -f "${_SPEC_MAP_DIR}/${1}__${2}" ]]
+}
+_spec_map_cleanup() {
+  [[ -n "$_SPEC_MAP_DIR" && -d "$_SPEC_MAP_DIR" ]] && rm -rf "$_SPEC_MAP_DIR"
+}
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -1050,18 +1069,18 @@ generate_report() {
       all_spec_names+=("$sname")
 
       # If status was not set by the main loop, determine it now
-      if [[ -z "${SPEC_STATUS[$sname]+x}" ]]; then
+      if ! _spec_isset STATUS "$sname"; then
         # Check if winner file exists
         if [[ -f "${PROJECT_ROOT}/.deepflow/selection/${sname}-winner.json" ]]; then
-          SPEC_STATUS[$sname]="converged"
+          _spec_set STATUS "$sname" "converged"
           # Extract winner slug
           local w_slug
           w_slug="$(grep -o '"winner"[[:space:]]*:[[:space:]]*"[^"]*"' "${PROJECT_ROOT}/.deepflow/selection/${sname}-winner.json" | sed 's/.*"winner"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')" || w_slug=""
-          SPEC_WINNER[$sname]="$w_slug"
+          _spec_set WINNER "$sname" "$w_slug"
         elif [[ "$INTERRUPTED" == "true" ]]; then
-          SPEC_STATUS[$sname]="in-progress"
+          _spec_set STATUS "$sname" "in-progress"
         else
-          SPEC_STATUS[$sname]="halted"
+          _spec_set STATUS "$sname" "halted"
         fi
       fi
     done
@@ -1070,15 +1089,15 @@ generate_report() {
   # If interrupted, override any unfinished specs
   if [[ "$INTERRUPTED" == "true" ]]; then
     for sname in "${all_spec_names[@]}"; do
-      if [[ "${SPEC_STATUS[$sname]}" != "converged" ]]; then
-        SPEC_STATUS[$sname]="in-progress"
+      if [[ "$(_spec_get STATUS "$sname")" != "converged" ]]; then
+        _spec_set STATUS "$sname" "in-progress"
       fi
     done
     overall_status="in-progress"
   else
     # Determine overall status from per-spec statuses
     for sname in "${all_spec_names[@]}"; do
-      local s="${SPEC_STATUS[$sname]}"
+      local s="$(_spec_get STATUS "$sname")"
       if [[ "$s" == "halted" ]]; then
         overall_status="halted"
       elif [[ "$s" == "in-progress" ]]; then
@@ -1100,7 +1119,7 @@ generate_report() {
     # Winner info (if converged)
     if [[ "$overall_status" == "converged" ]]; then
       for sname in "${all_spec_names[@]}"; do
-        local w="${SPEC_WINNER[$sname]:-}"
+        local w="$(_spec_get WINNER "$sname")"
         if [[ -n "$w" ]]; then
           local summary=""
           local winner_file="${PROJECT_ROOT}/.deepflow/selection/${sname}-winner.json"
@@ -1117,8 +1136,8 @@ generate_report() {
     echo "| Spec | Status | Winner |"
     echo "|------|--------|--------|"
     for sname in "${all_spec_names[@]}"; do
-      local s="${SPEC_STATUS[$sname]:-unknown}"
-      local w="${SPEC_WINNER[$sname]:--}"
+      local s="$(_spec_get STATUS "$sname" "unknown")"
+      local w="$(_spec_get WINNER "$sname" "-")"
       echo "| ${sname} | ${s} | ${w} |"
     done
     echo ""
@@ -1129,7 +1148,7 @@ generate_report() {
 
     local has_changes=false
     for sname in "${all_spec_names[@]}"; do
-      local w="${SPEC_WINNER[$sname]:-}"
+      local w="$(_spec_get WINNER "$sname")"
       if [[ -n "$w" ]]; then
         has_changes=true
         local branch_name="df/${sname}-${w}"
@@ -1196,10 +1215,10 @@ run_spec_cycle() {
       auto_log "Selection accepted for ${spec_file} at cycle ${cycle}"
       echo "Selection accepted for $(basename "$spec_file") at cycle ${cycle}"
       # Track convergence
-      SPEC_STATUS[$spec_name]="converged"
+      _spec_set STATUS "$spec_name" "converged"
       local w_slug
       w_slug="$(grep -o '"winner"[[:space:]]*:[[:space:]]*"[^"]*"' "${PROJECT_ROOT}/.deepflow/selection/${spec_name}-winner.json" | sed 's/.*"winner"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')" || w_slug=""
-      SPEC_WINNER[$spec_name]="$w_slug"
+      _spec_set WINNER "$spec_name" "$w_slug"
       break
     fi
 
@@ -1208,8 +1227,8 @@ run_spec_cycle() {
   done
 
   # If we exited the loop without converging, mark as halted
-  if [[ "${SPEC_STATUS[$spec_name]:-}" != "converged" ]]; then
-    SPEC_STATUS[$spec_name]="halted"
+  if [[ "$(_spec_get STATUS "$spec_name")" != "converged" ]]; then
+    _spec_set STATUS "$spec_name" "halted"
   fi
 }
 
@@ -1282,6 +1301,7 @@ handle_signal() {
 }
 
 trap handle_signal SIGINT SIGTERM
+trap _spec_map_cleanup EXIT
 
 # Safety assertions: this script must never modify spec files or push to remotes.
 # These constraints are enforced by design — no write/push commands exist in this script.
