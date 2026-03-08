@@ -527,7 +527,64 @@ After the direct merge, the spec lifecycle still applies (rename `doing-*` to `d
 
 ### 7d. Spec lifecycle
 
-Spec stays `doing-*` until the PR is merged (or the direct merge completes). After merge: rename to `done-*`, extract `[APPROACH]/[ASSUMPTION]/[PROVISIONAL]` tags to `decisions.md`, delete `done-*` file.
+Spec stays `doing-*` until the PR is merged (or the direct merge completes). After merge/direct-merge, execute the following steps in order:
+
+#### Step 1 — Rename doing → done
+
+```bash
+git mv specs/doing-{name}.md specs/done-{name}.md
+git commit -m "lifecycle({name}): doing → done"
+```
+
+If `specs/doing-{name}.md` does not exist (e.g., already renamed), skip this step and log a warning.
+
+#### Step 2 — Decision extraction
+
+Read `specs/done-{name}.md` and extract architectural decisions. Scan the entire file for:
+
+1. **Explicit choices** (phrases like "we chose", "decided to", "selected", "approach:", "going with") → tag as `[APPROACH]`
+2. **Unvalidated assumptions** (phrases like "assuming", "we assume", "expected to", "should be") → tag as `[ASSUMPTION]`
+3. **Temporary decisions** (phrases like "for now", "temporary", "placeholder", "revisit later", "tech debt", "TODO") → tag as `[PROVISIONAL]`
+
+For each extracted decision, capture:
+- The tag (`[APPROACH]`, `[ASSUMPTION]`, or `[PROVISIONAL]`)
+- A concise one-line summary of the decision
+- The rationale (surrounding context or explicit reasoning)
+
+If no decisions are found, log: `no decisions extracted from {name}` and skip to Step 4.
+
+#### Step 3 — Write to decisions.md
+
+Append a new section to `.deepflow/decisions.md` (create the file if it does not exist):
+
+```markdown
+### {YYYY-MM-DD} — {name}
+- [APPROACH] decision text — rationale
+- [ASSUMPTION] decision text — rationale
+- [PROVISIONAL] decision text — rationale
+```
+
+Use today's date in `YYYY-MM-DD` format. Only include tags that were actually extracted.
+
+Commit the update:
+
+```bash
+git add .deepflow/decisions.md
+git commit -m "lifecycle({name}): extract decisions"
+```
+
+#### Step 4 — Delete done file
+
+After successful decision extraction (or if no decisions were found), delete the done spec:
+
+```bash
+git rm specs/done-{name}.md
+git commit -m "lifecycle({name}): archive done spec"
+```
+
+#### Step 5 — Failed extraction preserves done file
+
+If decision extraction fails (e.g., file read error, unexpected format), do NOT delete `specs/done-{name}.md`. Log the error: `decision extraction failed for {name} — preserving done file for manual review`. Proceed to Phase 8 (REPORT) normally.
 
 ## Phase 8: REPORT (you do this)
 
