@@ -35,15 +35,55 @@ Log: phase starts, hypothesis generation, spike pass/fail, selection verdicts, e
 3. If no specs found → log error, generate report, stop.
 4. Build dependency graph from `## Dependencies` sections. Process in topological order. Circular deps → fatal error with cycle path.
 
-## Phase 2: HYPOTHESIZE (you do this)
+## Phase 2: HYPOTHESIZE (spawn a fresh teammate per spec, model: sonnet)
 
 For each spec:
 
-1. Read the spec content.
-2. Read all `.deepflow/experiments/{spec-name}--*--failed.md` files. Extract `## Hypothesis` and `## Conclusion` sections. Include in prompt as: "The following hypotheses have already been tried and FAILED. Do NOT repeat them or suggest similar approaches: {failed context}"
-3. Generate exactly 2 hypotheses (configurable). Each has: `slug` (url-safe hyphenated), `hypothesis` (one sentence), `method` (one sentence).
-4. Write to `.deepflow/hypotheses/{spec-name}-cycle-{N}.json` as a JSON array.
-5. Log each hypothesis.
+### 2a. Gather failed experiment context
+
+1. Glob `.deepflow/experiments/{spec-name}--*--failed.md` files.
+2. For each failed file, extract:
+   - The `## Hypothesis` section (from header to next `##`)
+   - The `## Conclusion` section (from header to next `##` or EOF)
+3. Build a `failed_context` block:
+   ```
+   --- Failed experiment: {filename} ---
+   ## Hypothesis
+   {extracted hypothesis}
+   ## Conclusion
+   {extracted conclusion}
+   ```
+
+### 2b. Spawn hypothesis teammate
+
+Spawn a fresh teammate with this prompt:
+
+```
+You are helping with an autonomous development workflow. Given the following spec, generate exactly {N} approach hypotheses for implementing it.
+
+--- SPEC CONTENT ---
+{spec content}
+--- END SPEC ---
+{if failed_context is not empty:}
+The following hypotheses have already been tried and FAILED. Do NOT repeat them or suggest similar approaches:
+
+{failed_context}
+{end if}
+Generate exactly {N} hypotheses as a JSON array. Each object must have:
+- "slug": a URL-safe lowercase hyphenated short name (e.g. "stream-based-parser")
+- "hypothesis": a one-sentence description of the approach
+- "method": a one-sentence description of how to validate this approach
+
+Output ONLY the JSON array. No markdown fences, no explanation, no extra text. Just the raw JSON array.
+```
+
+### 2c. Process teammate output
+
+1. Extract JSON array from output (handle accidental wrapping — try `[...\n...]` first, then single-line `[...]`).
+2. If JSON parse fails → log error, return failure for this spec.
+3. Write to `.deepflow/hypotheses/{spec-name}-cycle-{N}.json`.
+4. Log each hypothesis slug. Warn if count differs from requested N.
+5. Default N = 2 (configurable).
 
 ## Phase 3: SPIKE (parallel teammates, model: sonnet)
 
