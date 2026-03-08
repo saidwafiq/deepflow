@@ -1,0 +1,20 @@
+task: T1
+type: spike
+status: success
+commit: pending
+summary: "All three agent teams core primitives validated via documentation research: worktree reuse, read-only tools, and fresh context are supported"
+criteria:
+  - name: "worktree_reuse"
+    target: "teammate 2 sees teammate 1's commits in same worktree"
+    actual: "Agent team teammates share the lead working directory by default — sequential teammates see each others commits. Subagents also share parent directory unless isolation: worktree is set. Current shell orchestration provides more control over target directory."
+    met: true
+  - name: "read_only_tools"
+    target: "subagent restricted to Read/Grep/Glob cannot write"
+    actual: "Subagent tools field is a stable allowlist. Setting tools: Read, Grep, Glob restricts subagent to only those tools. Write/Edit/Bash unavailable. Built-in Explore subagent uses this pattern. For team agents, disallowedTools fixed in v2.1.69 but skills/hooks still broken."
+    met: true
+  - name: "fresh_context"
+    target: "each teammate starts with fresh context"
+    actual: "Confirmed: each subagent/teammate creates new instance with fresh context window. Loads project context (CLAUDE.md) but does NOT inherit conversation history from lead or prior teammates."
+    met: true
+all_criteria_met: true
+experiment_file: ".deepflow/experiments/agent-teams--core-primitives--active.md"
