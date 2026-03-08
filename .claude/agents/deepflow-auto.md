@@ -34,7 +34,47 @@ Log: phase starts, hypothesis generation, spike pass/fail, selection verdicts, e
 1. Run spec lint if `hooks/df-spec-lint.js` exists: `node hooks/df-spec-lint.js specs/doing-*.md --mode=auto`. Skip specs that fail.
 2. List all `specs/doing-*.md` files. Auto-promote any unprefixed `specs/*.md` to `doing-*.md` (skip `done-*`, dotfiles).
 3. If no specs found → log error, generate report, stop.
-4. Build dependency graph from `## Dependencies` sections. Process in topological order. Circular deps → fatal error with cycle path.
+4. **Build dependency DAG and determine processing order.**
+
+   #### 4a. Parse dependencies
+
+   For each spec file collected in step 2, extract its `## Dependencies` section. Parse each line matching the pattern `- depends_on: <name>`. The `<name>` value may appear in several forms — normalize all of them to the bare spec name:
+   - `doing-foo.md` → `foo`
+   - `doing-foo` → `foo`
+   - `foo.md` → `foo`
+   - `foo` → `foo` (already bare)
+
+   Build an **adjacency list** (map of spec-name → list of dependency spec-names). If a dependency references a spec not in the current set of `doing-*` files, log a warning: `dependency '{dep}' referenced by '{spec}' not found in active specs — ignoring` and skip that edge.
+
+   #### 4b. Topological sort (Kahn's algorithm)
+
+   Compute a processing order that respects dependencies:
+
+   1. Build an **in-degree map**: for each spec, count how many other specs it depends on (among active specs only).
+   2. Initialize a **queue** with all specs that have in-degree 0 (no dependencies).
+   3. Initialize an empty **sorted list**.
+   4. While the queue is not empty:
+      - Remove a spec from the queue and append it to the sorted list.
+      - For each spec that depends on the removed spec, decrement its in-degree by 1.
+      - If any spec's in-degree reaches 0, add it to the queue.
+   5. After the loop, if the sorted list contains fewer specs than the total number of active specs, a **circular dependency** exists — proceed to step 4c.
+   6. Otherwise, use the sorted list as the processing order for all subsequent phases.
+
+   #### 4c. Circular dependency handling
+
+   If a cycle is detected (sorted list is shorter than total specs):
+
+   1. Identify the cycle: collect all specs NOT in the sorted list. Walk their dependency edges to find and report one cycle path (e.g., `A → B → C → A`).
+   2. Log a fatal error to `.deepflow/auto-decisions.log`:
+      ```
+      [YYYY-MM-DDTHH:MM:SSZ] FATAL: circular dependency detected: A → B → C → A
+      ```
+   3. Generate the error report (Phase 8) with overall status `halted` and the cycle path in the summary.
+   4. **Stop immediately** — do not proceed to any further phases.
+
+   #### 4d. Processing order enforcement
+
+   Process specs in the topological order determined in step 4b. When processing a spec through phases 1.5–7, all of its dependencies (specs it `depends_on`) must have already completed successfully (reached Phase 7 or been skipped by pre-check). If a dependency was halted or failed, mark the dependent spec as `blocked` and skip it — log: `spec '{spec}' blocked by failed dependency '{dep}'`.
 
 ## Phase 1.5: PRE-CHECK (spawn a fresh subagent per spec, model: haiku, tools: Read/Grep/Glob only)
 
