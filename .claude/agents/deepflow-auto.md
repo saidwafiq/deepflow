@@ -220,27 +220,81 @@ For each slug:
 
 ## Phase 5: SELECT (single subagent, model: opus, tools: Read/Grep/Glob only)
 
-Build an artifacts block by collecting from each approach's worktree: all `.deepflow/results/*.yaml` files and experiment docs. Do NOT include source code.
+### 5a. Gather artifacts
+
+For each approach slug (from the cycle hypotheses JSON):
+1. Read ALL `.deepflow/results/*.yaml` files from the approach worktree
+2. Read the passed experiment file: `.deepflow/experiments/{spec-name}--{slug}--passed.md`
+3. Build an artifacts block:
+   ```
+   === APPROACH {N}: {slug} ===
+   --- Result: {filename}.yaml ---
+   {yaml content}
+   --- Experiment: {spec-name}--{slug}--passed.md ---
+   {experiment content}
+   === END APPROACH {N} ===
+   ```
+
+Do NOT include source code or file paths in the artifacts block.
+
+### 5b. Spawn judge subagent (model: opus, tools: Read/Grep/Glob only)
+
+Extract acceptance criteria from the spec (`## Acceptance Criteria` section).
 
 **Subagent prompt:**
 ```
-You are an adversarial quality judge. Compare implementations for spec '{spec-name}'.
+You are an adversarial quality judge in an autonomous development workflow.
+Your job is to compare implementation approaches for spec '{spec-name}' and select the best one — or reject all if quality is insufficient.
 
-IMPORTANT: This ALWAYS runs, even with 1 approach. You are a quality gate.
-You CAN and SHOULD reject poor work. Judge ONLY from artifacts below against ACCEPTANCE CRITERIA.
+IMPORTANT:
+- This selection phase ALWAYS runs, even with only 1 approach. With a single approach you act as a quality gate.
+- You CAN and SHOULD reject all approaches if the quality is insufficient. Do not rubber-stamp poor work.
+- Base your judgment ONLY on the artifacts provided below. Do NOT read code files.
+- Judge each approach against the ACCEPTANCE CRITERIA below — these represent the human's intent.
 
---- ACCEPTANCE CRITERIA ---
-{from spec}
----
-{artifacts block per approach}
+--- ACCEPTANCE CRITERIA (from spec) ---
+{acceptance criteria}
+--- END ACCEPTANCE CRITERIA ---
 
-Respond with ONLY JSON:
-{"winner":"slug-or-empty","rankings":[{"slug":"...","rank":1,"rationale":"..."}],"reject_all":false,"rejection_rationale":""}
+There are {N} approach(es) to evaluate:
+
+{artifacts block}
+
+Respond with ONLY a JSON object (no markdown fences, no explanation). The JSON must have this exact structure:
+
+{
+  "winner": "slug-of-winner-or-empty-string-if-rejecting-all",
+  "rankings": [
+    {"slug": "approach-slug", "rank": 1, "rationale": "why this rank"},
+    {"slug": "approach-slug", "rank": 2, "rationale": "why this rank"}
+  ],
+  "reject_all": false,
+  "rejection_rationale": ""
+}
+
+Rules for the JSON:
+- rankings must include ALL approaches, ranked from best (1) to worst
+- If reject_all is true, winner must be an empty string and rejection_rationale must explain why
+- If reject_all is false, winner must be the slug of the rank-1 approach
+- Output ONLY the JSON object. No other text.
 ```
 
-**Process verdict:**
-- `reject_all: true` → log rationale, mark failed experiments, loop to HYPOTHESIZE (next cycle).
-- Winner selected → write `.deepflow/selection/{spec-name}-winner.json`, clean up non-winner worktrees (`git worktree remove --force`, `git branch -D`).
+### 5c. Process verdict
+
+Parse the JSON output. Handle extraction failures gracefully (try `{...}` block first, then single-line match).
+
+**If `reject_all: true`:**
+1. Log rejection rationale
+2. Keep only the best-ranked worktree (rank 1), clean up others: `git worktree remove --force`, `git branch -D`
+3. Loop back to HYPOTHESIZE (next cycle). The failed context from Phase 2a will prevent repeats.
+
+**If winner selected:**
+1. Log: `SELECTED winner '{slug}'`
+2. Write `.deepflow/selection/{spec-name}-winner.json`:
+   ```json
+   {"spec": "{spec-name}", "cycle": {N}, "winner": "{slug}", "selection_output": {full JSON verdict}}
+   ```
+3. Clean up ALL non-winner worktrees and branches: `git worktree remove --force {path}`, `git branch -D df/{spec-name}-{slug}`
 
 ## Phase 6: VERIFY (subagent, model: opus)
 
