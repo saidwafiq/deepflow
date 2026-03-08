@@ -9,6 +9,9 @@
 
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 // Each entry: [canonical name, ...aliases that also satisfy the requirement]
 const REQUIRED_SECTIONS = [
   ['Objective', 'overview', 'goal', 'goals', 'summary'],
@@ -27,7 +30,7 @@ const REQUIRED_SECTIONS = [
  * @param {'interactive'|'auto'} opts.mode
  * @returns {{ hard: string[], advisory: string[] }}
  */
-function validateSpec(content, { mode = 'interactive' } = {}) {
+function validateSpec(content, { mode = 'interactive', specsDir = null } = {}) {
   const hard = [];
   const advisory = [];
 
@@ -135,6 +138,24 @@ function validateSpec(content, { mode = 'interactive' } = {}) {
     advisory.push(`Too many requirements (${seenIds.size}, limit 20)`);
   }
 
+  // (adv-e) Dependencies reference existing specs
+  const depsSection = extractSection(content, 'Dependencies');
+  if (depsSection !== null) {
+    const depLines = depsSection.split('\n');
+    for (const line of depLines) {
+      const depMatch = line.match(/depends_on:\s*(.+)/);
+      if (depMatch) {
+        const specName = depMatch[1].trim();
+        if (specsDir) {
+          const specPath = path.join(specsDir, `${specName}.md`);
+          if (!fs.existsSync(specPath)) {
+            advisory.push(`Dependency not found: "${specName}" (no file specs/${specName}.md)`);
+          }
+        }
+      }
+    }
+  }
+
   // ── Auto-mode escalation ─────────────────────────────────────────────
   if (mode === 'auto') {
     hard.push(...advisory.splice(0, advisory.length));
@@ -180,8 +201,6 @@ function extractSection(content, sectionName) {
 
 // ── CLI entry point ──────────────────────────────────────────────────────
 if (require.main === module) {
-  const fs = require('fs');
-
   const filePath = process.argv[2];
   if (!filePath) {
     console.error('Usage: df-spec-lint.js <spec-file.md>');
@@ -190,7 +209,8 @@ if (require.main === module) {
 
   const content = fs.readFileSync(filePath, 'utf8');
   const mode = process.argv.includes('--auto') ? 'auto' : 'interactive';
-  const result = validateSpec(content, { mode });
+  const specsDir = path.resolve(path.dirname(filePath));
+  const result = validateSpec(content, { mode, specsDir });
 
   if (result.hard.length > 0) {
     console.error('HARD invariant failures:');

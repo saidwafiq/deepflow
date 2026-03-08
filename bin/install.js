@@ -10,11 +10,21 @@ const os = require('os');
 const readline = require('readline');
 const { execFileSync } = require('child_process');
 
-// Subcommand routing: `deepflow auto [...]` -> bin/deepflow-auto.sh
+// Subcommand routing: `deepflow auto [...]` -> claude --agent .claude/agents/deepflow-auto.md
 if (process.argv[2] === 'auto') {
-  const scriptPath = path.join(__dirname, 'deepflow-auto.sh');
+  if (!process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS) {
+    console.error('Error: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS environment variable is not set.');
+    console.error('');
+    console.error('The `deepflow auto` command now uses Claude Code Agent Teams.');
+    console.error('To enable it, set the environment variable before running:');
+    console.error('');
+    console.error('  export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1');
+    console.error('  deepflow auto');
+    console.error('');
+    process.exit(1);
+  }
   try {
-    execFileSync('bash', [scriptPath, ...process.argv.slice(3)], { stdio: 'inherit' });
+    execFileSync('claude', ['--agent', '.claude/agents/deepflow-auto.md', ...process.argv.slice(3)], { stdio: 'inherit' });
   } catch (e) {
     process.exit(e.status || 1);
   }
@@ -150,12 +160,8 @@ async function main() {
     }
   }
 
-  // Ensure deepflow-auto.sh is executable
-  const autoScript = path.join(PACKAGE_DIR, 'bin', 'deepflow-auto.sh');
-  if (fs.existsSync(autoScript)) {
-    fs.chmodSync(autoScript, 0o755);
-    log('deepflow-auto.sh marked executable');
-  }
+  // deepflow-auto.sh has been archived; auto mode now uses Agent Teams
+  // via `claude --agent .claude/agents/deepflow-auto.md`
 
   // Get version from package.json (single source of truth)
   const packageJson = require(path.join(PACKAGE_DIR, 'package.json'));

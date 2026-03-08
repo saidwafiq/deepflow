@@ -15,6 +15,11 @@
 - [Constraint 1: e.g., "Max file size 10MB"]
 - [Constraint 2: e.g., "Must work offline"]
 
+## Dependencies
+
+<!-- Optional. List specs that must be completed before this one. -->
+<!-- - depends_on: doing-other-spec-name -->
+
 ## Out of Scope
 
 - [Explicitly excluded: e.g., "Video upload is NOT included"]
