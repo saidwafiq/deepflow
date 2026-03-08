@@ -166,29 +166,57 @@ For each hypothesis slug:
 
 ## Phase 4: IMPLEMENT (parallel teammates, model: opus)
 
-For each passed hypothesis, spawn a teammate IN THE EXISTING WORKTREE (building on spike commits):
+For each passed hypothesis (from `{spec-name}-cycle-{N}-passed.json`), spawn a teammate in the EXISTING worktree (`.deepflow/worktrees/{spec-name}-{slug}`). The implementation teammate builds on spike commits — this is critical.
+
+### 4a. Pre-checks
+
+1. Read passed hypotheses JSON. If empty or missing → skip implementations, proceed to SELECT (it will reject).
+2. For each slug, verify worktree exists at `.deepflow/worktrees/{spec-name}-{slug}`. If missing → log error, skip that slug.
+
+### 4b. Spawn implementation teammate (model: opus)
+
+Spawn up to 2 teammates in parallel. Each runs in its hypothesis worktree.
 
 **Teammate prompt:**
 ```
-You are implementing the full solution for spec '{spec-name}'.
-The spike for approach '{slug}' passed validation.
+You are implementing tasks for spec '{spec-name}' in an autonomous development workflow.
+The spike experiment for approach '{slug}' has passed validation. Now implement the full solution.
 
 --- SPEC CONTENT ---
-{full spec}
----
+{full spec content}
+--- END SPEC ---
 
-Review .deepflow/experiments/{spec-name}--{slug}--passed.md for the validated approach.
+The validated experiment file is at: .deepflow/experiments/{spec-name}--{slug}--passed.md
+Review it to understand the approach that was validated during the spike.
 
-Tasks:
-1. Implement the full solution with atomic commits: feat({spec-name}): {description}
-2. Write result YAML for each task: .deepflow/results/{task-slug}.yaml
-   Fields: task, spec, status, summary
-3. Build on the spike commits already in this worktree.
+Your tasks:
+1. Read the spec carefully and generate a list of implementation tasks from it.
+2. Implement each task with atomic commits. Each commit message must follow the format:
+   feat({spec-name}): {task description}
+3. For each completed task, write a result YAML file at:
+   .deepflow/results/{task-slug}.yaml
+   Each YAML must contain:
+   - task: short task name
+   - spec: {spec-name}
+   - status: passed OR failed
+   - summary: one-line summary of what was implemented
+4. Create the .deepflow/results directory if it does not exist.
 
-Be thorough — this is the full implementation.
+Important:
+- Build on top of the spike commits already in this worktree.
+- Be thorough — this is the full implementation, not a spike.
+- Stage and commit each task separately for clean atomic commits.
 ```
 
-**After completion:** Read all result YAMLs, count passed/failed per approach, log results.
+### 4c. Post-implementation result collection
+
+After ALL implementation teammates complete:
+
+For each slug:
+1. Read all `.deepflow/results/*.yaml` files from the worktree (exclude `spike-*.yaml`)
+2. Count by status: passed vs failed
+3. Log: `Implementation {slug}: {N} tasks ({P} passed, {F} failed)`
+4. If no result files found → log warning
 
 ## Phase 5: SELECT (single subagent, model: opus, tools: Read/Grep/Glob only)
 
