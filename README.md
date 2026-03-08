@@ -77,20 +77,21 @@ You write the specs, then walk away. The AI runs the full pipeline — hypothesi
 ```bash
 # You define WHAT (the specs), the AI figures out HOW, overnight
 
+# Requires Agent Teams (experimental feature)
+export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+
 deepflow auto                    # process all specs in specs/
-deepflow auto --parallel=3       # 3 approaches in parallel
-deepflow auto --hypotheses=4     # 4 hypotheses per cycle
-deepflow auto --max-cycles=5     # cap retry cycles
 ```
 
 **What the AI does alone:**
-1. Discovers specs (auto-promotes plain specs to `doing-*`)
-2. Generates N hypotheses for how to implement each spec
-3. Runs parallel spikes in isolated worktrees (one per hypothesis)
-4. Implements the passing approaches
-5. Adversarial selection: a fresh AI context compares approaches by artifacts only (never reads code), picks the best or rejects all
-6. If rejected: generates new hypotheses, retries (up to max-cycles)
-7. On convergence: verifies, merges to main
+1. Pre-checks if spec is already satisfied (skips if so)
+2. Discovers specs, respects `depends_on` ordering
+3. Generates N hypotheses for how to implement each spec
+4. Runs parallel spikes in isolated worktrees (one per hypothesis)
+5. Implements the passing approaches
+6. Adversarial selection: a fresh AI context compares approaches by artifacts only (never reads code), picks the best or rejects all
+7. If rejected: generates new hypotheses, retries (up to max-cycles)
+8. On convergence: verifies (L0-L4 gates), creates PR, merges to main
 
 **What you do:** Write specs (via interactive mode or manually) in `specs/`, run `deepflow auto`, read the morning report at `.deepflow/auto-report.md`. No need to run `/df:plan` first — auto mode promotes plain specs to `doing-*` automatically.
 
@@ -102,7 +103,8 @@ $ claude
 > /df:spec auth          # creates specs/auth.md
 > /exit
 
-# In your terminal — run auto mode and walk away
+# In your terminal — enable agent teams and run auto mode
+$ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 $ deepflow auto
 
 # Next morning — check what happened
@@ -165,9 +167,11 @@ $ git log --oneline
 
 ```
 deepflow auto
-    | Discover specs (auto-promote plain specs to doing-*)
+    | Discover specs (auto-promote, topological sort by depends_on)
     | For each doing-* spec:
     |
+    |   Pre-check (Haiku: already satisfied? skip)
+    |       v
     |   Validate spec (malformed? skip)
     |       v
     |   Generate N hypotheses
@@ -177,7 +181,7 @@ deepflow auto
     |     | Fail? -> record experiment, discard
     |       v
     |   Adversarial selection (fresh context, artifacts only)
-    |     | Winner? -> verify & merge
+    |     | Winner? -> verify (L0-L4) -> PR -> merge
     |     | Reject all? -> new hypotheses, retry
     |       v
     |   Morning report -> .deepflow/auto-report.md

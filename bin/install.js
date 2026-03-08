@@ -198,8 +198,7 @@ async function main() {
   console.log(`Installed to ${c.cyan}${CLAUDE_DIR}${c.reset}:`);
   console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:note, /df:resume, /df:update');
   console.log('  skills/          — gap-discovery, atomic-commits, code-completeness');
-  console.log('  agents/          — reasoner');
-  console.log('  bin/             — deepflow auto (autonomous overnight execution)');
+  console.log('  agents/          — reasoner, deepflow-auto (autonomous overnight execution)');
   if (level === 'global') {
     console.log('  hooks/           — statusline, update checker');
   }
@@ -414,7 +413,8 @@ async function uninstall() {
     'skills/atomic-commits',
     'skills/code-completeness',
     'skills/gap-discovery',
-    'agents/reasoner.md'
+    'agents/reasoner.md',
+    'agents/deepflow-auto.md'
   ];
 
   if (level === 'global') {
