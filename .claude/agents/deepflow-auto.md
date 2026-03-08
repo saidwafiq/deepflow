@@ -309,26 +309,53 @@ Spawn a fresh verifier on the winner worktree. Run L0-L4 gates (skip PLAN.md rea
 
 ## Phase 8: REPORT (you do this)
 
-Generate `.deepflow/auto-report.md`:
+Generate `.deepflow/auto-report.md`. Always generate a report, even on errors or interrupts.
+
+### 8a. Determine status
+
+For each spec:
+- Winner file exists (`.deepflow/selection/{spec-name}-winner.json`) → `converged`
+- Interrupted/incomplete → `in-progress`
+- Failed without recovery → `halted`
+
+Overall status: `converged` only if ALL specs converged. Any `halted` → overall `halted`. Any `in-progress` → overall `in-progress`.
+
+### 8b. Build report
 
 ```markdown
 # deepflow auto report
-**Status:** converged | in-progress | halted
+
+**Status:** {overall_status}
 **Date:** {UTC timestamp}
 
+---
+
 ## {spec-name}
-**Status:** {converged|halted|in-progress} | **Winner:** {slug}
+
+**Status:** {converged|halted|in-progress}
+**Winner:** {slug} (if converged)
+
 ### Hypotheses
-- **{slug}:** {hypothesis}
+{for each hypothesis in .deepflow/hypotheses/{spec-name}-cycle-{N}.json:}
+- **{slug}:** {hypothesis description}
+
 ### Spike Results
-- PASSED/FAILED **{slug}** — {summary}
+{for each worktree .deepflow/worktrees/{spec-name}-{slug}:}
+- {pass_icon} **{slug}** — {summary from spike-{slug}.yaml}
+
 ### Selection Rationale
-{rankings with rationale}
+{parse rankings from .deepflow/selection/{spec-name}-winner.json:}
+{rank 1 icon} **#{rank} {slug}:** {rationale}
+
 ### Changes
-{git diff --stat}
+{run: git diff --stat main...df/{spec-name}-{winner-slug}}
+
+---
 
 ## Next Steps
-{merge instructions or resume guidance}
+{if converged: "To merge: `git merge df/{spec-name}-{slug}`"}
+{if in-progress: "Run `deepflow auto --continue` to resume."}
+{if halted: "Review the spec and run `deepflow auto` again."}
 ```
 
 ## Cycle Control
