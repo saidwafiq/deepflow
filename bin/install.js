@@ -24,7 +24,7 @@ if (process.argv[2] === 'auto') {
     process.exit(1);
   }
   try {
-    execFileSync('claude', ['--agent', '.claude/agents/deepflow-auto.md', '-p', 'Run the full autonomous cycle. Process all doing-* specs.', ...process.argv.slice(3)], { stdio: 'inherit' });
+    execFileSync('claude', ['--agent', '.claude/agents/deepflow-auto.md', '-p', 'Run the full autonomous cycle now. Auto-promote unprefixed specs to doing-*, then process all doing-* specs through every phase. Do not ask questions — act autonomously.', ...process.argv.slice(3)], { stdio: 'inherit' });
   } catch (e) {
     process.exit(e.status || 1);
   }
