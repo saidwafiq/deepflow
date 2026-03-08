@@ -77,10 +77,8 @@ You write the specs, then walk away. The AI runs the full pipeline — hypothesi
 ```bash
 # You define WHAT (the specs), the AI figures out HOW, overnight
 
-# Requires Agent Teams (experimental feature)
-export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
-
-deepflow auto                    # process all specs in specs/
+# Inside Claude Code (requires Agent Teams)
+/df:auto                         # process all specs in specs/
 ```
 
 **What the AI does alone:**
@@ -93,7 +91,7 @@ deepflow auto                    # process all specs in specs/
 7. If rejected: generates new hypotheses, retries (up to max-cycles)
 8. On convergence: verifies (L0-L4 gates), creates PR, merges to main
 
-**What you do:** Write specs (via interactive mode or manually) in `specs/`, run `deepflow auto`, read the morning report at `.deepflow/auto-report.md`. No need to run `/df:plan` first — auto mode promotes plain specs to `doing-*` automatically.
+**What you do:** Write specs (via interactive mode or manually) in `specs/`, run `/df:auto` inside Claude Code, read the report at `.deepflow/auto-report.md`. No need to run `/df:plan` first — auto mode promotes plain specs to `doing-*` automatically.
 
 **How to use:**
 ```bash
@@ -103,14 +101,15 @@ $ claude
 > /df:spec auth          # creates specs/auth.md
 > /exit
 
-# In your terminal — enable agent teams and run auto mode
-$ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
-$ deepflow auto
+# Inside Claude Code — run auto mode
+> /df:auto
 
 # Next morning — check what happened
 $ cat .deepflow/auto-report.md
 $ git log --oneline
 ```
+
+**Requires:** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your environment (agent teams is an experimental Claude Code feature).
 
 **Safety:** Never pushes to remote. Failed approaches recorded in `.deepflow/experiments/` and never repeated. Specs validated before processing (malformed specs are skipped).
 
@@ -166,7 +165,7 @@ $ git log --oneline
 ## The Flow (Autonomous)
 
 ```
-deepflow auto
+/df:auto
     | Discover specs (auto-promote, topological sort by depends_on)
     | For each doing-* spec:
     |
@@ -225,7 +224,7 @@ Execution happens in an isolated git worktree:
 
 ## LSP Integration
 
-deepflow automatically enables Claude Code's LSP tools during install, giving agents access to `goToDefinition`, `findReferences`, and `workspaceSymbol` for precise code navigation instead of grep-based searching.
+/df:automatically enables Claude Code's LSP tools during install, giving agents access to `goToDefinition`, `findReferences`, and `workspaceSymbol` for precise code navigation instead of grep-based searching.
 
 - **Global install:** sets `ENABLE_LSP_TOOL=1` in `~/.claude/settings.json`
 - **Project install:** sets it in `.claude/settings.local.json`
@@ -235,7 +234,7 @@ Agents prefer LSP tools when available and fall back to Grep/Glob silently. You'
 
 ## Spec Validation
 
-Specs are validated before downstream consumption by `/df:spec`, `/df:plan`, and `deepflow auto`:
+Specs are validated before downstream consumption by `/df:spec`, `/df:plan`, and `/df:auto`:
 
 - **Hard invariants** (block on failure): required sections present, REQ-N prefixes, checkbox ACs, no duplicate IDs
 - **Advisory warnings** (warn interactively, block in auto mode): long specs, orphaned requirements, excessive technical notes
@@ -263,7 +262,7 @@ Statusline shows context usage. At >=50%:
 | `/df:consolidate` | Deduplicate and clean up decisions.md |
 | `/df:resume` | Session continuity briefing |
 | `/df:update` | Update deepflow to latest |
-| `deepflow auto` | Autonomous overnight execution (no human needed) |
+| `/df:auto` | Autonomous execution via agent teams (no human needed) |
 
 ## File Structure
 

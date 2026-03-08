@@ -10,25 +10,15 @@ const os = require('os');
 const readline = require('readline');
 const { execFileSync } = require('child_process');
 
-// Subcommand routing: `deepflow auto [...]` -> claude --agent .claude/agents/deepflow-auto.md
+// Legacy subcommand: `deepflow auto` is now `/df:auto` inside Claude Code
 if (process.argv[2] === 'auto') {
-  if (!process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS) {
-    console.error('Error: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS environment variable is not set.');
-    console.error('');
-    console.error('The `deepflow auto` command now uses Claude Code Agent Teams.');
-    console.error('To enable it, set the environment variable before running:');
-    console.error('');
-    console.error('  export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1');
-    console.error('  deepflow auto');
-    console.error('');
-    process.exit(1);
-  }
-  try {
-    execFileSync('claude', ['--agent', '.claude/agents/deepflow-auto.md', '-p', 'Run the full autonomous cycle now. Auto-promote unprefixed specs to doing-*, then process all doing-* specs through every phase. Do not ask questions — act autonomously.', ...process.argv.slice(3)], { stdio: 'inherit' });
-  } catch (e) {
-    process.exit(e.status || 1);
-  }
-  process.exit(0);
+  console.error('`deepflow auto` has moved inside Claude Code for better visibility.');
+  console.error('');
+  console.error('Usage:');
+  console.error('  1. Open Claude Code: claude');
+  console.error('  2. Run: /df:auto');
+  console.error('');
+  process.exit(1);
 }
 
 // Colors
@@ -196,9 +186,9 @@ async function main() {
   console.log(`${c.green}Installation complete!${c.reset}`);
   console.log('');
   console.log(`Installed to ${c.cyan}${CLAUDE_DIR}${c.reset}:`);
-  console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:note, /df:resume, /df:update');
+  console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:auto, /df:note, /df:resume, /df:update');
   console.log('  skills/          — gap-discovery, atomic-commits, code-completeness');
-  console.log('  agents/          — reasoner, deepflow-auto (autonomous overnight execution)');
+  console.log('  agents/          — reasoner, deepflow-auto (/df:auto — autonomous execution)');
   if (level === 'global') {
     console.log('  hooks/           — statusline, update checker');
   }
