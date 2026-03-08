@@ -359,11 +359,13 @@ You are verifying the implementation for spec '{spec-name}' in worktree '.deepfl
 
 Run the following verification gates in order. Stop at the first failure.
 
-L0 — Lint: Run any project linter (eslint, tsc --noEmit, etc.). All files must pass.
-L1 — Build: Run the project build command (npm run build, make, etc.) if one exists. Must succeed.
-L2 — Unit tests: Run unit tests (npm test, jest, etc.). All must pass.
-L3 — Integration: Run integration tests if they exist. All must pass.
-L4 — Acceptance: For each acceptance criterion in the spec, verify it is satisfied by the implementation.
+L0 — Build: Run the project build command (npm run build, cargo build, go build ./..., make build, etc.) if one exists. Must succeed. If no build command detected, skip.
+L1 — Exists: Verify that all files and functions referenced in the spec exist (use Glob/Grep).
+L2 — Substantive: Read key files and verify real implementations, not stubs or TODOs.
+L3 — Wired: Verify implementations are integrated into the system (imports, calls, routes, etc.).
+L4 — Tests: Run the project test command (npm test, pytest, cargo test, go test ./..., make test, etc.). All must pass. If no test command detected, skip.
+
+After L0-L4 gates, also check acceptance criteria from the spec against the implementation.
 
 Skip PLAN.md readiness check (not applicable in auto mode).
 
@@ -439,6 +441,15 @@ Overall status: `converged` only if ALL specs converged. Any `halted` → overal
 ### Selection Rationale
 {parse rankings from .deepflow/selection/{spec-name}-winner.json:}
 {rank 1 icon} **#{rank} {slug}:** {rationale}
+
+### Verification
+{if verification ran, show gate results from Phase 6:}
+- {status_icon} **L0 Build:** {detail}
+- {status_icon} **L1 Exists:** {detail}
+- {status_icon} **L2 Substantive:** {detail}
+- {status_icon} **L3 Wired:** {detail}
+- {status_icon} **L4 Tests:** {detail}
+{if halted: "Verification FAILED — worktree preserved for inspection at .deepflow/worktrees/{spec-name}-{winner-slug}"}
 
 ### Changes
 {run: git diff --stat main...df/{spec-name}-{winner-slug}}
