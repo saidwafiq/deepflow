@@ -87,36 +87,82 @@ Output ONLY the JSON array. No markdown fences, no explanation, no extra text. J
 
 ## Phase 3: SPIKE (parallel teammates, model: sonnet)
 
-For each hypothesis, create a worktree and spawn a teammate:
+For each hypothesis from the cycle JSON file:
 
-**Worktree setup:** `git worktree add -b df/{spec-name}-{slug} .deepflow/worktrees/{spec-name}-{slug} HEAD`
+### 3a. Create worktree per hypothesis
+
+```bash
+WORKTREE=".deepflow/worktrees/{spec-name}-{slug}"
+BRANCH="df/{spec-name}-{slug}"
+
+# Try create new; fall back to reuse existing branch
+git worktree add -b "$BRANCH" "$WORKTREE" HEAD 2>/dev/null \
+  || git worktree add "$WORKTREE" "$BRANCH" 2>/dev/null
+
+# If worktree already exists on disk, reuse it
+```
+
+If both fail and worktree directory exists, reuse it. If worktree truly cannot be created, treat hypothesis as failed and continue.
+
+### 3b. Extract acceptance criteria
+
+Read the spec file. Extract the `## Acceptance Criteria` section (from that header to the next `##` or EOF). Pass this to the spike teammate as the human's judgment proxy.
+
+### 3c. Spawn spike teammate (model: sonnet)
+
+Spawn up to 2 teammates in parallel (configurable). Each runs in its worktree directory.
 
 **Teammate prompt:**
 ```
-You are running a spike experiment for spec '{spec-name}'.
+You are running a spike experiment to validate a hypothesis for spec '{spec-name}'.
 
 --- HYPOTHESIS ---
-Slug: {slug} | Hypothesis: {hypothesis} | Method: {method}
---- ACCEPTANCE CRITERIA (from spec) ---
-{acceptance criteria section}
----
+Slug: {slug}
+Hypothesis: {hypothesis}
+Method: {method}
+--- END HYPOTHESIS ---
 
-Tasks:
-1. Validate the hypothesis with minimum work to prove/disprove it.
-2. Write experiment file: .deepflow/experiments/{spec-name}--{slug}--active.md
-   Sections: ## Hypothesis, ## Method, ## Results, ## Criteria Check, ## Conclusion (PASSED/FAILED)
-3. Write result YAML: .deepflow/results/spike-{slug}.yaml
+--- ACCEPTANCE CRITERIA (from spec — the human's judgment proxy) ---
+{acceptance criteria}
+--- END ACCEPTANCE CRITERIA ---
+
+Your tasks:
+1. Validate this hypothesis by implementing the minimum necessary to prove or disprove it.
+   The spike must demonstrate that the approach can satisfy the acceptance criteria above.
+2. Create directories if needed: .deepflow/experiments/ and .deepflow/results/
+3. Write an experiment file at: .deepflow/experiments/{spec-name}--{slug}--active.md
+   Sections:
+   - ## Hypothesis: restate the hypothesis
+   - ## Method: what you did to validate
+   - ## Results: what you observed
+   - ## Criteria Check: for each acceptance criterion, can this approach satisfy it? (yes/no/unclear)
+   - ## Conclusion: PASSED or FAILED with reasoning
+4. Write a result YAML file at: .deepflow/results/spike-{slug}.yaml
    Fields: slug, spec, status (passed/failed), summary
-4. Stage and commit: spike({spec-name}): validate {slug}
+5. Stage and commit all changes: spike({spec-name}): validate {slug}
 
-Be concise — this is a spike, not a full implementation.
+Important:
+- Be concise and focused — this is a spike, not a full implementation.
+- If the hypothesis is not viable, mark it as failed and explain why.
 ```
 
-**After all spikes complete:**
-1. Read each `spike-{slug}.yaml` from the worktree's `.deepflow/results/`.
-2. `status: passed` → add to passed list, rename experiment to `--passed.md`.
-3. `status: failed` or missing → rename to `--failed.md`, copy to main project's `.deepflow/experiments/`.
-4. Write `.deepflow/hypotheses/{spec-name}-cycle-{N}-passed.json` with passed hypotheses.
+### 3d. Post-spike result processing
+
+After ALL spike teammates complete, process results sequentially:
+
+For each hypothesis slug:
+1. Read `{worktree}/.deepflow/results/spike-{slug}.yaml`
+2. If file exists and `status: passed`:
+   - Log `PASSED spike: {slug}`
+   - Rename experiment: `{worktree}/.deepflow/experiments/{spec-name}--{slug}--active.md` → `--passed.md`
+   - Add slug to passed list
+3. If file exists and `status: failed`, OR file is missing:
+   - Log `FAILED spike: {slug}` (or `MISSING RESULT: {slug} — treating as failed`)
+   - Rename experiment: `--active.md` → `--failed.md`
+   - Copy failed experiment to main project: `{project-root}/.deepflow/experiments/{spec-name}--{slug}--failed.md`
+4. Write passed hypotheses JSON: `.deepflow/hypotheses/{spec-name}-cycle-{N}-passed.json`
+   - Array of `{slug, hypothesis, method}` objects for passed slugs only
+   - Empty array `[]` if none passed
 
 ## Phase 4: IMPLEMENT (parallel teammates, model: opus)
 
