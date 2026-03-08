@@ -1138,70 +1138,129 @@ generate_report() {
   # Build report
   # -----------------------------------------------------------------
   {
-    # Section 1: Resultado
-    echo "## Resultado"
+    # Header
+    echo "# deepflow auto report"
     echo ""
-    echo "Status: ${overall_status}"
+    echo "**Status:** ${overall_status}  "
+    echo "**Date:** $(date -u '+%Y-%m-%d %H:%M UTC')"
     echo ""
 
-    # Winner info (if converged)
-    if [[ "$overall_status" == "converged" ]]; then
-      for sname in "${all_spec_names[@]}"; do
-        local w="$(_spec_get WINNER "$sname")"
-        if [[ -n "$w" ]]; then
-          local summary=""
-          local winner_file="${PROJECT_ROOT}/.deepflow/selection/${sname}-winner.json"
-          if [[ -f "$winner_file" ]]; then
-            summary="$(grep -o '"winner"[[:space:]]*:[[:space:]]*"[^"]*"' "$winner_file" | sed 's/.*"\([^"]*\)".*/\1/')" || summary=""
-          fi
-          echo "Winner: ${w} (spec: ${sname})"
-        fi
-      done
-      echo ""
-    fi
-
-    # Per-spec status table
-    echo "| Spec | Status | Winner |"
-    echo "|------|--------|--------|"
+    # Per-spec details
     for sname in "${all_spec_names[@]}"; do
       local s="$(_spec_get STATUS "$sname" "unknown")"
-      local w="$(_spec_get WINNER "$sname" "-")"
-      echo "| ${sname} | ${s} | ${w} |"
-    done
-    echo ""
-
-    # Section 2: Mudancas
-    echo "## Mudancas"
-    echo ""
-
-    local has_changes=false
-    for sname in "${all_spec_names[@]}"; do
       local w="$(_spec_get WINNER "$sname")"
+
+      echo "---"
+      echo ""
+      echo "## ${sname}"
+      echo ""
+      echo "**Status:** ${s}"
       if [[ -n "$w" ]]; then
-        has_changes=true
+        echo "**Winner:** ${w}"
+      fi
+      echo ""
+
+      # Hypotheses
+      local hyp_file="${PROJECT_ROOT}/.deepflow/hypotheses/${sname}-cycle-0.json"
+      if [[ -f "$hyp_file" ]]; then
+        echo "### Hypotheses"
+        echo ""
+        # Parse each hypothesis slug + description
+        local slug_list hyp_list
+        slug_list="$(grep -o '"slug"[[:space:]]*:[[:space:]]*"[^"]*"' "$hyp_file" | sed 's/.*"\([^"]*\)".*/\1/')" || slug_list=""
+        hyp_list="$(grep -o '"hypothesis"[[:space:]]*:[[:space:]]*"[^"]*"' "$hyp_file" | sed 's/.*"hypothesis"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')" || hyp_list=""
+
+        paste <(echo "$slug_list") <(echo "$hyp_list") | while IFS=$'\t' read -r hslug hhyp; do
+          [[ -z "$hslug" ]] && continue
+          echo "- **${hslug}:** ${hhyp}"
+        done
+        echo ""
+      fi
+
+      # Spike results
+      local has_spikes=false
+      for wt_dir in "${PROJECT_ROOT}/.deepflow/worktrees/${sname}-"*; do
+        [[ -d "$wt_dir" ]] || continue
+        local wt_slug
+        wt_slug="$(basename "$wt_dir")"
+        wt_slug="${wt_slug#${sname}-}"
+
+        local spike_yaml="${wt_dir}/.deepflow/results/spike-${wt_slug}.yaml"
+        if [[ -f "$spike_yaml" ]]; then
+          if [[ "$has_spikes" == "false" ]]; then
+            echo "### Spike Results"
+            echo ""
+            has_spikes=true
+          fi
+          local spike_status spike_summary
+          spike_status="$(grep -m1 '^status:' "$spike_yaml" | sed 's/^status:[[:space:]]*//')" || spike_status="unknown"
+          spike_summary="$(grep -m1 '^summary:' "$spike_yaml" | sed 's/^summary:[[:space:]]*//')" || spike_summary=""
+          local status_icon="✅"
+          [[ "$spike_status" =~ fail ]] && status_icon="❌"
+          echo "- ${status_icon} **${wt_slug}** — ${spike_summary}"
+        fi
+      done
+      if [[ "$has_spikes" == "true" ]]; then
+        echo ""
+      fi
+
+      # Selection rationale
+      local winner_file="${PROJECT_ROOT}/.deepflow/selection/${sname}-winner.json"
+      if [[ -f "$winner_file" ]]; then
+        echo "### Selection Rationale"
+        echo ""
+
+        # Parse rankings from winner file
+        local rankings
+        rankings="$(node -e "
+          try {
+            const d = JSON.parse(require('fs').readFileSync('${winner_file}','utf8'));
+            if (d.selection_output && d.selection_output.rankings) {
+              d.selection_output.rankings.forEach(r => {
+                const icon = r.rank === 1 ? '🏆' : '  ';
+                console.log(icon + ' **#' + r.rank + ' ' + r.slug + ':** ' + r.rationale);
+              });
+            }
+          } catch(e) {}
+        " 2>/dev/null)" || rankings=""
+
+        if [[ -n "$rankings" ]]; then
+          echo "$rankings"
+        fi
+        echo ""
+      fi
+
+      # Changes (git diff stat)
+      if [[ -n "$w" ]]; then
         local branch_name="df/${sname}-${w}"
-        echo "### ${sname} (winner: ${w})"
+        echo "### Changes"
         echo ""
         echo '```'
-        git diff --stat "main...${branch_name}" 2>/dev/null || echo "(branch ${branch_name} not found)"
+        git -C "$PROJECT_ROOT" diff --stat "main...${branch_name}" 2>/dev/null || echo "(branch ${branch_name} not found)"
         echo '```'
         echo ""
       fi
     done
-    if [[ "$has_changes" == "false" ]]; then
-      echo "No changes selected"
-      echo ""
-    fi
 
-    # Section 3: Decisoes
-    echo "## Decisoes"
+    # Next steps
+    echo "---"
     echo ""
-
-    local decisions_log="${PROJECT_ROOT}/.deepflow/auto-decisions.log"
-    if [[ -f "$decisions_log" ]]; then
-      cat "$decisions_log"
+    echo "## Next Steps"
+    echo ""
+    if [[ "$overall_status" == "converged" ]]; then
+      for sname in "${all_spec_names[@]}"; do
+        local w="$(_spec_get WINNER "$sname")"
+        if [[ -n "$w" ]]; then
+          echo "To merge the winner:"
+          echo '```bash'
+          echo "git merge df/${sname}-${w}"
+          echo '```'
+        fi
+      done
+    elif [[ "$overall_status" == "in-progress" ]]; then
+      echo "Run \`deepflow auto --continue\` to resume."
     else
-      echo "No decisions logged"
+      echo "Review the spec and run \`deepflow auto\` again."
     fi
     echo ""
   } > "$report_file"
