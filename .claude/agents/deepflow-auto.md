@@ -15,6 +15,7 @@ You orchestrate the autonomous deepflow cycle: discover → hypothesize → spik
 | Role | Model | Rationale |
 |------|-------|-----------|
 | Lead (you) | Sonnet | Cheap coordination |
+| Pre-check subagent | Haiku | Fast read-only exploration |
 | Spike teammates | Sonnet | Exploratory, disposable |
 | Implementation teammates | Opus | Thorough, production code |
 | Judge subagent | Opus | Adversarial quality gate |
@@ -34,6 +35,51 @@ Log: phase starts, hypothesis generation, spike pass/fail, selection verdicts, e
 2. List all `specs/doing-*.md` files. Auto-promote any unprefixed `specs/*.md` to `doing-*.md` (skip `done-*`, dotfiles).
 3. If no specs found → log error, generate report, stop.
 4. Build dependency graph from `## Dependencies` sections. Process in topological order. Circular deps → fatal error with cycle path.
+
+## Phase 1.5: PRE-CHECK (spawn a fresh subagent per spec, model: haiku, tools: Read/Grep/Glob only)
+
+Before generating hypotheses, check if each spec's requirements are already satisfied by existing code.
+
+### 1.5a. Spawn pre-check subagent (model: haiku, read-only)
+
+For each spec, spawn a fresh Haiku subagent with tools limited to Read, Grep, and Glob.
+
+**Subagent prompt:**
+```
+You are checking whether a spec's requirements are already satisfied by existing code.
+
+--- SPEC CONTENT ---
+{spec content}
+--- END SPEC ---
+
+For each requirement in the spec, determine if the existing codebase already satisfies it.
+
+Output ONLY a JSON object (no markdown fences). The JSON must have:
+{
+  "requirements": [
+    {"id": "REQ-1", "status": "DONE|PARTIAL|MISSING", "evidence": "brief explanation"}
+  ],
+  "overall": "DONE|PARTIAL|MISSING"
+}
+
+Rules:
+- DONE = requirement is fully satisfied by existing code
+- PARTIAL = some aspects exist but gaps remain
+- MISSING = not implemented at all
+- overall is DONE only if ALL requirements are DONE
+```
+
+### 1.5b. Process pre-check result
+
+1. Parse JSON from subagent output.
+2. If `overall: "DONE"`:
+   - Log: `already-satisfied: {spec-name} — all requirements met, skipping`
+   - Skip this spec entirely (do not hypothesize, spike, or implement).
+3. If `overall: "PARTIAL"`:
+   - Log each PARTIAL/MISSING requirement.
+   - Include the pre-check results in the hypothesis prompt (Phase 2b) so the teammate focuses on gaps.
+4. If `overall: "MISSING"` or parse fails:
+   - Proceed normally to Phase 2.
 
 ## Phase 2: HYPOTHESIZE (spawn a fresh teammate per spec, model: sonnet)
 
@@ -68,6 +114,11 @@ You are helping with an autonomous development workflow. Given the following spe
 The following hypotheses have already been tried and FAILED. Do NOT repeat them or suggest similar approaches:
 
 {failed_context}
+{end if}
+{if pre_check_context is not empty (from Phase 1.5, overall=PARTIAL):}
+A pre-check found that some requirements are already partially satisfied. Focus your hypotheses on the gaps:
+
+{pre_check_context — the JSON requirements array filtered to PARTIAL/MISSING only}
 {end if}
 Generate exactly {N} hypotheses as a JSON array. Each object must have:
 - "slug": a URL-safe lowercase hyphenated short name (e.g. "stream-based-parser")
@@ -298,7 +349,49 @@ Parse the JSON output. Handle extraction failures gracefully (try `{...}` block 
 
 ## Phase 6: VERIFY (subagent, model: opus)
 
-Spawn a fresh verifier on the winner worktree. Run L0-L4 gates (skip PLAN.md readiness). On failure → halt + report. On success → proceed to PR.
+Spawn a fresh verifier subagent on the winner worktree (`.deepflow/worktrees/{spec-name}-{winner-slug}`).
+
+### 6a. Spawn verifier subagent (model: opus)
+
+**Subagent prompt:**
+```
+You are verifying the implementation for spec '{spec-name}' in worktree '.deepflow/worktrees/{spec-name}-{winner-slug}'.
+
+Run the following verification gates in order. Stop at the first failure.
+
+L0 — Lint: Run any project linter (eslint, tsc --noEmit, etc.). All files must pass.
+L1 — Build: Run the project build command (npm run build, make, etc.) if one exists. Must succeed.
+L2 — Unit tests: Run unit tests (npm test, jest, etc.). All must pass.
+L3 — Integration: Run integration tests if they exist. All must pass.
+L4 — Acceptance: For each acceptance criterion in the spec, verify it is satisfied by the implementation.
+
+Skip PLAN.md readiness check (not applicable in auto mode).
+
+Output a JSON object:
+{
+  "passed": true/false,
+  "gates": [
+    {"level": "L0", "status": "passed|failed|skipped", "detail": "..."},
+    {"level": "L1", "status": "passed|failed|skipped", "detail": "..."},
+    {"level": "L2", "status": "passed|failed|skipped", "detail": "..."},
+    {"level": "L3", "status": "passed|failed|skipped", "detail": "..."},
+    {"level": "L4", "status": "passed|failed|skipped", "detail": "..."}
+  ],
+  "summary": "one-line summary"
+}
+```
+
+### 6b. Process verification result
+
+1. Parse JSON from verifier output.
+2. If `passed: false`:
+   - Log: `VERIFY FAILED for {spec-name}/{winner-slug}: {summary}`
+   - Log each failed gate with detail.
+   - Mark spec as `halted`. Preserve winner worktree for inspection.
+   - Proceed to REPORT (Phase 8). Do NOT create PR.
+3. If `passed: true`:
+   - Log: `VERIFY PASSED for {spec-name}/{winner-slug}`
+   - Proceed to PR (Phase 7).
 
 ## Phase 7: PR (you do this)
 
