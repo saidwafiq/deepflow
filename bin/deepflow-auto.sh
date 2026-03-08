@@ -168,32 +168,28 @@ discover_specs() {
 # Context-monitored claude -p wrapper
 # ---------------------------------------------------------------------------
 
-# run_claude_monitored <working_dir> <prompt_text> [session_id]
+# run_claude_monitored <working_dir> <prompt_text>
 #
 # Runs `claude -p --output-format stream-json` and monitors token usage in
 # real time. If usage reaches CONTEXT_THRESHOLD_PCT% of the context window the
-# process is killed and automatically restarted with `--resume <session_id>` so
-# it gets a fresh context window.
+# process is killed and restarted with a fresh context (same prompt, clean
+# session). Prior work persists in the worktree via committed files.
 #
 # The final result text is written to stdout. A side-effect context.json is
 # written to <working_dir>/.deepflow/context.json for statusline consumption.
 run_claude_monitored() {
   local working_dir="$1"
   local prompt_text="$2"
-  local session_id="${3:-}"
 
   local result_tmp
   result_tmp="$(mktemp)"
   local error_log
   error_log="$(mktemp)"
 
-  # Outer loop: may restart with --resume when threshold is hit
+  # Outer loop: restart with fresh context when threshold is hit
   while true; do
     # Build command arguments
     local -a cmd_args=(claude -p --output-format stream-json --dangerously-skip-permissions)
-    if [[ -n "$session_id" ]]; then
-      cmd_args+=(--resume --session-id "$session_id")
-    fi
 
     # Accumulated token count and context window size across events
     local total_tokens=0
@@ -207,13 +203,8 @@ run_claude_monitored() {
     fifo_path="$(mktemp -u)"
     mkfifo "$fifo_path"
 
-    if [[ -n "$session_id" ]]; then
-      "${cmd_args[@]}" < /dev/null > "$fifo_path" 2>>"$error_log" &
-      claude_pid=$!
-    else
-      echo "$prompt_text" | "${cmd_args[@]}" > "$fifo_path" 2>>"$error_log" &
-      claude_pid=$!
-    fi
+    echo "$prompt_text" | "${cmd_args[@]}" > "$fifo_path" 2>>"$error_log" &
+    claude_pid=$!
 
     # Read the FIFO line-by-line (set +e to tolerate EINTR from signals)
     local capturing_result=false
@@ -304,12 +295,10 @@ run_claude_monitored() {
       : > "$error_log"
     fi
 
-    if [[ "$threshold_hit" == "true" && -n "$current_session_id" ]]; then
-      # Restart with --resume and the captured session_id
-      session_id="$current_session_id"
-      total_tokens=0
-      context_window=0
-      auto_log "Restarting claude -p with --resume session_id=${session_id}"
+    if [[ "$threshold_hit" == "true" ]]; then
+      # Restart with fresh context — the prompt is re-sent but prior work
+      # persists in the worktree (committed files, etc.)
+      auto_log "Restarting claude -p with fresh context (prior work is in worktree)"
       continue
     fi
 
