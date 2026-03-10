@@ -1,7 +1,7 @@
 # /df:verify — Verify Specs Satisfied
 
 ## Purpose
-Check that implemented code satisfies spec requirements and acceptance criteria.
+Check that implemented code satisfies spec requirements and acceptance criteria. All checks are machine-verifiable — no LLM agents are used.
 
 **NEVER:** use EnterPlanMode, use ExitPlanMode
 
@@ -11,16 +11,6 @@ Check that implemented code satisfies spec requirements and acceptance criteria.
 /df:verify doing-upload     # Verify specific spec
 /df:verify --re-verify      # Re-verify done-* specs (already merged)
 ```
-
-## Skills & Agents
-- Skill: `code-completeness` — Find incomplete implementations
-
-**Use Task tool to spawn agents:**
-| Agent | subagent_type | model | Purpose |
-|-------|---------------|-------|---------|
-| Scanner | `Explore` | `haiku` | Fast codebase scanning |
-
-Follow `templates/explore-agent.md` for all Explore agent spawning. Scale: 1-2 agents per spec, cap 10.
 
 ## Spec File States
 
@@ -65,18 +55,75 @@ If no `doing-*` specs found: report counts, suggest `/df:execute`.
 **L0: Build check** (if build command detected)
 
 Run the build command in the worktree:
-- Exit code 0 → L0 pass, continue to L1-L3
+- Exit code 0 → L0 pass, continue to L1-L2
 - Exit code non-zero → L0 FAIL: report "✗ L0: Build failed" with last 30 lines, add fix task to PLAN.md, stop (skip L1-L4)
 
-**L1-L3: Static analysis** (via Explore agents)
+**L1: Files exist** (machine-verifiable, via git)
 
-Check requirements, acceptance criteria, and quality (stubs/TODOs).
-Mark each: ✓ satisfied | ✗ missing | ⚠ partial
-Prefer LSP tools (goToDefinition, findReferences, workspaceSymbol) when available; fall back to Grep/Glob silently.
+Check that planned files appear in the worktree diff:
+
+```bash
+# Get files changed in worktree branch
+CHANGED=$(cd ${WORKTREE_PATH} && git diff main...HEAD --name-only)
+
+# Parse PLAN.md for spec's "Files:" entries
+PLANNED=$(grep -A1 "Files:" PLAN.md | grep -v "Files:" | tr ',' '\n' | xargs)
+
+# Each planned file must appear in diff
+for file in ${PLANNED}; do
+  echo "${CHANGED}" | grep -q "${file}" || MISSING+=("${file}")
+done
+```
+
+- All planned files in diff → L1 pass
+- Missing files → L1 FAIL: report "✗ L1: Files not in diff: {list}"
+
+**L2: Coverage** (coverage tool)
+
+**Step 1: Detect coverage tool** (first match wins):
+
+| File/Config | Coverage Tool | Command |
+|-------------|--------------|---------|
+| `package.json` with `c8` in devDeps | c8 (Node) | `npx c8 --reporter=json-summary npm test` |
+| `package.json` with `nyc` in devDeps | nyc (Node) | `npx nyc --reporter=json-summary npm test` |
+| `.nycrc` or `.nycrc.json` exists | nyc (Node) | `npx nyc --reporter=json-summary npm test` |
+| `pyproject.toml` or `setup.cfg` with coverage config | coverage.py | `python -m coverage run -m pytest && python -m coverage json` |
+| `Cargo.toml` + `cargo-tarpaulin` installed | tarpaulin (Rust) | `cargo tarpaulin --out json` |
+| `go.mod` | go cover (Go) | `go test -coverprofile=coverage.out ./...` |
+
+**Step 2: No tool detected** → L2 passes with warning: "⚠ L2: No coverage tool detected, skipping coverage check"
+
+**Step 3: Run coverage comparison** (when tool available):
+```bash
+# Baseline: coverage on main branch (or from ratchet snapshot)
+cd ${WORKTREE_PATH}
+git stash  # Temporarily remove changes
+${COVERAGE_COMMAND}
+BASELINE=$(parse_coverage_percentage)  # Extract total line coverage %
+git stash pop
+
+# Current: coverage with changes applied
+${COVERAGE_COMMAND}
+CURRENT=$(parse_coverage_percentage)
+
+# Compare
+if [ "${CURRENT}" -lt "${BASELINE}" ]; then
+  echo "✗ L2: Coverage dropped ${BASELINE}% → ${CURRENT}%"
+else
+  echo "✓ L2: Coverage ${CURRENT}% (baseline: ${BASELINE}%)"
+fi
+```
+
+- Coverage same or improved → L2 pass
+- Coverage dropped → L2 FAIL: report "✗ L2: Coverage dropped {baseline}% → {current}%", add fix task
+
+**L3: Integration** (subsumed by L0 + L4)
+
+Subsumed by L0 (build) + L4 (tests). If code isn't imported/wired, build fails or tests fail. No separate verification needed.
 
 **L4: Test execution** (if test command detected)
 
-Run AFTER L0 passes and L1-L3 complete. Run even if L1-L3 found issues.
+Run AFTER L0 passes and L1-L2 complete. Run even if L1-L2 found issues.
 
 - Exit code 0 → L4 pass
 - Exit code non-zero → L4 FAIL: capture last 50 lines, report "✗ L4: Tests failed (N of M)", add fix task
@@ -88,31 +135,30 @@ Run AFTER L0 passes and L1-L3 complete. Run even if L1-L3 found issues.
 
 **Format on success:**
 ```
-done-upload.md: L0 ✓ | 4/4 reqs ✓, 5/5 acceptance ✓ | L4 ✓ (12 tests) | 0 quality issues
+doing-upload.md: L0 ✓ | L1 ✓ (5/5 files) | L2 ⚠ (no coverage tool) | L3 — (subsumed) | L4 ✓ (12 tests) | 0 quality issues
 ```
 
 **Format on failure:**
 ```
-done-upload.md: L0 ✓ | 4/4 reqs ✓, 3/5 acceptance ✗ | L4 ✗ (3 failed) | 1 quality issue
+doing-upload.md: L0 ✓ | L1 ✗ (3/5 files) | L2 ⚠ | L3 — | L4 ✗ (3 failed)
 
 Issues:
-  ✗ AC-3: YAML parsing missing for consolation
+  ✗ L1: Missing files: src/api/upload.ts, src/services/storage.ts
   ✗ L4: 3 test failures
     FAIL src/upload.test.ts > should validate file type
     FAIL src/upload.test.ts > should reject oversized files
-  ⚠ Quality: TODO in parse_config()
 
 Fix tasks added to PLAN.md:
-  T10: Add YAML parsing for consolation section
+  T10: Implement missing upload endpoint and storage service
   T11: Fix 3 failing tests in upload module
-  T12: Remove TODO in parse_config()
 
 Run /df:execute --continue to fix in the same worktree.
 ```
 
 **Gate conditions (ALL must pass to merge):**
 - L0: Build passes (or no build command detected)
-- L1-L3: All requirements satisfied, no stubs, properly wired
+- L1: All planned files appear in diff
+- L2: Coverage didn't drop (or no coverage tool detected)
 - L4: Tests pass (or no test command detected)
 
 **If all gates pass:** Proceed to Post-Verification merge.
@@ -142,17 +188,17 @@ Files: ...
 | Level | Check | Method | Runner |
 |-------|-------|--------|--------|
 | L0: Builds | Code compiles/builds | Run build command | Orchestrator (Bash) |
-| L1: Exists | File/function exists | Glob/Grep (prefer workspaceSymbol if available) | Explore agents |
-| L2: Substantive | Real code, not stub | Read + analyze | Explore agents |
-| L3: Wired | Integrated into system | Trace imports/calls (prefer findReferences if available) | Explore agents |
+| L1: Files exist | Planned files in diff | `git diff --name-only` vs PLAN.md | Orchestrator (Bash) |
+| L2: Coverage | Coverage didn't drop | Coverage tool (before/after) | Orchestrator (Bash) |
+| L3: Integration | Build + tests pass | Subsumed by L0 + L4 | — |
 | L4: Tested | Tests pass | Run test command | Orchestrator (Bash) |
 
-**Default: L0 through L4.** L0 and L4 skipped ONLY if no build/test command detected (see step 1.5). L0 and L4 run via Bash — Explore agents cannot execute commands.
+**Default: L0 through L4.** L0 and L4 skipped ONLY if no build/test command detected (see step 1.5). All checks are machine-verifiable. No LLM agents are used.
 
 ## Rules
 - Verify against spec, not assumptions
 - Flag partial implementations
-- Report TODO/FIXME as quality issues
+- All checks machine-verifiable — no LLM judgment
 - Don't auto-fix — add fix tasks to PLAN.md, then `/df:execute --continue`
 - Capture learnings — Write experiments for significant approaches
 
@@ -232,4 +278,3 @@ Output:
 
 Workflow complete! Ready for next feature: /df:spec <name>
 ```
-

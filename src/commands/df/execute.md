@@ -2,16 +2,16 @@
 
 ## Orchestrator Role
 
-You are a coordinator. Spawn agents, wait for results, update PLAN.md. Never implement code yourself.
+You are a coordinator. Spawn agents, run ratchet checks, update PLAN.md. Never implement code yourself.
 
-**NEVER:** Read source files, edit code, run tests, run git commands (except status), use TaskOutput, use EnterPlanMode, use ExitPlanMode
+**NEVER:** Read source files, edit code, use TaskOutput, use EnterPlanMode, use ExitPlanMode
 
-**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn background agents, read `.deepflow/results/*.yaml` on completion notifications, update PLAN.md, write `.deepflow/decisions.md` in the main tree
+**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn background agents, run ratchet health checks after each agent completes, update PLAN.md, write `.deepflow/decisions.md` in the main tree
 
 ---
 
 ## Purpose
-Implement tasks from PLAN.md with parallel agents, atomic commits, and context-efficient execution.
+Implement tasks from PLAN.md with parallel agents, atomic commits, ratchet-driven quality gates, and context-efficient execution.
 
 ## Usage
 ```
@@ -26,11 +26,13 @@ Implement tasks from PLAN.md with parallel agents, atomic commits, and context-e
 - Skill: `atomic-commits` — Clean commit protocol
 
 **Use Task tool to spawn agents:**
-| Agent | subagent_type | model | Purpose |
-|-------|---------------|-------|---------|
-| Implementation | `general-purpose` | `sonnet` | Task implementation |
-| Spike Verifier | `reasoner` | `opus` | Verify spike pass/fail is correct |
-| Debugger | `reasoner` | `opus` | Debugging failures |
+| Agent | subagent_type | Purpose |
+|-------|---------------|---------|
+| Implementation | `general-purpose` | Task implementation |
+| Debugger | `reasoner` | Debugging failures |
+
+**Model routing from frontmatter:**
+The model for each agent is determined by the `model:` field in the command/agent/skill frontmatter being invoked. The orchestrator reads the relevant frontmatter to determine which model to pass to `Task()`. If no `model:` field is present in the frontmatter, default to `sonnet`.
 
 ## Context-Aware Execution
 
@@ -54,53 +56,15 @@ Each task = one background agent. Use agent completion notifications as the feed
 2. STOP. End your turn. Do NOT run Bash monitors or poll for results.
 3. Wait for "Agent X completed" notifications (they arrive automatically)
 4. On EACH notification:
-   a. Read the result file: Read("{worktree}/.deepflow/results/{task_id}.yaml")
-   b. Report: "✓ T1: success (abc123)" or "✗ T1: failed"
+   a. Run ratchet check (health checks on the worktree)
+   b. Report: "✓ T1: ratchet passed (abc123)" or "✗ T1: ratchet failed, reverted"
    c. Update PLAN.md for that task
    d. Check: all wave agents done?
       - No → end turn, wait for next notification
       - Yes → proceed to next wave or write final summary
 ```
 
-After spawning, your turn ENDS. Per notification: read result file, output ONE line ("✓ T1: success (abc123)"), update PLAN.md. Write full summary only after ALL wave agents complete.
-
-Result file `.deepflow/results/{task_id}.yaml`:
-```yaml
-task: T3
-status: success|failed
-commit: abc1234
-summary: "one line"
-tests_ran: true|false
-test_command: "npm test"
-test_exit_code: 0
-test_output_tail: |
-  PASS src/upload.test.ts
-  Tests: 12 passed, 12 total
-```
-
-New fields: `tests_ran` (bool), `test_command` (string), `test_exit_code` (int), `test_output_tail` (last 20 lines of output).
-
-**Spike result file** `.deepflow/results/{task_id}.yaml` (additional fields):
-```yaml
-task: T1
-type: spike
-status: success|failed
-commit: abc1234
-summary: "one line"
-criteria:
-  - name: "throughput"
-    target: ">= 7000 g/s"
-    actual: "1500 g/s"
-    met: false
-  - name: "memory usage"
-    target: "< 500 MB"
-    actual: "320 MB"
-    met: true
-all_criteria_met: false  # ALL must be true for spike to pass
-experiment_file: ".deepflow/experiments/upload--streaming--failed.md"
-```
-
-**CRITICAL:** `status` MUST equal `success` only if `all_criteria_met: true`. The spike verifier will reject mismatches.
+After spawning, your turn ENDS. Per notification: run ratchet, output ONE line, update PLAN.md. Write full summary only after ALL wave agents complete.
 
 ## Checkpoint & Resume
 
@@ -160,6 +124,66 @@ fi
 
 **--fresh flag:** Deletes existing worktree and creates new one.
 
+### 1.6. RATCHET SNAPSHOT
+
+Before spawning agents, snapshot pre-existing test files:
+
+```bash
+cd ${WORKTREE_PATH}
+
+# Snapshot pre-existing test files (only these count for ratchet)
+git ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' \
+  > .deepflow/auto-snapshot.txt
+
+echo "Ratchet snapshot: $(wc -l < .deepflow/auto-snapshot.txt) pre-existing test files"
+```
+
+**Only pre-existing test files are used for ratchet evaluation.** New test files created by agents during implementation don't influence the pass/fail decision. This prevents agents from gaming the ratchet by writing tests that pass trivially.
+
+### 1.7. NO-TESTS BOOTSTRAP
+
+After the ratchet snapshot, check if zero test files were found:
+
+```bash
+TEST_COUNT=$(wc -l < .deepflow/auto-snapshot.txt | tr -d ' ')
+
+if [ "${TEST_COUNT}" = "0" ]; then
+  echo "Bootstrap needed: no pre-existing test files found."
+  BOOTSTRAP_NEEDED=true
+else
+  BOOTSTRAP_NEEDED=false
+fi
+```
+
+**If `BOOTSTRAP_NEEDED=true`:**
+
+1. **Inject a bootstrap task** as the FIRST action before any regular PLAN.md task is executed:
+   - Bootstrap task description: "Write tests for files in edit_scope"
+   - Read `edit_scope` from `specs/doing-*.md` to know which files need tests
+   - Spawn ONE dedicated bootstrap agent using the Bootstrap Task prompt (section 6)
+
+2. **Bootstrap agent behavior:**
+   - Write tests covering the files listed in `edit_scope`
+   - Commit as `test({spec}): bootstrap tests for edit_scope`
+   - The bootstrap agent's ONLY job is writing tests — no implementation changes
+
+3. **After bootstrap agent completes:**
+   - Run ratchet health checks (build must pass; test suite must not error out)
+   - If ratchet passes: re-take the ratchet snapshot so subsequent tasks use the new tests as baseline:
+     ```bash
+     cd ${WORKTREE_PATH}
+     git ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' \
+       > .deepflow/auto-snapshot.txt
+     echo "Post-bootstrap snapshot: $(wc -l < .deepflow/auto-snapshot.txt) test files"
+     ```
+   - If ratchet fails: revert bootstrap commit, log error, halt and report "Bootstrap failed — manual intervention required"
+
+4. **Signal to caller:** After bootstrap completes successfully, report `"bootstrap: completed"` in the cycle summary. This cycle's sole output is the test bootstrap — no regular PLAN.md task is executed this cycle.
+
+5. **Subsequent cycles:** The updated `.deepflow/auto-snapshot.txt` now contains the bootstrapped test files. All subsequent ratchet checks use these as the baseline.
+
+**If `BOOTSTRAP_NEEDED=false`:** Proceed normally to section 2.
+
 ### 2. LOAD PLAN
 
 ```
@@ -175,59 +199,9 @@ For each `[ ]` task in PLAN.md: `TaskCreate(subject: "{task_id}: {description}",
 
 Warn if `specs/*.md` (excluding doing-/done-) exist. Non-blocking.
 
-### 4. CHECK EXPERIMENT STATUS (HYPOTHESIS VALIDATION)
+### 4. IDENTIFY READY TASKS
 
-**Before identifying ready tasks**, check experiment validation for full implementation tasks.
-
-**Task Types:**
-- **Spike tasks**: Have `[SPIKE]` in title OR `Type: spike` in description — always executable
-- **Full implementation tasks**: Blocked by spike tasks — require validated experiment
-
-**Validation Flow:**
-
-```
-For each task in plan:
-  If task is spike task:
-    → Mark as executable (spikes are always allowed)
-  Else if task is blocked by a spike task (T{n}):
-    → Find related experiment file in .deepflow/experiments/
-    → Check experiment status:
-      - --passed.md exists → Unblock, proceed with implementation
-      - --failed.md exists → Keep blocked, warn user
-      - --active.md exists → Keep blocked, spike in progress
-      - No experiment → Keep blocked, spike not started
-```
-
-**Experiment File Discovery:**
-
-```
-Glob: .deepflow/experiments/{topic}--*--{status}.md
-
-Topic extraction:
-1. From spike task: experiment file path in task description
-2. From spec name: doing-{topic} → {topic}
-3. Fuzzy match: normalize and match
-```
-
-**Status Handling:**
-
-| Experiment Status | Task Status | Action |
-|-------------------|-------------|--------|
-| `--passed.md` | Ready | Execute full implementation |
-| `--failed.md` | Blocked | Skip, warn: "Experiment failed, re-plan needed" |
-| `--active.md` | Blocked | Skip, info: "Waiting for spike completion" |
-| Not found | Blocked | Skip, info: "Spike task not executed yet" |
-
-**Warning Output:**
-
-```
-⚠ T3 blocked: Experiment 'upload--streaming--failed.md' did not validate
-  → Run /df:plan to generate new hypothesis spike
-```
-
-### 5. IDENTIFY READY TASKS
-
-Use TaskList to find ready tasks (replaces manual PLAN.md parsing):
+Use TaskList to find ready tasks:
 
 ```
 Ready = TaskList results where:
@@ -235,13 +209,7 @@ Ready = TaskList results where:
   - blockedBy: empty (auto-unblocked by native dependency system)
 ```
 
-**Cross-check with experiment validation** (for spike-blocked tasks):
-- If task depends on spike AND experiment not `--passed.md` → still blocked
-  - TaskUpdate to add spike as blocker if not already set
-
-Ready = TaskList pending + empty blockedBy + experiment validated (if applicable).
-
-### 6. SPAWN AGENTS
+### 5. SPAWN AGENTS
 
 Context ≥50%: checkpoint and exit.
 
@@ -255,82 +223,227 @@ This activates the UI spinner showing the task's activeForm (e.g. "Creating uplo
 
 **Spawn ALL ready tasks in ONE message** with multiple Task tool calls (true parallelism). Same-file conflicts: spawn sequentially.
 
-**Spike Task Execution:**
-When spawning a spike task, the agent MUST:
-1. Execute the minimal validation method
-2. Record structured criteria evaluation in result file (see spike result schema above)
-3. Write experiment file with `--active.md` status (verifier determines final status)
-4. Commit as `spike({spec}): validate {hypothesis}`
+**Multiple [SPIKE] tasks for the same problem:** When PLAN.md contains two or more `[SPIKE]` tasks grouped by the same "Blocked by:" target or identical problem description, do NOT run them sequentially. Instead, follow the **Parallel Spike Probes** protocol in section 5.7 before spawning any implementation tasks that depend on the spike outcome.
 
-**IMPORTANT:** Spike agent writes `--active.md`, NOT `--passed.md` or `--failed.md`. The verifier determines final status.
+### 5.5. RATCHET CHECK
 
-### 6.5. VERIFY SPIKE RESULTS
+After each agent completes (notification received), the orchestrator runs health checks on the worktree.
 
-After spike completes, spawn verifier BEFORE unblocking implementation tasks.
+**Step 1: Detect commands** (same auto-detection as /df:verify):
 
-**Trigger:** Spike result file detected (`.deepflow/results/T{n}.yaml` with `type: spike`)
+| File | Build | Test | Typecheck | Lint |
+|------|-------|------|-----------|------|
+| `package.json` | `npm run build` (if scripts.build) | `npm test` (if scripts.test not placeholder) | `npx tsc --noEmit` (if tsconfig.json) | `npm run lint` (if scripts.lint) |
+| `pyproject.toml` | — | `pytest` | `mypy .` (if mypy in deps) | `ruff check .` (if ruff in deps) |
+| `Cargo.toml` | `cargo build` | `cargo test` | — | `cargo clippy` (if installed) |
+| `go.mod` | `go build ./...` | `go test ./...` | — | `go vet ./...` |
 
-**Spawn:**
-```
-Task(subagent_type="reasoner", model="opus", prompt=VERIFIER_PROMPT)
-```
+**Step 2: Run health checks** in the worktree:
+```bash
+cd ${WORKTREE_PATH}
 
-**Verifier Prompt:**
-```
-SPIKE VERIFICATION — Be skeptical. Catch false positives.
-
-Task: {task_id}
-Result: {worktree_path}/.deepflow/results/{task_id}.yaml
-Experiment: {worktree_path}/.deepflow/experiments/{topic}--{hypothesis}--active.md
-
-For each criterion in result file:
-1. Is `actual` a concrete number? (reject "good", "improved", "better")
-2. Does `actual` satisfy `target`? Do the math.
-3. Is `met` correct?
-
-Reject these patterns:
-- "Works but doesn't meet target" → FAILED
-- "Close enough" → FAILED
-- Actual 1500 vs Target >= 7000 → FAILED
-
-Output to {worktree_path}/.deepflow/results/{task_id}-verified.yaml:
-  verified_status: VERIFIED_PASS|VERIFIED_FAIL
-  override: true|false
-  reason: "one line"
-
-Then rename experiment:
-- VERIFIED_PASS → --passed.md
-- VERIFIED_FAIL → --failed.md (add "Next hypothesis:" to Conclusion)
+# Run each detected command
+# Build → Test → Typecheck → Lint (stop on first failure)
 ```
 
-**Gate:**
+**Step 3: Validate edit scope** (if spec declares `edit_scope`):
+```bash
+# Get files changed by the agent
+CHANGED=$(git diff HEAD~1 --name-only)
+
+# Load edit_scope from spec (files/globs)
+EDIT_SCOPE=$(grep 'edit_scope:' specs/doing-*.md | sed 's/edit_scope://' | tr ',' '\n' | xargs)
+
+# Check each changed file against allowed scope
+for file in ${CHANGED}; do
+  ALLOWED=false
+  for pattern in ${EDIT_SCOPE}; do
+    # Match file against glob pattern
+    [[ "${file}" == ${pattern} ]] && ALLOWED=true
+  done
+  ${ALLOWED} || VIOLATIONS+=("${file}")
+done
 ```
-VERIFIED_PASS →
-  TaskUpdate(taskId: spike_native_id, status: "completed")
-  # Native system auto-unblocks dependent tasks
-  Log "✓ Spike {task_id} verified"
 
-VERIFIED_FAIL →
-  # Spike task stays as pending, dependents remain blocked
-  Log "✗ Spike {task_id} failed verification"
-  If override: log "⚠ Agent incorrectly marked as passed"
+- Violations found → revert: `git revert HEAD --no-edit`, report "✗ Edit scope violation: {files}"
+- No violations → continue to health checks
+
+**Step 4: Evaluate**:
+- All checks pass AND no scope violations → task succeeds, commit stands
+- Any check fails → regression detected → revert: `git revert HEAD --no-edit`
+
+**Ratchet uses ONLY pre-existing test files** (from `.deepflow/auto-snapshot.txt`). If the agent added new test files that fail, those are excluded from evaluation — the agent's new tests don't influence the ratchet decision.
+
+**For spike tasks:** Same ratchet. If the spike's code passes pre-existing health checks, the spike passes. No LLM judges another LLM's work.
+
+### 5.7. PARALLEL SPIKE PROBES
+
+When two or more `[SPIKE]` tasks address the **same problem** (same "Blocked by:" target OR identical or near-identical hypothesis wording), treat them as a probe set and run this protocol instead of the standard single-agent flow.
+
+#### Detection
+
+```
+Spike group = all [SPIKE] tasks where:
+  - same "Blocked by:" value, OR
+  - problem description is identical after stripping task ID prefix
+If group size ≥ 2 → enter parallel probe mode
 ```
 
-On task failure: spawn `Task(subagent_type="reasoner", model="opus", prompt="Debug failure: {error details}")`.
+#### Step 1: Record baseline commit
 
-### 7. PER-TASK (agent prompt)
+```bash
+cd ${WORKTREE_PATH}
+BASELINE=$(git rev-parse HEAD)
+echo "Probe baseline: ${BASELINE}"
+```
+
+All probes branch from this exact commit so they share the same ratchet baseline.
+
+#### Step 2: Create isolated sub-worktrees
+
+For each spike `{SPIKE_ID}` in the probe group:
+
+```bash
+PROBE_BRANCH="df/${SPEC_NAME}/probe-${SPIKE_ID}"
+PROBE_PATH=".deepflow/worktrees/${SPEC_NAME}/probe-${SPIKE_ID}"
+
+git worktree add -b "${PROBE_BRANCH}" "${PROBE_PATH}" "${BASELINE}"
+echo "Created probe worktree: ${PROBE_PATH} (branch: ${PROBE_BRANCH})"
+```
+
+#### Step 3: Spawn all probes in parallel
+
+Mark every spike task as `in_progress`, then spawn one agent per probe **in a single message** using the Spike Task prompt (section 6), with the probe's worktree path as its working directory.
+
+```
+TaskUpdate(taskId: native_id_SPIKE_A, status: "in_progress")
+TaskUpdate(taskId: native_id_SPIKE_B, status: "in_progress")
+[spawn agent for SPIKE_A → PROBE_PATH_A]
+[spawn agent for SPIKE_B → PROBE_PATH_B]
+... (all in ONE message)
+```
+
+End your turn. Do NOT poll or monitor. Wait for completion notifications.
+
+#### Step 4: Ratchet each probe (on completion notifications)
+
+When a probe agent's notification arrives, run the standard ratchet (section 5.5) against its dedicated probe worktree:
+
+```bash
+cd ${PROBE_PATH}
+
+# Identical health-check commands as standard tasks
+# Build → Test → Typecheck → Lint (stop on first failure)
+```
+
+Record per-probe metrics:
+
+```yaml
+probe_id: SPIKE_A
+worktree: .deepflow/worktrees/{spec}/probe-SPIKE_A
+branch: df/{spec}/probe-SPIKE_A
+ratchet_passed: true/false
+regressions: 0          # failing pre-existing tests
+coverage_delta: +3      # new lines covered (positive = better)
+files_changed: 4        # number of files touched
+commit: abc1234
+```
+
+Wait until **all** probe notifications have arrived before proceeding to selection.
+
+#### Step 5: Machine-select winner
+
+No LLM evaluates another LLM's work. Apply the following ordered criteria to all probes that **passed** the ratchet:
+
+```
+1. Fewer regressions  (lower is better — hard gate: any regression disqualifies)
+2. Better coverage    (higher delta is better)
+3. Fewer files changed (lower is better — smaller blast radius)
+
+Tie-break: first probe to complete (chronological)
+```
+
+If **no** probe passes the ratchet, all are failed probes. Log insights (step 7) and reset the spike tasks to `pending` for retry with debugger guidance.
+
+#### Step 6: Preserve ALL probe worktrees
+
+Do NOT delete losing probe worktrees. They are preserved for manual inspection and cross-cycle learning:
+
+```bash
+# Winning probe: leave as-is, will be used as implementation base (step 8)
+# Losing probes: leave worktrees intact, mark branches with -failed suffix for clarity
+git branch -m "df/{spec}/probe-SPIKE_B" "df/{spec}/probe-SPIKE_B-failed"
+```
+
+Record all probe paths in `.deepflow/checkpoint.json` under `"spike_probes"` so future `--continue` runs know they exist.
+
+#### Step 7: Log failed probe insights
+
+For every probe that failed the ratchet (or lost selection), write two entries to `.deepflow/auto-memory.yaml` in the **main** tree.
+
+**Entry 1 — `spike_insights` (detailed probe record):**
+
+```yaml
+spike_insights:
+  - date: "YYYY-MM-DD"
+    spec: "{spec_name}"
+    spike_id: "SPIKE_B"
+    hypothesis: "{hypothesis text from PLAN.md}"
+    outcome: "failed"               # or "passed-but-lost"
+    failure_reason: "{first failed check and error summary}"
+    ratchet_metrics:
+      regressions: 2
+      coverage_delta: -1
+      files_changed: 7
+    worktree: ".deepflow/worktrees/{spec}/probe-SPIKE_B-failed"
+    branch: "df/{spec}/probe-SPIKE_B-failed"
+    edge_cases: []                  # orchestrator may populate after manual review
+```
+
+**Entry 2 — `probe_learnings` (cross-cycle memory, read by `/df:auto-cycle` on each cycle start):**
+
+```yaml
+probe_learnings:
+  - spike: "SPIKE_B"
+    probe: "{probe branch suffix, e.g. probe-SPIKE_B}"
+    insight: "{one-sentence summary of what the probe revealed, derived from failure_reason}"
+```
+
+If the file does not exist, create it. Initialize both `spike_insights:` and `probe_learnings:` as empty lists before appending. Preserve all existing keys when merging.
+
+#### Step 8: Promote winning probe
+
+Cherry-pick the winner's commit into the shared spec worktree so downstream implementation tasks see the winning approach:
+
+```bash
+cd ${WORKTREE_PATH}               # shared worktree (not the probe sub-worktree)
+git cherry-pick ${WINNER_COMMIT}
+```
+
+Then mark the winning spike task as `completed` and auto-unblock its dependents:
+
+```
+TaskUpdate(taskId: native_id_SPIKE_WINNER, status: "completed")
+TaskUpdate(taskId: native_id_SPIKE_LOSERS, status: "pending")  # keep visible for audit
+```
+
+Update PLAN.md:
+- Winning spike → `[x]` with commit hash and `[PROBE_WINNER]` tag
+- Losing spikes → `[~]` (skipped) with `[PROBE_FAILED: see auto-memory.yaml]` note
+
+Resume the standard execution loop (section 9) — implementation tasks blocked by the spike group are now unblocked.
+
+---
+
+### 6. PER-TASK (agent prompt)
 
 **Common preamble (include in all agent prompts):**
 ```
 Working directory: {worktree_absolute_path}
 All file operations MUST use this absolute path as base. Do NOT write files to the main project directory.
 Commit format: {commit_type}({spec}): {description}
-Result file: {worktree_absolute_path}/.deepflow/results/{task_id}.yaml
 
-STOP after writing the result file. Do NOT merge branches, rename spec files, remove worktrees, or run git checkout on main. These are handled by the orchestrator and /df:verify.
-
-Navigation: Prefer LSP tools (goToDefinition, findReferences, workspaceSymbol) over Grep/Glob for code navigation. Fall back to Grep/Glob if LSP unavailable.
-If LSP errors, install the language server (TS→typescript-language-server, Python→pyright, Rust→rust-analyzer, Go→gopls) and retry. If still unavailable, use Grep/Glob.
+STOP after committing. Do NOT merge branches, rename spec files, remove worktrees, or run git checkout on main. These are handled by the orchestrator and /df:verify.
 ```
 
 **Standard Task (append after preamble):**
@@ -341,44 +454,49 @@ Spec: {spec_name}
 
 Steps:
 1. Implement the task
-2. Detect and run the project's test command if test infrastructure exists
-   - If tests fail: fix and re-run until passing. Do NOT commit with failing tests
-   - If NO test infrastructure: set tests_ran: false in result file
-3. Commit as feat({spec}): {description}
-4. Write result file with ALL fields including test evidence (see schema)
+2. Commit as feat({spec}): {description}
+
+Your ONLY job is to write code and commit. The orchestrator will run health checks after you finish.
+```
+
+**Bootstrap Task (append after preamble):**
+```
+BOOTSTRAP: Write tests for files in edit_scope
+Files: {edit_scope files from spec}
+Spec: {spec_name}
+
+Steps:
+1. Write tests that cover the functionality of the files listed above
+2. Do NOT change implementation files — tests only
+3. Commit as test({spec}): bootstrap tests for edit_scope
+
+Your ONLY job is to write tests and commit. The orchestrator will run health checks after you finish.
 ```
 
 **Spike Task (append after preamble):**
 ```
 {task_id} [SPIKE]: {hypothesis}
-Type: spike
-Method: {minimal steps}
-Success criteria: {measurable targets}
-Experiment file: {worktree_absolute_path}/.deepflow/experiments/{topic}--{hypothesis}--active.md
+Files: {target files}
+Spec: {spec_name}
 
 Steps:
-1. Execute method
-2. For EACH criterion: record target, measure actual, compare (show math)
-3. Write experiment as --active.md (verifier determines final status)
-4. Commit: spike({spec}): validate {hypothesis}
-5. Write result to .deepflow/results/{task_id}.yaml (see spike result schema)
-6. If test infrastructure exists, also run tests and include evidence in result file
+1. Implement the minimal spike to validate the hypothesis
+2. Commit as spike({spec}): {description}
 
-Rules:
-- `met: true` ONLY if actual satisfies target
-- `status: success` ONLY if ALL criteria met
-- Worse than baseline = FAILED (baseline 7k, actual 1.5k → FAILED)
-- "Close enough" = FAILED
-- Verifier will check. False positives waste resources.
+Your ONLY job is to write code and commit. The orchestrator will run health checks to determine if the spike passes.
 ```
 
-### 8. FAILURE HANDLING
+### 7. FAILURE HANDLING
 
-When a task fails and cannot be auto-fixed:
+When a task fails ratchet and is reverted:
 
-`TaskUpdate(taskId: native_id, status: "pending")` — keeps task visible for retry; dependents remain blocked. Leave worktree intact, keep checkpoint.json, output: worktree path/branch, `cd {worktree_path}` to investigate, `/df:execute --continue` to resume, `/df:execute --fresh` to discard.
+`TaskUpdate(taskId: native_id, status: "pending")` — keeps task visible for retry; dependents remain blocked.
 
-### 9. COMPLETE SPECS
+On repeated failure: spawn `Task(subagent_type="reasoner", model={model from debugger frontmatter, default "sonnet"}, prompt="Debug failure: {ratchet output}")`.
+
+Leave worktree intact, keep checkpoint.json, output: worktree path/branch, `cd {worktree_path}` to investigate, `/df:execute --continue` to resume, `/df:execute --fresh` to discard.
+
+### 8. COMPLETE SPECS
 
 When all tasks done for a `doing-*` spec:
 1. Embed history in spec: `## Completed` section with task list and commit hashes
@@ -397,19 +515,16 @@ When all tasks done for a `doing-*` spec:
    - Separators (`---`) between removed sections
 5. Recalculate the Summary table at the top of PLAN.md (update counts for completed/pending)
 
-### 10. ITERATE (Notification-Driven)
+### 9. ITERATE (Notification-Driven)
 
 After spawning wave agents, your turn ENDS. Completion notifications drive the loop.
 
 **Per notification:**
-1. Read result file for the completed agent
-2. Validate test evidence:
-   - `tests_ran: true` + `test_exit_code: 0` → trust result
-   - `tests_ran: true` + `test_exit_code: non-zero` → status MUST be failed (flag mismatch if agent said success)
-   - `tests_ran: false` + `status: success` → flag: "⚠ Tx: success but no tests ran"
-3. TaskUpdate(taskId: native_id, status: "completed") — auto-unblocks dependent tasks
-4. Update PLAN.md: `[ ]` → `[x]` + commit hash (as before)
-5. Report: "✓ T1: success (abc123) [12 tests passed]" or "⚠ T1: success (abc123) [no tests]"
+1. Run ratchet check for the completed agent (see section 5.5)
+2. Ratchet passed → `TaskUpdate(taskId: native_id, status: "completed")` — auto-unblocks dependent tasks
+3. Ratchet failed → revert commit, `TaskUpdate(taskId: native_id, status: "pending")`
+4. Update PLAN.md: `[ ]` → `[x]` + commit hash (on pass) or note revert (on fail)
+5. Report: "✓ T1: ratchet passed (abc123)" or "✗ T1: ratchet failed, reverted"
 6. If NOT all wave agents done → end turn, wait
 7. If ALL wave agents done → use TaskList to find newly unblocked tasks, check context, spawn next wave or finish
 
@@ -421,11 +536,37 @@ After spawning wave agents, your turn ENDS. Completion notifications drive the l
 
 | Rule | Detail |
 |------|--------|
+| Zero test files → bootstrap first | Section 1.7; bootstrap is the cycle's sole task when snapshot is empty |
 | 1 task = 1 agent = 1 commit | `atomic-commits` skill |
 | 1 file = 1 writer | Sequential if conflict |
-| Agents verify internally | Fix issues, don't report |
+| Agent writes code, orchestrator measures | Ratchet is the judge |
+| No LLM evaluates LLM work | Health checks only |
+| ≥2 spikes for same problem → parallel probes | Section 5.7; never run competing spikes sequentially |
+| All probe worktrees preserved | Losing probes renamed with `-failed` suffix; never deleted |
+| Machine-selected winner | Fewer regressions > better coverage > fewer files changed; no LLM judge |
+| Failed probe insights logged | `.deepflow/auto-memory.yaml` in main tree; persists across cycles |
+| Winner cherry-picked to shared worktree | Downstream tasks see winning approach via shared worktree |
 
 ## Example
+
+### No-Tests Bootstrap
+
+```
+/df:execute (context: 8%)
+
+Loading PLAN.md... T1 ready, T2/T3 blocked by T1
+Ratchet snapshot: 0 pre-existing test files
+Bootstrap needed: no pre-existing test files found.
+
+Spawning bootstrap agent for edit_scope...
+[Bootstrap agent completed]
+  Running ratchet: build ✓ | tests ✓ (12 new tests pass)
+  ✓ Bootstrap: ratchet passed (boo1234)
+  Re-taking ratchet snapshot: 3 test files
+
+bootstrap: completed — cycle's sole task was test bootstrap
+Next: Run /df:auto-cycle again to execute T1
+```
 
 ### Standard Execution
 
@@ -433,56 +574,47 @@ After spawning wave agents, your turn ENDS. Completion notifications drive the l
 /df:execute (context: 12%)
 
 Loading PLAN.md... T1 ready, T2/T3 blocked by T1
+Ratchet snapshot: 24 pre-existing test files
 Registering native tasks: TaskCreate T1/T2/T3, TaskUpdate(T2 blockedBy T1), TaskUpdate(T3 blockedBy T1)
 
 Wave 1: TaskUpdate(T1, in_progress)
-[Agent "T1" completed] TaskUpdate(T1, completed) → auto-unblocks T2, T3
-✓ T1: success (abc1234)
+[Agent "T1" completed]
+  Running ratchet: build ✓ | tests ✓ (24 passed) | typecheck ✓
+  ✓ T1: ratchet passed (abc1234)
+  TaskUpdate(T1, completed) → auto-unblocks T2, T3
 
 Wave 2: TaskUpdate(T2/T3, in_progress)
-[Agent "T2" completed] ✓ T2: success (def5678)
-[Agent "T3" completed] ✓ T3: success (ghi9012)
+[Agent "T2" completed]
+  Running ratchet: build ✓ | tests ✓ (24 passed) | typecheck ✓
+  ✓ T2: ratchet passed (def5678)
+[Agent "T3" completed]
+  Running ratchet: build ✓ | tests ✓ (24 passed) | typecheck ✓
+  ✓ T3: ratchet passed (ghi9012)
+
 Context: 35% — ✓ doing-upload → done-upload. Complete: 3/3
 
 Next: Run /df:verify to verify specs and merge to main
 ```
 
-### Spike with Failure (Agent or Verifier Override)
+### Ratchet Failure (Regression Detected)
 
 ```
 /df:execute (context: 10%)
 
-Loading PLAN.md...
-Registering native tasks...
-  TaskCreate → T1 [SPIKE] (native: task-001)
-  TaskCreate → T2 (native: task-002)
-  TaskCreate → T3 (native: task-003)
-  TaskUpdate(task-002, addBlockedBy: [task-001])
-  TaskUpdate(task-003, addBlockedBy: [task-001])
+Wave 1: TaskUpdate(T1, in_progress)
+[Agent "T1" completed]
+  Running ratchet: build ✓ | tests ✗ (2 failed of 24)
+  ✗ T1: ratchet failed, reverted
+  TaskUpdate(T1, pending)
 
-Checking experiment status...
-  T1 [SPIKE]: No experiment yet, spike executable
-  T2, T3: Blocked by T1 (spike not validated)
+Spawning debugger for T1...
+[Debugger completed]
+  Re-running T1 with fix guidance...
 
-Spawning Wave 1: T1 [SPIKE]
-  TaskUpdate(task-001, status: "in_progress")
-
-[Agent "T1 SPIKE" completed]
-✓ T1: complete (agent said: success), verifying...
-
-Verifying T1...
-  ✗ Spike T1 failed verification (throughput 1500 < 7000)
-  ⚠ Agent incorrectly marked as passed — overriding to FAILED
-  # Spike stays pending — dependents remain blocked
-  → upload--streaming--failed.md
-
-⚠ Spike T1 invalidated hypothesis
-Complete: 1/3 tasks (2 blocked by failed experiment)
-
-Next: Run /df:plan to generate new hypothesis spike
+[Agent "T1 retry" completed]
+  Running ratchet: build ✓ | tests ✓ (24 passed) | typecheck ✓
+  ✓ T1: ratchet passed (abc1234)
 ```
-
-Note: If the agent correctly reports `status: failed`, the "overriding to FAILED" line is omitted — the verifier simply confirms failure.
 
 ### With Checkpoint
 

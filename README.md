@@ -109,8 +109,6 @@ $ cat .deepflow/auto-report.md
 $ git log --oneline
 ```
 
-**Requires:** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your environment (agent teams is an experimental Claude Code feature).
-
 **Safety:** Never pushes to remote. Failed approaches recorded in `.deepflow/experiments/` and never repeated. Specs validated before processing (malformed specs are skipped).
 
 ### The Boundary
@@ -120,9 +118,8 @@ $ git log --oneline
  ─────────────────────────────────  ──────────────────────────────────
  Define the problem                 Generate hypotheses
  Write/approve the spec             Spike, implement, compare
- Set constraints & acceptance       Self-judge via adversarial selection
- criteria                           Verify against YOUR criteria
-                                    Merge or retry
+ Set constraints & acceptance       Self-judge, verify against YOUR criteria
+ criteria                           Merge or retry
  Read morning report
  ─────────────────────────────────  ──────────────────────────────────
          specs/*.md is the handoff point
@@ -262,7 +259,7 @@ Statusline shows context usage. At >=50%:
 | `/df:consolidate` | Deduplicate and clean up decisions.md |
 | `/df:resume` | Session continuity briefing |
 | `/df:update` | Update deepflow to latest |
-| `/df:auto` | Autonomous execution via agent teams (no human needed) |
+| `/df:auto` | Autonomous execution via /loop (no human needed) |
 
 ## File Structure
 

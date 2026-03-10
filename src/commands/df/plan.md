@@ -125,6 +125,51 @@ Check spec health: verify REQ-AC alignment, requirement clarity, and completenes
 
 **Blocking Logic:** All implementation tasks MUST have `Blocked by: T{spike}` until spike passes. If spike fails: update to `--failed.md`, DO NOT generate implementation tasks.
 
+#### Probe Diversity
+
+When generating multiple spike probes for the same problem, diversity is required to avoid confirmation bias and enable discovery of unexpected solutions.
+
+| Requirement | Rule |
+|-------------|------|
+| Contradictory | At least 2 probes must use opposing/contradictory approaches (e.g., streaming vs buffering, in-process vs external) |
+| Naive | At least 1 probe must be a naive/simple approach without prior technical justification — enables exaptation (discovering unexpected solutions) |
+| Parallel | All probes for the same problem run simultaneously, not sequentially |
+| Scoped | Each probe is minimal — just enough to validate the hypothesis |
+| Safe to fail | Each probe runs in its own worktree; failure has zero impact on main |
+
+**Diversity validation step** — before outputting spike tasks, verify:
+1. Are there at least 2 probes with opposing assumptions? If not, add a contradictory probe.
+2. Is there at least 1 naive probe with no prior technical justification? If not, add one.
+3. Are all probes independent (no probe depends on another probe's result)?
+
+**Example — 3 diverse probes for a caching problem:**
+
+```markdown
+- [ ] **T1** [SPIKE]: Validate in-memory LRU cache
+  - Type: spike
+  - Role: Contradictory-A (in-process)
+  - Hypothesis: In-memory LRU cache reduces DB queries by ≥80%
+  - Method: Implement LRU with 1000-item cap, run load test
+  - Success criteria: DB query count drops ≥80% under 100 concurrent users
+  - Blocked by: none
+
+- [ ] **T2** [SPIKE]: Validate Redis distributed cache
+  - Type: spike
+  - Role: Contradictory-B (external, opposing T1)
+  - Hypothesis: Redis cache scales across multiple instances
+  - Method: Add Redis client, cache top 10 queries, same load test
+  - Success criteria: DB queries drop ≥80%, works across 2 app instances
+  - Blocked by: none
+
+- [ ] **T3** [SPIKE]: Validate query optimization without cache (naive)
+  - Type: spike
+  - Role: Naive (no prior justification — tests if caching is even necessary)
+  - Hypothesis: Indexes + query batching alone may be sufficient
+  - Method: Add missing indexes, batch N+1 queries, same load test — no cache
+  - Success criteria: DB queries drop ≥80% with zero cache infrastructure
+  - Blocked by: none
+```
+
 ### 7. VALIDATE HYPOTHESES
 
 For unfamiliar APIs, ambiguous approaches, or performance-critical work: prototype in scratchpad (not committed). If assumption fails, write `.deepflow/experiments/{topic}--{hypothesis}--failed.md`. Skip for well-known patterns/simple CRUD.
