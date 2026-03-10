@@ -176,6 +176,8 @@ This activates the UI spinner showing the task's activeForm (e.g. "Creating uplo
 
 **Spawn ALL ready tasks in ONE message** with multiple Task tool calls (true parallelism). Same-file conflicts: spawn sequentially.
 
+**Multiple [SPIKE] tasks for the same problem:** When PLAN.md contains two or more `[SPIKE]` tasks grouped by the same "Blocked by:" target or identical problem description, do NOT run them sequentially. Instead, follow the **Parallel Spike Probes** protocol in section 5.7 before spawning any implementation tasks that depend on the spike outcome.
+
 ### 5.5. RATCHET CHECK
 
 After each agent completes (notification received), the orchestrator runs health checks on the worktree.
@@ -226,6 +228,153 @@ done
 **Ratchet uses ONLY pre-existing test files** (from `.deepflow/auto-snapshot.txt`). If the agent added new test files that fail, those are excluded from evaluation — the agent's new tests don't influence the ratchet decision.
 
 **For spike tasks:** Same ratchet. If the spike's code passes pre-existing health checks, the spike passes. No LLM judges another LLM's work.
+
+### 5.7. PARALLEL SPIKE PROBES
+
+When two or more `[SPIKE]` tasks address the **same problem** (same "Blocked by:" target OR identical or near-identical hypothesis wording), treat them as a probe set and run this protocol instead of the standard single-agent flow.
+
+#### Detection
+
+```
+Spike group = all [SPIKE] tasks where:
+  - same "Blocked by:" value, OR
+  - problem description is identical after stripping task ID prefix
+If group size ≥ 2 → enter parallel probe mode
+```
+
+#### Step 1: Record baseline commit
+
+```bash
+cd ${WORKTREE_PATH}
+BASELINE=$(git rev-parse HEAD)
+echo "Probe baseline: ${BASELINE}"
+```
+
+All probes branch from this exact commit so they share the same ratchet baseline.
+
+#### Step 2: Create isolated sub-worktrees
+
+For each spike `{SPIKE_ID}` in the probe group:
+
+```bash
+PROBE_BRANCH="df/${SPEC_NAME}/probe-${SPIKE_ID}"
+PROBE_PATH=".deepflow/worktrees/${SPEC_NAME}/probe-${SPIKE_ID}"
+
+git worktree add -b "${PROBE_BRANCH}" "${PROBE_PATH}" "${BASELINE}"
+echo "Created probe worktree: ${PROBE_PATH} (branch: ${PROBE_BRANCH})"
+```
+
+#### Step 3: Spawn all probes in parallel
+
+Mark every spike task as `in_progress`, then spawn one agent per probe **in a single message** using the Spike Task prompt (section 6), with the probe's worktree path as its working directory.
+
+```
+TaskUpdate(taskId: native_id_SPIKE_A, status: "in_progress")
+TaskUpdate(taskId: native_id_SPIKE_B, status: "in_progress")
+[spawn agent for SPIKE_A → PROBE_PATH_A]
+[spawn agent for SPIKE_B → PROBE_PATH_B]
+... (all in ONE message)
+```
+
+End your turn. Do NOT poll or monitor. Wait for completion notifications.
+
+#### Step 4: Ratchet each probe (on completion notifications)
+
+When a probe agent's notification arrives, run the standard ratchet (section 5.5) against its dedicated probe worktree:
+
+```bash
+cd ${PROBE_PATH}
+
+# Identical health-check commands as standard tasks
+# Build → Test → Typecheck → Lint (stop on first failure)
+```
+
+Record per-probe metrics:
+
+```yaml
+probe_id: SPIKE_A
+worktree: .deepflow/worktrees/{spec}/probe-SPIKE_A
+branch: df/{spec}/probe-SPIKE_A
+ratchet_passed: true/false
+regressions: 0          # failing pre-existing tests
+coverage_delta: +3      # new lines covered (positive = better)
+files_changed: 4        # number of files touched
+commit: abc1234
+```
+
+Wait until **all** probe notifications have arrived before proceeding to selection.
+
+#### Step 5: Machine-select winner
+
+No LLM evaluates another LLM's work. Apply the following ordered criteria to all probes that **passed** the ratchet:
+
+```
+1. Fewer regressions  (lower is better — hard gate: any regression disqualifies)
+2. Better coverage    (higher delta is better)
+3. Fewer files changed (lower is better — smaller blast radius)
+
+Tie-break: first probe to complete (chronological)
+```
+
+If **no** probe passes the ratchet, all are failed probes. Log insights (step 7) and reset the spike tasks to `pending` for retry with debugger guidance.
+
+#### Step 6: Preserve ALL probe worktrees
+
+Do NOT delete losing probe worktrees. They are preserved for manual inspection and cross-cycle learning:
+
+```bash
+# Winning probe: leave as-is, will be used as implementation base (step 8)
+# Losing probes: leave worktrees intact, mark branches with -failed suffix for clarity
+git branch -m "df/{spec}/probe-SPIKE_B" "df/{spec}/probe-SPIKE_B-failed"
+```
+
+Record all probe paths in `.deepflow/checkpoint.json` under `"spike_probes"` so future `--continue` runs know they exist.
+
+#### Step 7: Log failed probe insights
+
+For every probe that failed the ratchet (or lost selection), append to `.deepflow/auto-memory.yaml` in the **main** tree:
+
+```yaml
+- date: "YYYY-MM-DD"
+  spec: "{spec_name}"
+  spike_id: "SPIKE_B"
+  hypothesis: "{hypothesis text from PLAN.md}"
+  outcome: "failed"               # or "passed-but-lost"
+  failure_reason: "{first failed check and error summary}"
+  ratchet_metrics:
+    regressions: 2
+    coverage_delta: -1
+    files_changed: 7
+  worktree: ".deepflow/worktrees/{spec}/probe-SPIKE_B-failed"
+  branch: "df/{spec}/probe-SPIKE_B-failed"
+  edge_cases: []                  # orchestrator may populate after manual review
+```
+
+If the file does not exist, create it with a top-level `spike_insights:` key.
+
+#### Step 8: Promote winning probe
+
+Cherry-pick the winner's commit into the shared spec worktree so downstream implementation tasks see the winning approach:
+
+```bash
+cd ${WORKTREE_PATH}               # shared worktree (not the probe sub-worktree)
+git cherry-pick ${WINNER_COMMIT}
+```
+
+Then mark the winning spike task as `completed` and auto-unblock its dependents:
+
+```
+TaskUpdate(taskId: native_id_SPIKE_WINNER, status: "completed")
+TaskUpdate(taskId: native_id_SPIKE_LOSERS, status: "pending")  # keep visible for audit
+```
+
+Update PLAN.md:
+- Winning spike → `[x]` with commit hash and `[PROBE_WINNER]` tag
+- Losing spikes → `[~]` (skipped) with `[PROBE_FAILED: see auto-memory.yaml]` note
+
+Resume the standard execution loop (section 9) — implementation tasks blocked by the spike group are now unblocked.
+
+---
 
 ### 6. PER-TASK (agent prompt)
 
@@ -318,6 +467,11 @@ After spawning wave agents, your turn ENDS. Completion notifications drive the l
 | 1 file = 1 writer | Sequential if conflict |
 | Agent writes code, orchestrator measures | Ratchet is the judge |
 | No LLM evaluates LLM work | Health checks only |
+| ≥2 spikes for same problem → parallel probes | Section 5.7; never run competing spikes sequentially |
+| All probe worktrees preserved | Losing probes renamed with `-failed` suffix; never deleted |
+| Machine-selected winner | Fewer regressions > better coverage > fewer files changed; no LLM judge |
+| Failed probe insights logged | `.deepflow/auto-memory.yaml` in main tree; persists across cycles |
+| Winner cherry-picked to shared worktree | Downstream tasks see winning approach via shared worktree |
 
 ## Example
 
