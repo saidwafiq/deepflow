@@ -150,9 +150,6 @@ async function main() {
     }
   }
 
-  // deepflow-auto.sh has been archived; auto mode now uses Agent Teams
-  // via `claude --agent .claude/agents/deepflow-auto.md`
-
   // Get version from package.json (single source of truth)
   const packageJson = require(path.join(PACKAGE_DIR, 'package.json'));
   const installedVersion = packageJson.version;
@@ -188,7 +185,7 @@ async function main() {
   console.log(`Installed to ${c.cyan}${CLAUDE_DIR}${c.reset}:`);
   console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:auto, /df:note, /df:resume, /df:update');
   console.log('  skills/          — gap-discovery, atomic-commits, code-completeness');
-  console.log('  agents/          — reasoner, deepflow-auto (/df:auto — autonomous execution)');
+  console.log('  agents/          — reasoner (/df:auto — autonomous execution via /loop)');
   if (level === 'global') {
     console.log('  hooks/           — statusline, update checker');
   }
@@ -403,8 +400,7 @@ async function uninstall() {
     'skills/atomic-commits',
     'skills/code-completeness',
     'skills/gap-discovery',
-    'agents/reasoner.md',
-    'agents/deepflow-auto.md'
+    'agents/reasoner.md'
   ];
 
   if (level === 'global') {
