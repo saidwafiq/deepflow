@@ -22,6 +22,24 @@ Load: PLAN.md (required)
 Load: .deepflow/auto-memory.yaml (optional — cross-cycle state, ignore if missing)
 ```
 
+**auto-memory.yaml full schema:**
+
+```yaml
+task_results:
+  T1: { status: success, commit: abc1234, cycle: 3 }
+  T2: { status: reverted, reason: "tests failed: 2 of 24", cycle: 4 }
+revert_history:
+  - { task: T2, cycle: 4, reason: "tests failed" }
+  - { task: T2, cycle: 5, reason: "build error" }
+consecutive_reverts:   # written by circuit breaker (step 3.5)
+  T1: 0
+  T2: 2
+probe_learnings:
+  - { spike: T1, probe: "streaming", insight: "discovered hidden dependency on fs.watch" }
+```
+
+Each section is optional. Missing keys are treated as empty. The file is created on first write if absent.
+
 ### 2. PICK NEXT TASK
 
 Scan PLAN.md for the first `[ ]` task where all "Blocked by:" dependencies are `[x]`:
@@ -63,7 +81,33 @@ This handles worktree creation, agent spawning, ratchet health checks, and commi
 - Exit normally — the NEXT cycle will pick up the first regular task (now protected by the bootstrapped tests)
 - Do NOT attempt to execute a regular task in the same cycle as a bootstrap
 
-### 3.5. CIRCUIT BREAKER
+### 3.5. WRITE STATE
+
+After `/df:execute` returns, record the task result in `.deepflow/auto-memory.yaml`:
+
+**On success (ratchet passed):**
+
+```yaml
+# Set task_results[task_id] = success entry
+task_results:
+  {task_id}: { status: success, commit: {short_hash}, cycle: {cycle_number} }
+```
+
+**On revert (ratchet failed):**
+
+```yaml
+# Set task_results[task_id] = reverted entry
+task_results:
+  {task_id}: { status: reverted, reason: "{ratchet failure summary}", cycle: {cycle_number} }
+
+# Append to revert_history
+revert_history:
+  - { task: {task_id}, cycle: {cycle_number}, reason: "{ratchet failure summary}" }
+```
+
+Read the current file first (create if missing), merge the new values, and write back. Preserve all existing keys.
+
+### 3.6. CIRCUIT BREAKER
 
 After `/df:execute` returns, check whether the task was reverted (ratchet failed):
 
@@ -152,7 +196,8 @@ pending_count = number of [ ] tasks
 | Idempotent | Safe to call with no work remaining — just reports "0 tasks remaining" |
 | Never modifies PLAN.md directly | `/df:execute` handles PLAN.md updates and commits |
 | Zero coordination overhead | Read plan → pick task → execute → update report → exit |
-| Auto-memory updated for circuit breaker | `consecutive_reverts` counters in `.deepflow/auto-memory.yaml` are written by this command after each EXECUTE result |
+| Auto-memory updated after every cycle | `task_results`, `revert_history`, and `consecutive_reverts` in `.deepflow/auto-memory.yaml` are written after each EXECUTE result |
+| Cross-cycle state read at cycle start | LOAD STATE reads the full `auto-memory.yaml` schema; prior task outcomes and probe learnings are available to the cycle |
 | Circuit breaker halts the loop | After N consecutive reverts on the same task (default 3, configurable via `circuit_breaker_threshold` in `.deepflow/config.yaml`), the loop is stopped and the reason is reported |
 
 ## Example

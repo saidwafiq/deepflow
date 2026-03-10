@@ -379,25 +379,37 @@ Record all probe paths in `.deepflow/checkpoint.json` under `"spike_probes"` so 
 
 #### Step 7: Log failed probe insights
 
-For every probe that failed the ratchet (or lost selection), append to `.deepflow/auto-memory.yaml` in the **main** tree:
+For every probe that failed the ratchet (or lost selection), write two entries to `.deepflow/auto-memory.yaml` in the **main** tree.
+
+**Entry 1 — `spike_insights` (detailed probe record):**
 
 ```yaml
-- date: "YYYY-MM-DD"
-  spec: "{spec_name}"
-  spike_id: "SPIKE_B"
-  hypothesis: "{hypothesis text from PLAN.md}"
-  outcome: "failed"               # or "passed-but-lost"
-  failure_reason: "{first failed check and error summary}"
-  ratchet_metrics:
-    regressions: 2
-    coverage_delta: -1
-    files_changed: 7
-  worktree: ".deepflow/worktrees/{spec}/probe-SPIKE_B-failed"
-  branch: "df/{spec}/probe-SPIKE_B-failed"
-  edge_cases: []                  # orchestrator may populate after manual review
+spike_insights:
+  - date: "YYYY-MM-DD"
+    spec: "{spec_name}"
+    spike_id: "SPIKE_B"
+    hypothesis: "{hypothesis text from PLAN.md}"
+    outcome: "failed"               # or "passed-but-lost"
+    failure_reason: "{first failed check and error summary}"
+    ratchet_metrics:
+      regressions: 2
+      coverage_delta: -1
+      files_changed: 7
+    worktree: ".deepflow/worktrees/{spec}/probe-SPIKE_B-failed"
+    branch: "df/{spec}/probe-SPIKE_B-failed"
+    edge_cases: []                  # orchestrator may populate after manual review
 ```
 
-If the file does not exist, create it with a top-level `spike_insights:` key.
+**Entry 2 — `probe_learnings` (cross-cycle memory, read by `/df:auto-cycle` on each cycle start):**
+
+```yaml
+probe_learnings:
+  - spike: "SPIKE_B"
+    probe: "{probe branch suffix, e.g. probe-SPIKE_B}"
+    insight: "{one-sentence summary of what the probe revealed, derived from failure_reason}"
+```
+
+If the file does not exist, create it. Initialize both `spike_insights:` and `probe_learnings:` as empty lists before appending. Preserve all existing keys when merging.
 
 #### Step 8: Promote winning probe
 
