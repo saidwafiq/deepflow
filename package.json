@@ -1,6 +1,6 @@
 {
   "name": "deepflow",
-  "version": "0.1.71",
+  "version": "0.1.72",
   "description": "Stay in flow state - lightweight spec-driven task orchestration for Claude Code",
   "keywords": [
     "claude",
