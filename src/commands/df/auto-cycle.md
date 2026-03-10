@@ -148,24 +148,108 @@ circuit_breaker_threshold: 3   # halt after this many consecutive reverts on the
 
 ### 4. UPDATE REPORT
 
-Append the cycle result to `.deepflow/auto-report.md`.
+Write a comprehensive report to `.deepflow/auto-report.md` after every cycle. The file is appended each cycle — never overwritten. Each cycle adds its row to the per-cycle log table and updates the running summary counts.
 
-**Create file if missing** with header:
+#### 4.1 File structure
+
+The report uses four sections. On the **first cycle** (file does not exist), create the full skeleton. On **subsequent cycles**, update the existing file in-place:
+
 ```markdown
-# Auto Mode Report
+# Auto Mode Report — {spec_name}
 
-| Cycle | Task | Status | Commit / Note | Timestamp |
-|-------|------|--------|---------------|-----------|
+_Last updated: {YYYY-MM-DDTHH:MM:SSZ}_
+
+## Summary
+
+| Metric | Value |
+|--------|-------|
+| Total cycles run | {N} |
+| Tasks committed | {N} |
+| Tasks reverted | {N} |
+
+## Cycle Log
+
+| Cycle | Task | Status | Commit / Revert | Reason | Timestamp |
+|-------|------|--------|-----------------|--------|-----------|
+| 1 | T1 | passed | abc1234 | — | 2025-01-15T10:00:00Z |
+| 2 | T2 | failed | reverted | tests failed: 2 of 24 | 2025-01-15T10:05:00Z |
+
+## Probe Results
+
+_(empty until a probe/spike task runs)_
+
+| Probe | Metric | Winner | Loser | Notes |
+|-------|--------|--------|-------|-------|
+
+## Health Score
+
+| Check | Status |
+|-------|--------|
+| Tests passed | {N} / {total} |
+| Build status | passing / failing |
+| Ratchet | green / red |
+
+## Reverted Tasks
+
+_(tasks that were reverted with their failure reasons)_
+
+| Task | Cycle | Reason |
+|------|-------|--------|
 ```
 
-**Append row:**
+#### 4.2 Per-cycle update rules
+
+**Cycle Log — append one row:**
+
 ```
-| {cycle_number} | {task_id} | {passed|failed|skipped} | {commit_hash or revert note} | {YYYY-MM-DDTHH:MM:SSZ} |
+| {cycle_number} | {task_id} | {status} | {commit_hash or "reverted"} | {reason or "—"} | {YYYY-MM-DDTHH:MM:SSZ} |
 ```
 
-- `cycle_number`: count of existing rows + 1
+- `cycle_number`: total number of cycles executed so far (count existing data rows in the Cycle Log + 1)
+- `task_id`: task ID from PLAN.md, or `BOOTSTRAP` for bootstrap cycles
 - `status`: `passed` (ratchet passed), `failed` (ratchet failed, reverted), or `skipped` (task was already done)
 - `commit_hash`: short hash from the commit, or `reverted` if ratchet failed
+- `reason`: failure reason from ratchet output (e.g., `"tests failed: 2 of 24"`), or `—` if passed
+
+**Summary table — recalculate from Cycle Log rows:**
+
+- `Total cycles run`: count of all data rows in the Cycle Log
+- `Tasks committed`: count of rows where Status = `passed`
+- `Tasks reverted`: count of rows where Status = `failed`
+
+**Last updated timestamp:** always overwrite the `_Last updated:` line with the current timestamp.
+
+#### 4.3 Probe results (when applicable)
+
+If the executed task was a probe/spike (task description contains "probe" or "spike"), append a row to the Probe Results table:
+
+```
+| {probe_name} | {metric description} | {winner approach} | {loser approach} | {key insight from probe_learnings in auto-memory.yaml} |
+```
+
+Read `probe_learnings` from `.deepflow/auto-memory.yaml` for the insight text.
+
+If no probe has run yet, leave the `_(empty until a probe/spike task runs)_` placeholder in place.
+
+#### 4.4 Health score (after every cycle)
+
+Read the ratchet output from the last `/df:execute` result and populate:
+
+- `Tests passed`: e.g., `22 / 24` (from ratchet summary line)
+- `Build status`: `passing` if exit code 0, `failing` if build error
+- `Ratchet`: `green` if ratchet passed, `red` if ratchet failed
+
+Replace the entire Health Score section content with the latest values each cycle.
+
+#### 4.5 Reverted tasks section
+
+After every revert, append a row to the Reverted Tasks table:
+
+```
+| {task_id} | {cycle_number} | {failure reason} |
+```
+
+Read from `revert_history` in `.deepflow/auto-memory.yaml` to ensure no entry is missed. If no tasks have been reverted, leave the `_(tasks that were reverted...)_` placeholder in place.
 
 ### 5. CHECK COMPLETION
 
@@ -216,7 +300,10 @@ Running: /df:execute T1
   ✓ Bootstrap: ratchet passed (boo1234)
   bootstrap: completed
 
-Updated .deepflow/auto-report.md: cycle 1 | BOOTSTRAP | passed | boo1234
+Updated .deepflow/auto-report.md:
+  Summary: cycles=1, committed=1, reverted=0
+  Cycle Log row: | 1 | BOOTSTRAP | passed | boo1234 | — | 2025-01-15T10:00:00Z |
+  Health: tests 10/10, build passing, ratchet green
 
 Cycle complete. 3 tasks remaining.
 ```
@@ -232,7 +319,10 @@ Next ready task: T2 (T1 dependency satisfied)
 Running: /df:execute T2
   ✓ T2: ratchet passed (abc1234)
 
-Updated .deepflow/auto-report.md: cycle 2 | T2 | passed | abc1234
+Updated .deepflow/auto-report.md:
+  Summary: cycles=2, committed=2, reverted=0
+  Cycle Log row: | 2 | T2 | passed | abc1234 | — | 2025-01-15T10:05:00Z |
+  Health: tests 22/22, build passing, ratchet green
 
 Cycle complete. 1 tasks remaining.
 ```
