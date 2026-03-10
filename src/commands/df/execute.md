@@ -197,8 +197,30 @@ cd ${WORKTREE_PATH}
 # Build → Test → Typecheck → Lint (stop on first failure)
 ```
 
-**Step 3: Evaluate**:
-- All checks pass → task succeeds, commit stands
+**Step 3: Validate edit scope** (if spec declares `edit_scope`):
+```bash
+# Get files changed by the agent
+CHANGED=$(git diff HEAD~1 --name-only)
+
+# Load edit_scope from spec (files/globs)
+EDIT_SCOPE=$(grep 'edit_scope:' specs/doing-*.md | sed 's/edit_scope://' | tr ',' '\n' | xargs)
+
+# Check each changed file against allowed scope
+for file in ${CHANGED}; do
+  ALLOWED=false
+  for pattern in ${EDIT_SCOPE}; do
+    # Match file against glob pattern
+    [[ "${file}" == ${pattern} ]] && ALLOWED=true
+  done
+  ${ALLOWED} || VIOLATIONS+=("${file}")
+done
+```
+
+- Violations found → revert: `git revert HEAD --no-edit`, report "✗ Edit scope violation: {files}"
+- No violations → continue to health checks
+
+**Step 4: Evaluate**:
+- All checks pass AND no scope violations → task succeeds, commit stands
 - Any check fails → regression detected → revert: `git revert HEAD --no-edit`
 
 **Ratchet uses ONLY pre-existing test files** (from `.deepflow/auto-snapshot.txt`). If the agent added new test files that fail, those are excluded from evaluation — the agent's new tests don't influence the ratchet decision.
