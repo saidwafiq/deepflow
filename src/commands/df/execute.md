@@ -26,10 +26,13 @@ Implement tasks from PLAN.md with parallel agents, atomic commits, ratchet-drive
 - Skill: `atomic-commits` — Clean commit protocol
 
 **Use Task tool to spawn agents:**
-| Agent | subagent_type | model | Purpose |
-|-------|---------------|-------|---------|
-| Implementation | `general-purpose` | `sonnet` | Task implementation |
-| Debugger | `reasoner` | `opus` | Debugging failures |
+| Agent | subagent_type | Purpose |
+|-------|---------------|---------|
+| Implementation | `general-purpose` | Task implementation |
+| Debugger | `reasoner` | Debugging failures |
+
+**Model routing from frontmatter:**
+The model for each agent is determined by the `model:` field in the command/agent/skill frontmatter being invoked. The orchestrator reads the relevant frontmatter to determine which model to pass to `Task()`. If no `model:` field is present in the frontmatter, default to `sonnet`.
 
 ## Context-Aware Execution
 
@@ -419,7 +422,7 @@ When a task fails ratchet and is reverted:
 
 `TaskUpdate(taskId: native_id, status: "pending")` — keeps task visible for retry; dependents remain blocked.
 
-On repeated failure: spawn `Task(subagent_type="reasoner", model="opus", prompt="Debug failure: {ratchet output}")`.
+On repeated failure: spawn `Task(subagent_type="reasoner", model={model from debugger frontmatter, default "sonnet"}, prompt="Debug failure: {ratchet output}")`.
 
 Leave worktree intact, keep checkpoint.json, output: worktree path/branch, `cd {worktree_path}` to investigate, `/df:execute --continue` to resume, `/df:execute --fresh` to discard.
 
