@@ -80,12 +80,42 @@ done
 
 **L2: Coverage** (coverage tool)
 
-Coverage detection — if no coverage tool detected → L2 passes with warning: "⚠ L2: No coverage tool detected, skipping coverage check"
+**Step 1: Detect coverage tool** (first match wins):
 
-When coverage tool is available:
-1. Run coverage on pre-existing test files (baseline)
-2. Run coverage on all test files (after changes)
-3. Compare: coverage dropped → L2 FAIL. Coverage same or improved → L2 pass.
+| File/Config | Coverage Tool | Command |
+|-------------|--------------|---------|
+| `package.json` with `c8` in devDeps | c8 (Node) | `npx c8 --reporter=json-summary npm test` |
+| `package.json` with `nyc` in devDeps | nyc (Node) | `npx nyc --reporter=json-summary npm test` |
+| `.nycrc` or `.nycrc.json` exists | nyc (Node) | `npx nyc --reporter=json-summary npm test` |
+| `pyproject.toml` or `setup.cfg` with coverage config | coverage.py | `python -m coverage run -m pytest && python -m coverage json` |
+| `Cargo.toml` + `cargo-tarpaulin` installed | tarpaulin (Rust) | `cargo tarpaulin --out json` |
+| `go.mod` | go cover (Go) | `go test -coverprofile=coverage.out ./...` |
+
+**Step 2: No tool detected** → L2 passes with warning: "⚠ L2: No coverage tool detected, skipping coverage check"
+
+**Step 3: Run coverage comparison** (when tool available):
+```bash
+# Baseline: coverage on main branch (or from ratchet snapshot)
+cd ${WORKTREE_PATH}
+git stash  # Temporarily remove changes
+${COVERAGE_COMMAND}
+BASELINE=$(parse_coverage_percentage)  # Extract total line coverage %
+git stash pop
+
+# Current: coverage with changes applied
+${COVERAGE_COMMAND}
+CURRENT=$(parse_coverage_percentage)
+
+# Compare
+if [ "${CURRENT}" -lt "${BASELINE}" ]; then
+  echo "✗ L2: Coverage dropped ${BASELINE}% → ${CURRENT}%"
+else
+  echo "✓ L2: Coverage ${CURRENT}% (baseline: ${BASELINE}%)"
+fi
+```
+
+- Coverage same or improved → L2 pass
+- Coverage dropped → L2 FAIL: report "✗ L2: Coverage dropped {baseline}% → {current}%", add fix task
 
 **L3: Integration** (subsumed by L0 + L4)
 
