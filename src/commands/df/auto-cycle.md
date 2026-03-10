@@ -63,6 +63,45 @@ This handles worktree creation, agent spawning, ratchet health checks, and commi
 - Exit normally — the NEXT cycle will pick up the first regular task (now protected by the bootstrapped tests)
 - Do NOT attempt to execute a regular task in the same cycle as a bootstrap
 
+### 3.5. CIRCUIT BREAKER
+
+After `/df:execute` returns, check whether the task was reverted (ratchet failed):
+
+**On revert (ratchet failed):**
+
+```
+1. Read .deepflow/auto-memory.yaml (create if missing)
+2. Increment consecutive_reverts[task_id] by 1
+3. Write updated value back to .deepflow/auto-memory.yaml
+4. Read circuit_breaker_threshold from .deepflow/config.yaml (default: 3 if key absent)
+5. If consecutive_reverts[task_id] >= threshold:
+     → Do NOT start /loop again
+     → Report: "Circuit breaker tripped: T{n} failed {N} consecutive times. Reason: {last ratchet failure}"
+     → Halt (exit without scheduling next cycle)
+   Else:
+     → Continue to step 4 (UPDATE REPORT) as normal
+```
+
+**On success (ratchet passed):**
+
+```
+1. Reset consecutive_reverts[task_id] to 0 in .deepflow/auto-memory.yaml
+```
+
+**auto-memory.yaml schema for the circuit breaker:**
+
+```yaml
+consecutive_reverts:
+  T1: 0
+  T3: 2
+```
+
+**config.yaml key:**
+
+```yaml
+circuit_breaker_threshold: 3   # halt after this many consecutive reverts on the same task
+```
+
 ### 4. UPDATE REPORT
 
 Append the cycle result to `.deepflow/auto-report.md`.
@@ -113,7 +152,8 @@ pending_count = number of [ ] tasks
 | Idempotent | Safe to call with no work remaining — just reports "0 tasks remaining" |
 | Never modifies PLAN.md directly | `/df:execute` handles PLAN.md updates and commits |
 | Zero coordination overhead | Read plan → pick task → execute → update report → exit |
-| Auto-memory is read-only here | Cross-cycle state is written by `/df:execute` agents, not this command |
+| Auto-memory updated for circuit breaker | `consecutive_reverts` counters in `.deepflow/auto-memory.yaml` are written by this command after each EXECUTE result |
+| Circuit breaker halts the loop | After N consecutive reverts on the same task (default 3, configurable via `circuit_breaker_threshold` in `.deepflow/config.yaml`), the loop is stopped and the reason is reported |
 
 ## Example
 
@@ -174,6 +214,24 @@ Loading PLAN.md... 3 tasks total, 3 done, 0 pending
 Verification already complete (no doing-* specs found).
 
 Nothing to do. Cycle complete. 0 tasks remaining.
+```
+
+### Circuit Breaker Tripped
+
+```
+/df:auto-cycle
+
+Loading PLAN.md... 3 tasks total, 1 done, 2 pending
+Next ready task: T3 (no blockers)
+
+Running: /df:execute T3
+  ✗ T3: ratchet failed — "2 tests regressed"
+  Reverted changes.
+
+Circuit breaker: consecutive_reverts[T3] = 3 (threshold: 3)
+Circuit breaker tripped: T3 failed 3 consecutive times. Reason: 2 tests regressed
+
+Loop halted. Resolve T3 manually, then run /df:auto-cycle to resume.
 ```
 
 ### All Tasks Blocked
