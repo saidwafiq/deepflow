@@ -140,6 +140,50 @@ echo "Ratchet snapshot: $(wc -l < .deepflow/auto-snapshot.txt) pre-existing test
 
 **Only pre-existing test files are used for ratchet evaluation.** New test files created by agents during implementation don't influence the pass/fail decision. This prevents agents from gaming the ratchet by writing tests that pass trivially.
 
+### 1.7. NO-TESTS BOOTSTRAP
+
+After the ratchet snapshot, check if zero test files were found:
+
+```bash
+TEST_COUNT=$(wc -l < .deepflow/auto-snapshot.txt | tr -d ' ')
+
+if [ "${TEST_COUNT}" = "0" ]; then
+  echo "Bootstrap needed: no pre-existing test files found."
+  BOOTSTRAP_NEEDED=true
+else
+  BOOTSTRAP_NEEDED=false
+fi
+```
+
+**If `BOOTSTRAP_NEEDED=true`:**
+
+1. **Inject a bootstrap task** as the FIRST action before any regular PLAN.md task is executed:
+   - Bootstrap task description: "Write tests for files in edit_scope"
+   - Read `edit_scope` from `specs/doing-*.md` to know which files need tests
+   - Spawn ONE dedicated bootstrap agent using the Bootstrap Task prompt (section 6)
+
+2. **Bootstrap agent behavior:**
+   - Write tests covering the files listed in `edit_scope`
+   - Commit as `test({spec}): bootstrap tests for edit_scope`
+   - The bootstrap agent's ONLY job is writing tests — no implementation changes
+
+3. **After bootstrap agent completes:**
+   - Run ratchet health checks (build must pass; test suite must not error out)
+   - If ratchet passes: re-take the ratchet snapshot so subsequent tasks use the new tests as baseline:
+     ```bash
+     cd ${WORKTREE_PATH}
+     git ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' \
+       > .deepflow/auto-snapshot.txt
+     echo "Post-bootstrap snapshot: $(wc -l < .deepflow/auto-snapshot.txt) test files"
+     ```
+   - If ratchet fails: revert bootstrap commit, log error, halt and report "Bootstrap failed — manual intervention required"
+
+4. **Signal to caller:** After bootstrap completes successfully, report `"bootstrap: completed"` in the cycle summary. This cycle's sole output is the test bootstrap — no regular PLAN.md task is executed this cycle.
+
+5. **Subsequent cycles:** The updated `.deepflow/auto-snapshot.txt` now contains the bootstrapped test files. All subsequent ratchet checks use these as the baseline.
+
+**If `BOOTSTRAP_NEEDED=false`:** Proceed normally to section 2.
+
 ### 2. LOAD PLAN
 
 ```
@@ -403,6 +447,20 @@ Steps:
 Your ONLY job is to write code and commit. The orchestrator will run health checks after you finish.
 ```
 
+**Bootstrap Task (append after preamble):**
+```
+BOOTSTRAP: Write tests for files in edit_scope
+Files: {edit_scope files from spec}
+Spec: {spec_name}
+
+Steps:
+1. Write tests that cover the functionality of the files listed above
+2. Do NOT change implementation files — tests only
+3. Commit as test({spec}): bootstrap tests for edit_scope
+
+Your ONLY job is to write tests and commit. The orchestrator will run health checks after you finish.
+```
+
 **Spike Task (append after preamble):**
 ```
 {task_id} [SPIKE]: {hypothesis}
@@ -466,6 +524,7 @@ After spawning wave agents, your turn ENDS. Completion notifications drive the l
 
 | Rule | Detail |
 |------|--------|
+| Zero test files → bootstrap first | Section 1.7; bootstrap is the cycle's sole task when snapshot is empty |
 | 1 task = 1 agent = 1 commit | `atomic-commits` skill |
 | 1 file = 1 writer | Sequential if conflict |
 | Agent writes code, orchestrator measures | Ratchet is the judge |
@@ -477,6 +536,25 @@ After spawning wave agents, your turn ENDS. Completion notifications drive the l
 | Winner cherry-picked to shared worktree | Downstream tasks see winning approach via shared worktree |
 
 ## Example
+
+### No-Tests Bootstrap
+
+```
+/df:execute (context: 8%)
+
+Loading PLAN.md... T1 ready, T2/T3 blocked by T1
+Ratchet snapshot: 0 pre-existing test files
+Bootstrap needed: no pre-existing test files found.
+
+Spawning bootstrap agent for edit_scope...
+[Bootstrap agent completed]
+  Running ratchet: build ✓ | tests ✓ (12 new tests pass)
+  ✓ Bootstrap: ratchet passed (boo1234)
+  Re-taking ratchet snapshot: 3 test files
+
+bootstrap: completed — cycle's sole task was test bootstrap
+Next: Run /df:auto-cycle again to execute T1
+```
 
 ### Standard Execution
 

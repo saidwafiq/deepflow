@@ -56,6 +56,13 @@ Args: "{task_id}"   (e.g., "T3")
 
 This handles worktree creation, agent spawning, ratchet health checks, and commit.
 
+**Bootstrap handling:** `/df:execute` may report `"bootstrap: completed"` instead of a regular task result. This means the ratchet snapshot was empty (zero test files) and the cycle was used to write baseline tests. When this happens:
+
+- Do NOT treat it as a task failure or skip
+- Record the bootstrap in the report (step 4) using task ID `BOOTSTRAP` and status `passed`
+- Exit normally — the NEXT cycle will pick up the first regular task (now protected by the bootstrapped tests)
+- Do NOT attempt to execute a regular task in the same cycle as a bootstrap
+
 ### 4. UPDATE REPORT
 
 Append the cycle result to `.deepflow/auto-report.md`.
@@ -102,12 +109,32 @@ pending_count = number of [ ] tasks
 | Rule | Detail |
 |------|--------|
 | One task per cycle | Fresh context each invocation — no multi-task batching |
+| Bootstrap counts as the cycle's sole task | When `/df:execute` returns `bootstrap: completed`, no regular task runs that cycle |
 | Idempotent | Safe to call with no work remaining — just reports "0 tasks remaining" |
 | Never modifies PLAN.md directly | `/df:execute` handles PLAN.md updates and commits |
 | Zero coordination overhead | Read plan → pick task → execute → update report → exit |
 | Auto-memory is read-only here | Cross-cycle state is written by `/df:execute` agents, not this command |
 
 ## Example
+
+### Bootstrap Cycle (no pre-existing tests)
+
+```
+/df:auto-cycle
+
+Loading PLAN.md... 3 tasks total, 0 done, 3 pending
+Next ready task: T1 (no blockers)
+
+Running: /df:execute T1
+  Ratchet snapshot: 0 pre-existing test files
+  Bootstrap needed — writing tests for edit_scope first
+  ✓ Bootstrap: ratchet passed (boo1234)
+  bootstrap: completed
+
+Updated .deepflow/auto-report.md: cycle 1 | BOOTSTRAP | passed | boo1234
+
+Cycle complete. 3 tasks remaining.
+```
 
 ### Normal Cycle (task executed)
 
