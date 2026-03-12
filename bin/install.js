@@ -184,13 +184,14 @@ async function main() {
   console.log('');
   console.log(`Installed to ${c.cyan}${CLAUDE_DIR}${c.reset}:`);
   console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:auto, /df:note, /df:resume, /df:update');
-  console.log('  skills/          — gap-discovery, atomic-commits, code-completeness');
+  console.log('  skills/          — gap-discovery, atomic-commits, code-completeness, context-hub');
   console.log('  agents/          — reasoner (/df:auto — autonomous execution via /loop)');
   if (level === 'global') {
     console.log('  hooks/           — statusline, update checker');
   }
   console.log('  hooks/df-spec-*  — spec validation (auto-enforced by /df:spec and /df:plan)');
   console.log('  env/             — ENABLE_LSP_TOOL (code navigation via goToDefinition, findReferences, workspaceSymbol)');
+  console.log('  permissions/     — granular allow-list for background agents (git, build, test, read/write)');
   console.log('');
   if (level === 'project') {
     console.log(`${c.dim}Note: Statusline is only available with global install.${c.reset}`);
@@ -251,6 +252,10 @@ async function configureHooks(claudeDir) {
   if (!settings.env) settings.env = {};
   settings.env.ENABLE_LSP_TOOL = "1";
   log('LSP tool enabled');
+
+  // Configure permissions for background agents
+  configurePermissions(settings);
+  log('Agent permissions configured');
 
   // Configure statusline
   if (settings.statusLine) {
@@ -319,8 +324,72 @@ function configureProjectSettings(claudeDir) {
   if (!settings.env) settings.env = {};
   settings.env.ENABLE_LSP_TOOL = "1";
 
+  // Configure permissions for background agents
+  configurePermissions(settings);
+
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-  log('LSP tool enabled (project)');
+  log('LSP tool enabled + agent permissions configured (project)');
+}
+
+// Permissions required for background agents to work without blocking
+const DEEPFLOW_PERMISSIONS = [
+  // Agents need to read/write code
+  "Edit",
+  "Write",
+  "Read",
+  // Agents need to search codebase
+  "Glob",
+  "Grep",
+  // Git operations (orchestrator handles worktrees, agents read status)
+  "Bash(git status:*)",
+  "Bash(git diff:*)",
+  "Bash(git add:*)",
+  "Bash(git commit:*)",
+  "Bash(git log:*)",
+  "Bash(git stash:*)",
+  "Bash(git checkout:*)",
+  "Bash(git branch:*)",
+  "Bash(git revert:*)",
+  "Bash(git worktree:*)",
+  "Bash(git ls-files:*)",
+  "Bash(git merge:*)",
+  // Build & test (ratchet health checks)
+  "Bash(npm run build:*)",
+  "Bash(npm test:*)",
+  "Bash(npm run lint:*)",
+  "Bash(npx tsc:*)",
+  "Bash(cargo build:*)",
+  "Bash(cargo test:*)",
+  "Bash(go build:*)",
+  "Bash(go test:*)",
+  "Bash(pytest:*)",
+  "Bash(python -m pytest:*)",
+  "Bash(ruff:*)",
+  "Bash(mypy:*)",
+  // Utility
+  "Bash(node:*)",
+  "Bash(ls:*)",
+  "Bash(cat:*)",
+  "Bash(mkdir:*)",
+  "Bash(date:*)",
+  "Bash(wc:*)",
+  "Bash(head:*)",
+  "Bash(tail:*)",
+];
+
+function configurePermissions(settings) {
+  if (!settings.permissions) settings.permissions = {};
+  if (!settings.permissions.allow) settings.permissions.allow = [];
+
+  const existing = new Set(settings.permissions.allow);
+  let added = 0;
+
+  for (const perm of DEEPFLOW_PERMISSIONS) {
+    if (!existing.has(perm)) {
+      settings.permissions.allow.push(perm);
+      added++;
+    }
+  }
 }
 
 function ask(question) {
@@ -400,6 +469,7 @@ async function uninstall() {
     'skills/atomic-commits',
     'skills/code-completeness',
     'skills/gap-discovery',
+    'skills/context-hub',
     'agents/reasoner.md'
   ];
 
@@ -449,23 +519,30 @@ async function uninstall() {
       }
     }
 
-    // Remove ENABLE_LSP_TOOL from global settings
+    // Remove ENABLE_LSP_TOOL and deepflow permissions from global settings
     if (fs.existsSync(settingsPath)) {
       try {
         const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
         if (settings.env?.ENABLE_LSP_TOOL) {
           delete settings.env.ENABLE_LSP_TOOL;
           if (settings.env && Object.keys(settings.env).length === 0) delete settings.env;
-          fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
           console.log(`  ${c.green}✓${c.reset} Removed ENABLE_LSP_TOOL from settings`);
         }
+        if (settings.permissions?.allow) {
+          const dfPerms = new Set(DEEPFLOW_PERMISSIONS);
+          settings.permissions.allow = settings.permissions.allow.filter(p => !dfPerms.has(p));
+          if (settings.permissions.allow.length === 0) delete settings.permissions.allow;
+          if (settings.permissions && Object.keys(settings.permissions).length === 0) delete settings.permissions;
+          console.log(`  ${c.green}✓${c.reset} Removed deepflow permissions from settings`);
+        }
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
       } catch (e) {
         // Fail silently
       }
     }
   }
 
-  // Remove ENABLE_LSP_TOOL from project settings.local.json
+  // Remove ENABLE_LSP_TOOL and deepflow permissions from project settings.local.json
   if (level === 'project') {
     const localSettingsPath = path.join(PROJECT_DIR, 'settings.local.json');
     if (fs.existsSync(localSettingsPath)) {
@@ -474,13 +551,19 @@ async function uninstall() {
         if (localSettings.env?.ENABLE_LSP_TOOL) {
           delete localSettings.env.ENABLE_LSP_TOOL;
           if (localSettings.env && Object.keys(localSettings.env).length === 0) delete localSettings.env;
-          if (Object.keys(localSettings).length === 0) {
-            fs.unlinkSync(localSettingsPath);
-            console.log(`  ${c.green}✓${c.reset} Removed settings.local.json (empty after cleanup)`);
-          } else {
-            fs.writeFileSync(localSettingsPath, JSON.stringify(localSettings, null, 2));
-            console.log(`  ${c.green}✓${c.reset} Removed ENABLE_LSP_TOOL from settings.local.json`);
-          }
+        }
+        if (localSettings.permissions?.allow) {
+          const dfPerms = new Set(DEEPFLOW_PERMISSIONS);
+          localSettings.permissions.allow = localSettings.permissions.allow.filter(p => !dfPerms.has(p));
+          if (localSettings.permissions.allow.length === 0) delete localSettings.permissions.allow;
+          if (localSettings.permissions && Object.keys(localSettings.permissions).length === 0) delete localSettings.permissions;
+        }
+        if (Object.keys(localSettings).length === 0) {
+          fs.unlinkSync(localSettingsPath);
+          console.log(`  ${c.green}✓${c.reset} Removed settings.local.json (empty after cleanup)`);
+        } else {
+          fs.writeFileSync(localSettingsPath, JSON.stringify(localSettings, null, 2));
+          console.log(`  ${c.green}✓${c.reset} Removed deepflow settings from settings.local.json`);
         }
       } catch (e) {
         // Fail silently

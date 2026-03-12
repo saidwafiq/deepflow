@@ -49,6 +49,8 @@ npx deepflow
 npx deepflow --uninstall
 ```
 
+The installer configures granular permissions so background agents can read, write, run git, and execute health checks (build/test/typecheck/lint) without blocking on approval prompts. All permissions are scoped and cleaned up on uninstall.
+
 ## Two Modes
 
 ### Interactive (human-in-the-loop)
