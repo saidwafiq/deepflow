@@ -24,6 +24,7 @@ Implement tasks from PLAN.md with parallel agents, atomic commits, ratchet-drive
 
 ## Skills & Agents
 - Skill: `atomic-commits` — Clean commit protocol
+- Skill: `context-hub` — Fetch external API docs before coding (when task involves external libraries)
 
 **Use Task tool to spawn agents:**
 | Agent | subagent_type | Purpose |
@@ -453,8 +454,11 @@ Files: {target files}
 Spec: {spec_name}
 
 Steps:
-1. Implement the task
-2. Commit as feat({spec}): {description}
+1. If the task involves external APIs/SDKs, run: chub search "<library>" --json → chub get <id> --lang <lang>
+   Use fetched docs as ground truth for API signatures. Annotate any gaps: chub annotate <id> "note"
+   Skip this step if chub is not installed or the task only touches internal code.
+2. Implement the task
+3. Commit as feat({spec}): {description}
 
 Your ONLY job is to write code and commit. The orchestrator will run health checks after you finish.
 ```
@@ -546,6 +550,7 @@ After spawning wave agents, your turn ENDS. Completion notifications drive the l
 | Machine-selected winner | Fewer regressions > better coverage > fewer files changed; no LLM judge |
 | Failed probe insights logged | `.deepflow/auto-memory.yaml` in main tree; persists across cycles |
 | Winner cherry-picked to shared worktree | Downstream tasks see winning approach via shared worktree |
+| External APIs → chub first | Agents fetch curated docs before implementing external API calls; skip if chub unavailable |
 
 ## Example
 
