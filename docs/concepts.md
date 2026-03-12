@@ -2,43 +2,40 @@
 
 ## Philosophy
 
-deepflow is built on these principles:
+### Doing Reveals What Thinking Can't Predict
 
-### 1. Specs Define Intent, Code Is Reality
+You can't foresee every edge case in a spec. Execution reveals them. When doing is fast and cheap, it makes more sense to run N approaches in parallel and extract the best one than to try to get it right the first time.
 
-- **Specs** describe what you want to build
-- **Code** is what actually exists
-- **Plan** bridges the gap
+The spec is a hypothesis. Code evolves toward it through iterative cycles.
 
-The LLM compares specs to code and generates tasks to close gaps.
+### Spec as Living Hypothesis
 
-### 2. Conversation Over Automation
+- Core intent stays fixed
+- Details refine through implementation
+- "The spec becomes bulletproof because you built it, not before"
+
+This creates tension with TDD: TDD assumes you know the correct behavior before coding. Deepflow assumes execution reveals what planning can't anticipate.
+
+### Metrics Decide, Not Opinions
+
+No LLM judges another LLM. Deepflow started with adversarial selection (AI evaluating AI) and discovered gaming: agents that estimated instead of measuring, simulated instead of implementing.
+
+The fix: only objective metrics decide — build, tests, typecheck, lint. Tests created by the agent are excluded from the baseline to prevent self-validation. We call this a **ratchet** — the metric can only improve, never regress.
+
+### Conversation Over Automation
 
 Instead of automated research agents, deepflow uses:
 - Natural conversation to understand requirements
 - Proactive gap questions to ensure completeness
 - Human judgment for ambiguous decisions
 
-### 3. Minimal Ceremony
+AI research comes after you've defined the problem.
+
+### Minimal Ceremony
 
 - 6 commands, one flow
 - 2 levels (Specs → Tasks), not 5
 - Markdown files, not complex schemas
-
-### 4. Complete Implementations
-
-- No stubs
-- No placeholders
-- No `// TODO` comments
-
-If it's not ready to implement, don't create the task.
-
-### 5. Atomic Commits
-
-Every task produces one commit:
-- Easy to review
-- Easy to revert
-- Clean git history
 
 ## The Flow
 
@@ -49,13 +46,9 @@ Conversation → Discover → Debate → Spec → Plan → Execute → Verify
                               (iterate)
 ```
 
-### Conversation
-
-You describe what you want. Free-form discussion to establish initial context.
-
 ### Discover
 
-Deep problem exploration through Socratic questioning. The LLM asks structured questions across six dimensions:
+Deep problem exploration through Socratic questioning:
 
 | Phase | Purpose |
 |-------|---------|
@@ -79,16 +72,18 @@ Multi-perspective analysis before formalizing. Four reasoner agents argue from d
 | Systems Thinker | Integration, scalability, long-term |
 | LLM Efficiency | Token density, structure, attention budget |
 
-A fifth agent synthesizes consensus, tensions, and open decisions. Output is saved as `specs/.debate-{name}.md`.
+A fifth agent synthesizes consensus, tensions, and open decisions. Output saved as `specs/.debate-{name}.md`.
 
 ### Spec
 
 A structured document capturing:
 - Objective (one sentence)
-- Requirements (testable)
+- Requirements (REQ-N format, testable)
 - Constraints (limits)
 - Out of scope (explicit exclusions)
-- Acceptance criteria (verification)
+- Acceptance criteria (checkbox format)
+
+Validated before writing — hard invariants block, advisory warnings inform.
 
 ### Plan
 
@@ -96,23 +91,30 @@ Comparison of specs against codebase:
 - What exists? (mark done)
 - What's partial? (task to complete)
 - What's missing? (task to create)
+- What failed before? (check `.deepflow/experiments/`, don't repeat)
+- What's risky? (spike task first)
 
-Tasks are ordered by dependencies and priority.
+Tasks ordered by dependencies and priority.
 
 ### Execute
 
-Parallel implementation with rules:
-- Independent tasks run in parallel
+Implementation with ratchet validation:
+- Independent tasks run in parallel in isolated worktrees
 - Dependent tasks wait
 - One writer per file (no conflicts)
 - Atomic commit per task
+- Health checks after each commit: build, pre-existing tests, typecheck, lint
+- Pass = commit stands. Fail = revert
 
 ### Verify
 
 Check that specs are satisfied:
-- All requirements implemented
-- Acceptance criteria met
-- No incomplete work (stubs, TODOs)
+- L0: Build passes
+- L1: All planned files in diff
+- L2: Coverage didn't drop
+- L4: Tests pass
+
+On success: merge worktree to main, extract architectural decisions, clean up.
 
 ## Parallelism Model
 
@@ -125,36 +127,50 @@ Ready tasks:     [T1, T2, T5]     (no blockers)
                  │    │    │
                  ▼    ▼    ▼
              Commit Commit Commit
+              │    │    │
+           Ratchet Ratchet Ratchet  (health checks)
                       │
 Unblocked:       [T3, T4]         (were waiting on T1)
-                      │
-                   ┌──┴──┐
-                   ▼     ▼
-                Agent  Agent       (parallel)
 ```
 
-## Agent Spawning
+## Spike-First Planning
 
-Dynamic based on scope:
+For risky or uncertain work, `/df:plan` generates a spike task first:
 
-| Files in Project | Search Agents |
-|------------------|---------------|
-| <20 | 3-5 |
-| 20-100 | 10-15 |
-| 100-500 | 25-40 |
-| 500+ | 50-100 |
+```
+Spike: Validate streaming upload handles 10MB+ files
+  | Run minimal experiment in isolated worktree
+  | Pass (ratchet)? -> Unblock implementation tasks
+  | Fail? -> Record in .deepflow/experiments/, generate new hypothesis
+```
 
-Rules:
-- Read/search: High parallelism (no side effects)
-- Write: Limited (avoid conflicts)
-- Test: Sequential (always)
+In autonomous mode, multiple spikes for the same problem run as parallel probes. Machine selects the winner: fewer regressions > better coverage > fewer files changed.
 
-## State Continuity
+## Autonomous Mode
 
-`STATE.md` provides context across sessions:
-- Current progress
-- Decisions made (and why)
-- Learnings discovered
-- Blockers (and workarounds)
+Two loops operate at different timescales:
 
-This helps the LLM understand where you left off.
+**Human loop (upstream):** `/df:discover` → `/df:debate` → `/df:spec` — you define the problem, at your pace.
+
+**AI loop (downstream):** `/df:auto` → repeated `/df:auto-cycle` — the system plans, executes, validates, and merges autonomously.
+
+Each cycle gets fresh context (no accumulated rot). Cross-cycle state persists in `.deepflow/auto-memory.yaml` — task outcomes, revert counts, probe insights.
+
+Circuit breaker halts after N consecutive reverts on the same task.
+
+## Decision Capture
+
+Architectural decisions are captured in two ways:
+- **Automatically** by `/df:verify` — extracted from completed specs
+- **Manually** via `/df:note` — ad-hoc decisions from conversation
+
+All decisions go to `.deepflow/decisions.md`. Contradictions appended, never overwritten.
+
+## Context Management
+
+Each command runs in its own session — cache-optimal via prefix matching. Artifacts serve as handoff between sessions.
+
+During execution, context usage is monitored. At ≥50%:
+- Waits for running agents
+- Checkpoints state to `.deepflow/checkpoint.json`
+- Resume with `/df:execute --continue`
