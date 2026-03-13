@@ -187,7 +187,7 @@ async function main() {
   console.log('  skills/          — gap-discovery, atomic-commits, code-completeness, context-hub');
   console.log('  agents/          — reasoner (/df:auto — autonomous execution via /loop)');
   if (level === 'global') {
-    console.log('  hooks/           — statusline, update checker');
+    console.log('  hooks/           — statusline, update checker, invariant checker');
   }
   console.log('  hooks/df-spec-*  — spec validation (auto-enforced by /df:spec and /df:plan)');
   console.log('  env/             — ENABLE_LSP_TOOL (code navigation via goToDefinition, findReferences, workspaceSymbol)');
@@ -474,7 +474,7 @@ async function uninstall() {
   ];
 
   if (level === 'global') {
-    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-consolidation-check.js');
+    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-consolidation-check.js', 'hooks/df-invariant-check.js');
   }
 
   for (const item of toRemove) {
