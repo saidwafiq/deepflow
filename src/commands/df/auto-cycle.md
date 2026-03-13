@@ -169,10 +169,10 @@ _Last updated: {YYYY-MM-DDTHH:MM:SSZ}_
 
 ## Cycle Log
 
-| Cycle | Task | Status | Commit / Revert | Reason | Timestamp |
-|-------|------|--------|-----------------|--------|-----------|
-| 1 | T1 | passed | abc1234 | — | 2025-01-15T10:00:00Z |
-| 2 | T2 | failed | reverted | tests failed: 2 of 24 | 2025-01-15T10:05:00Z |
+| Cycle | Task | Status | Commit / Revert | Delta | Reason | Timestamp |
+|-------|------|--------|-----------------|-------|--------|-----------|
+| 1 | T1 | passed | abc1234 | tests: 24→24, build: ok | — | 2025-01-15T10:00:00Z |
+| 2 | T2 | failed | reverted | tests: 24→22 (−2) | tests failed: 2 of 24 | 2025-01-15T10:05:00Z |
 
 ## Probe Results
 
@@ -202,13 +202,14 @@ _(tasks that were reverted with their failure reasons)_
 **Cycle Log — append one row:**
 
 ```
-| {cycle_number} | {task_id} | {status} | {commit_hash or "reverted"} | {reason or "—"} | {YYYY-MM-DDTHH:MM:SSZ} |
+| {cycle_number} | {task_id} | {status} | {commit_hash or "reverted"} | {delta} | {reason or "—"} | {YYYY-MM-DDTHH:MM:SSZ} |
 ```
 
 - `cycle_number`: total number of cycles executed so far (count existing data rows in the Cycle Log + 1)
 - `task_id`: task ID from PLAN.md, or `BOOTSTRAP` for bootstrap cycles
 - `status`: `passed` (ratchet passed), `failed` (ratchet failed, reverted), or `skipped` (task was already done)
 - `commit_hash`: short hash from the commit, or `reverted` if ratchet failed
+- `delta`: ratchet metric change from this cycle. Format: `tests: {before}→{after}, build: ok/fail`. Include coverage delta if available (e.g., `cov: 80%→82% (+2%)`). On revert, show the regression that triggered it (e.g., `tests: 24→22 (−2)`)
 - `reason`: failure reason from ratchet output (e.g., `"tests failed: 2 of 24"`), or `—` if passed
 
 **Summary table — recalculate from Cycle Log rows:**
@@ -259,10 +260,12 @@ done_count   = number of [x] tasks
 pending_count = number of [ ] tasks
 ```
 
-**If ALL tasks are `[x]` (pending_count == 0):**
+**Note:** Per-spec verification and merge to main happens automatically in `/df:execute` (step 8) when all tasks for a spec complete. No separate verify call is needed here.
+
+**If no `[ ]` tasks remain (pending_count == 0):**
 ```
-→ Run /df:verify via Skill tool (skill: "df:verify", no args)
-→ Report: "All tasks complete. Verification triggered."
+→ Report: "All specs verified and merged. Workflow complete."
+→ Exit
 ```
 
 **If tasks remain (pending_count > 0):**
@@ -327,17 +330,14 @@ Updated .deepflow/auto-report.md:
 Cycle complete. 1 tasks remaining.
 ```
 
-### All Tasks Done (verify triggered)
+### All Tasks Done (workflow complete)
 
 ```
 /df:auto-cycle
 
-Loading PLAN.md... 3 tasks total, 3 done, 0 pending
+Loading PLAN.md... 0 tasks total, 0 done, 0 pending
 
-All tasks complete. Verification triggered.
-Running: /df:verify
-  ✓ L0 | ✓ L1 | ⚠ L2 (no coverage tool) | ✓ L4
-  ✓ Merged df/upload to main
+All specs verified and merged. Workflow complete.
 ```
 
 ### No Work Remaining (idempotent)
@@ -345,10 +345,9 @@ Running: /df:verify
 ```
 /df:auto-cycle
 
-Loading PLAN.md... 3 tasks total, 3 done, 0 pending
-Verification already complete (no doing-* specs found).
+Loading PLAN.md... 0 tasks total, 0 done, 0 pending
 
-Nothing to do. Cycle complete. 0 tasks remaining.
+All specs verified and merged. Workflow complete.
 ```
 
 ### Circuit Breaker Tripped

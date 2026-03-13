@@ -185,6 +185,12 @@ STOP after committing. Do NOT merge branches, rename spec files, remove worktree
 Files: {target files}  Spec: {spec_name}
 {Impact block from PLAN.md — include verbatim if present}
 
+{Prior failure context — include ONLY if task was previously reverted. Read from .deepflow/auto-memory.yaml revert_history for this task_id:}
+Previous attempts (DO NOT repeat these approaches):
+- Cycle {N}: reverted — "{reason from revert_history}"
+- Cycle {N}: reverted — "{reason from revert_history}"
+{Omit this entire block if task has no revert history.}
+
 CRITICAL: If Impact lists duplicates or callers, you MUST verify each one is consistent with your changes.
 - [active] duplicates → consolidate into single source of truth (e.g., local generateYAML → use shared buildConfigData)
 - [dead] duplicates → DELETE the dead code entirely. Dead code pollutes context and causes drift.
@@ -212,6 +218,11 @@ Commit as test({spec}): bootstrap tests for edit_scope
 {task_id} [SPIKE]: {hypothesis}
 Files: {target files}  Spec: {spec_name}
 
+{Prior failure context — include ONLY if this spike was previously reverted. Read from .deepflow/auto-memory.yaml revert_history + spike_insights for this task_id:}
+Previous attempts (DO NOT repeat these approaches):
+- Cycle {N}: reverted — "{reason}"
+{Omit this entire block if no revert history.}
+
 Implement minimal spike to validate hypothesis.
 Commit as spike({spec}): {description}
 ```
@@ -219,16 +230,12 @@ Commit as spike({spec}): {description}
 ### 8. COMPLETE SPECS
 
 When all tasks done for a `doing-*` spec:
-1. Embed `## Completed` section with task list and commit hashes
-2. Rename `doing-{name}.md` → `done-{name}.md`
-3. Extract decisions from done spec → append to **main tree** `.deepflow/decisions.md`:
-   ```
-   ### {YYYY-MM-DD} — {spec-name}
-   - [APPROACH|ASSUMPTION|PROVISIONAL] decision — rationale
-   ```
-   After append, delete `specs/done-{name}.md`. If write fails, preserve.
-4. Remove spec's ENTIRE section from PLAN.md (header, tasks, summaries, fix tasks, separators)
-5. Recalculate Summary table at top of PLAN.md
+1. Run `/df:verify doing-{name}` via the Skill tool (`skill: "df:verify", args: "doing-{name}"`)
+   - Verify runs quality gates (L0-L4), merges worktree branch to main, cleans up worktree, renames spec `doing-*` → `done-*`, and extracts decisions
+   - If verify fails (adds fix tasks): stop here — `/df:execute --continue` will pick up the fix tasks
+   - If verify passes: proceed to step 2
+2. Remove spec's ENTIRE section from PLAN.md (header, tasks, summaries, fix tasks, separators)
+3. Recalculate Summary table at top of PLAN.md
 
 ---
 
@@ -301,6 +308,10 @@ Wave 2: TaskUpdate(T2/T3, in_progress)
 [Agent "T2" completed]  ✓ T2: ratchet passed (def5678)
 [Agent "T3" completed]  ✓ T3: ratchet passed (ghi9012)
 
-Context: 35% — ✓ doing-upload → done-upload. Complete: 3/3
-Next: Run /df:verify to verify specs and merge to main
+Context: 35% — All tasks done for doing-upload.
+Running /df:verify doing-upload...
+  ✓ L0 | ✓ L1 (3/3 files) | ⚠ L2 (no coverage tool) | ✓ L4 (24 tests)
+  ✓ Merged df/upload to main
+  ✓ Spec complete: doing-upload → done-upload
+Complete: 3/3
 ```
