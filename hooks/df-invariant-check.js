@@ -292,8 +292,8 @@ function checkHardcoded(files, specContent, taskType) { // eslint-disable-line n
 }
 
 /**
- * T7 placeholder: Check for phantom references (undefined symbols, missing imports).
- * Detects references to identifiers that don't appear to be defined in the diff.
+ * REQ-4c: Check for phantom imports — a file imports a module that is new in the
+ * diff and that new module exports only stub symbols (return null, return [], etc.).
  *
  * @param {Array} files - Parsed diff files
  * @param {string} specContent - Raw spec markdown
@@ -301,19 +301,100 @@ function checkHardcoded(files, specContent, taskType) { // eslint-disable-line n
  * @returns {Array<{ file: string, line: number, tag: string, description: string }>}
  */
 function checkPhantoms(files, specContent, taskType) { // eslint-disable-line no-unused-vars
-  // TODO (T7): Implement phantom-reference detection
-  // Suggested approach:
-  //   - Build a set of symbols defined in the diff (function declarations, const/let/var)
-  //   - Identify references to symbols that are neither defined in diff nor imported
-  //   - Flag require() / import paths that don't exist on disk relative to the file
-  //   - Return { file, line, tag: TAGS.PHANTOM, description } for each hit
-  return [];
+  const violations = [];
+
+  // Collect the set of new files introduced in this diff (files with added lines but
+  // recognisable as new — heuristic: first hunk starts at line 1).
+  const newFiles = new Set();
+  for (const fileObj of files) {
+    if (fileObj.hunks.length > 0 && fileObj.hunks[0].startLine === 1) {
+      newFiles.add(fileObj.file);
+    }
+  }
+
+  if (newFiles.size === 0) return violations;
+
+  // For each new file, determine whether it exports only stub symbols.
+  // A stub export is one whose only added non-blank, non-comment body line is a
+  // stub return: `return null`, `return []`, `return {}`, `return undefined`,
+  // or a `throw new Error('not implemented')`.
+  const STUB_EXPORT_PATTERN =
+    /\breturn\s+(null|undefined|\[\]|\{\})\s*;?\s*$|\bthrow\s+new\s+Error\s*\(\s*['"]not implemented['"]\s*\)/i;
+  const EXPORT_DECL_PATTERN =
+    /\bmodule\.exports\b|\bexport\s+(default|function|const|let|var|class)\b/;
+
+  const stubOnlyFiles = new Set();
+  for (const newFile of newFiles) {
+    const fileObj = files.find((f) => f.file === newFile);
+    if (!fileObj) continue;
+
+    const addedLines = fileObj.hunks.flatMap((h) => h.lines.map((l) => l.content));
+    const hasExport = addedLines.some((l) => EXPORT_DECL_PATTERN.test(l));
+    if (!hasExport) continue; // not a module with explicit exports — skip
+
+    const substantiveLines = addedLines.filter(
+      (l) => l.trim() !== '' && !/^\s*\/\//.test(l) && !/^\s*\*/.test(l)
+    );
+    const allStubs = substantiveLines.every(
+      (l) => STUB_EXPORT_PATTERN.test(l) || EXPORT_DECL_PATTERN.test(l) ||
+             /^\s*[\{\}()\[\],;]/.test(l) || /^\s*(function|const|let|var|class|module)\b/.test(l)
+    );
+    if (allStubs) {
+      stubOnlyFiles.add(newFile);
+    }
+  }
+
+  if (stubOnlyFiles.size === 0) return violations;
+
+  // Patterns to extract the imported path from require() or import … from '…'
+  const REQUIRE_PATTERN = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  const IMPORT_PATTERN = /^\s*import\s+.*?\s+from\s+['"]([^'"]+)['"]/;
+
+  for (const fileObj of files) {
+    for (const hunk of fileObj.hunks) {
+      for (const { lineNo, content } of hunk.lines) {
+        // Check require() calls
+        let m;
+        REQUIRE_PATTERN.lastIndex = 0;
+        while ((m = REQUIRE_PATTERN.exec(content)) !== null) {
+          const importedPath = m[1];
+          for (const stubFile of stubOnlyFiles) {
+            if (stubFile.endsWith(importedPath) || stubFile.endsWith(`${importedPath}.js`)) {
+              violations.push({
+                file: fileObj.file,
+                line: lineNo,
+                tag: TAGS.PHANTOM,
+                description: `Imports "${importedPath}" which is a new file with only stub exports`,
+              });
+            }
+          }
+        }
+
+        // Check ES import statements
+        const im = IMPORT_PATTERN.exec(content);
+        if (im) {
+          const importedPath = im[1];
+          for (const stubFile of stubOnlyFiles) {
+            if (stubFile.endsWith(importedPath) || stubFile.endsWith(`${importedPath}.js`)) {
+              violations.push({
+                file: fileObj.file,
+                line: lineNo,
+                tag: TAGS.PHANTOM,
+                description: `Imports "${importedPath}" which is a new file with only stub exports`,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return violations;
 }
 
 /**
- * T8 placeholder: Check for scope gaps between spec and implementation.
- * Verifies the implementation addresses all REQ-N requirements and doesn't
- * add features outside the spec scope.
+ * REQ-4d: Check edit_scope coverage — every file or glob listed under an
+ * `edit_scope` section in the spec must appear in the total diff.
  *
  * @param {Array} files - Parsed diff files
  * @param {string} specContent - Raw spec markdown
@@ -321,14 +402,179 @@ function checkPhantoms(files, specContent, taskType) { // eslint-disable-line no
  * @returns {Array<{ file: string, line: number, tag: string, description: string }>}
  */
 function checkScopeGaps(files, specContent, taskType) { // eslint-disable-line no-unused-vars
-  // TODO (T8): Implement scope-gap detection
-  // Suggested approach:
-  //   - Extract REQ-N identifiers from the spec Requirements section
-  //   - Look for each REQ-N mentioned in diff comments/code as evidence of implementation
-  //   - Extract "Out of Scope" section items from spec
-  //   - Flag diff additions that look like out-of-scope features
-  //   - Return { file, line, tag: TAGS.SCOPE_GAP, description } for each gap
-  return [];
+  const violations = [];
+
+  // Try to extract an edit_scope section from the spec (various heading names).
+  const SCOPE_SECTION_NAMES = ['edit_scope', 'edit scope', 'scope', 'files'];
+  let scopeSection = null;
+  for (const name of SCOPE_SECTION_NAMES) {
+    scopeSection = extractSection(specContent, name);
+    if (scopeSection) break;
+  }
+
+  // If no dedicated section, look for inline `edit_scope:` YAML-style block.
+  if (!scopeSection) {
+    const inlineMatch = specContent.match(/edit_scope\s*:\s*\n((?:\s*-\s*.+\n?)+)/i);
+    if (inlineMatch) {
+      scopeSection = inlineMatch[1];
+    }
+  }
+
+  if (!scopeSection) return violations;
+
+  // Extract the listed paths / globs from the section.
+  // Accepts lines like: `- path/to/file.js`, `* path`, `path/to/file` (bare).
+  const SCOPE_ITEM_PATTERN = /^\s*[-*]\s+(.+?)\s*$|^\s{2,}(\S.+?)\s*$/gm;
+  const scopeItems = [];
+  let m;
+  while ((m = SCOPE_ITEM_PATTERN.exec(scopeSection)) !== null) {
+    const item = (m[1] || m[2] || '').trim();
+    if (item) scopeItems.push(item);
+  }
+
+  if (scopeItems.length === 0) return violations;
+
+  // Build the set of files touched in the diff.
+  const diffFilePaths = new Set(files.map((f) => f.file));
+
+  for (const scopeItem of scopeItems) {
+    // Convert glob wildcards to a simple regex for matching.
+    const escaped = scopeItem
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex meta-chars (but NOT * or ?)
+      .replace(/\\\*/g, '.*')               // re-un-escape our * → .*
+      .replace(/\\\?/g, '.');               // ? → .
+    const pattern = new RegExp(`(^|/)${escaped}($|/)`);
+
+    const touched = [...diffFilePaths].some((p) => pattern.test(p) || p === scopeItem);
+    if (!touched) {
+      violations.push({
+        file: 'spec',
+        line: 1,
+        tag: TAGS.SCOPE_GAP,
+        description: `edit_scope entry "${scopeItem}" was not touched in the diff`,
+      });
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * REQ-4a: Check for mock covering implementation gap — a test file mocks module X
+ * but module X has no non-test changes in the total diff.
+ *
+ * @param {Array} files - Parsed diff files
+ * @param {string} specContent - Raw spec markdown
+ * @param {string} taskType - Task type
+ * @returns {Array<{ file: string, line: number, tag: string, description: string }>}
+ */
+function checkMockCoveringGap(files, specContent, taskType) { // eslint-disable-line no-unused-vars
+  const violations = [];
+
+  // Patterns that identify mock/jest.mock/vi.mock/require + module references.
+  // We capture the module path string from jest.mock('…') / vi.mock('…').
+  const JEST_MOCK_PATTERN = /(?:jest|vi)\.mock\s*\(\s*['"]([^'"]+)['"]/g;
+
+  // Collect production (non-test) file paths in the diff.
+  const prodFilePaths = new Set(
+    files.filter((f) => !isTestFile(f.file)).map((f) => f.file)
+  );
+
+  // Scan test files for mock declarations.
+  for (const fileObj of files) {
+    if (!isTestFile(fileObj.file)) continue;
+
+    for (const hunk of fileObj.hunks) {
+      for (const { lineNo, content } of hunk.lines) {
+        JEST_MOCK_PATTERN.lastIndex = 0;
+        let m;
+        while ((m = JEST_MOCK_PATTERN.exec(content)) !== null) {
+          const mockedPath = m[1];
+          // Check if any production file in the diff matches the mocked module path.
+          const hasProductionChange = [...prodFilePaths].some(
+            (p) => p.endsWith(mockedPath) || p.endsWith(`${mockedPath}.js`) || p.endsWith(`${mockedPath}.ts`)
+          );
+          if (!hasProductionChange) {
+            violations.push({
+              file: fileObj.file,
+              line: lineNo,
+              tag: TAGS.MOCK,
+              description: `mock covers implementation gap: "${mockedPath}" is mocked in tests but has no production changes in diff`,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * REQ-4b: Check for REQ-N identifiers that appear only in test files but not
+ * in production source files in the diff.
+ *
+ * @param {Array} files - Parsed diff files
+ * @param {string} specContent - Raw spec markdown
+ * @param {string} taskType - Task type
+ * @returns {Array<{ file: string, line: number, tag: string, description: string }>}
+ */
+function checkReqOnlyInTests(files, specContent, taskType) { // eslint-disable-line no-unused-vars
+  // Only meaningful for implementation tasks.
+  if (taskType === 'spike' || taskType === 'bootstrap') return [];
+
+  const violations = [];
+
+  // Collect REQ-N identifiers mentioned in added lines of test files.
+  const REQ_PATTERN = /REQ-\d+[a-z]?/g;
+
+  const reqsInTests = new Map(); // reqId → { file, line } of first occurrence
+  for (const fileObj of files) {
+    if (!isTestFile(fileObj.file)) continue;
+    for (const hunk of fileObj.hunks) {
+      for (const { lineNo, content } of hunk.lines) {
+        let m;
+        REQ_PATTERN.lastIndex = 0;
+        while ((m = REQ_PATTERN.exec(content)) !== null) {
+          const reqId = m[0];
+          if (!reqsInTests.has(reqId)) {
+            reqsInTests.set(reqId, { file: fileObj.file, line: lineNo });
+          }
+        }
+      }
+    }
+  }
+
+  if (reqsInTests.size === 0) return violations;
+
+  // Collect all REQ-N identifiers mentioned in added lines of production files.
+  const reqsInProd = new Set();
+  for (const fileObj of files) {
+    if (isTestFile(fileObj.file)) continue;
+    for (const hunk of fileObj.hunks) {
+      for (const { content } of hunk.lines) {
+        let m;
+        REQ_PATTERN.lastIndex = 0;
+        while ((m = REQ_PATTERN.exec(content)) !== null) {
+          reqsInProd.add(m[0]);
+        }
+      }
+    }
+  }
+
+  // Emit a violation for each REQ-N present only in tests but not in production.
+  for (const [reqId, loc] of reqsInTests) {
+    if (!reqsInProd.has(reqId)) {
+      violations.push({
+        file: loc.file,
+        line: loc.line,
+        tag: TAGS.SCOPE_GAP,
+        description: `${reqId} appears only in test files, not in production source`,
+      });
+    }
+  }
+
+  return violations;
 }
 
 // ── Output formatting (REQ-7) ─────────────────────────────────────────────────
@@ -404,9 +650,11 @@ function checkInvariants(diff, specContent, opts = {}) {
   const stubViolations = checkStubsAndTodos(files, specContent, taskType);
   hard.push(...stubViolations);
 
+  // REQ-4c: phantom imports (new files with only stub exports)
   const phantomViolations = checkPhantoms(files, specContent, taskType);
   hard.push(...phantomViolations);
 
+  // REQ-4d: edit_scope coverage
   const scopeGapViolations = checkScopeGaps(files, specContent, taskType);
   hard.push(...scopeGapViolations);
 
@@ -416,6 +664,14 @@ function checkInvariants(diff, specContent, opts = {}) {
 
   const hardcodedViolations = checkHardcoded(files, specContent, taskType);
   advisory.push(...hardcodedViolations);
+
+  // REQ-4a: mock covering implementation gap
+  const mockGapViolations = checkMockCoveringGap(files, specContent, taskType);
+  hard.push(...mockGapViolations);
+
+  // REQ-4b: REQ-N only in tests, not in production source
+  const reqOnlyInTestsViolations = checkReqOnlyInTests(files, specContent, taskType);
+  hard.push(...reqOnlyInTestsViolations);
 
   // ── Auto-mode escalation (REQ-9) ─────────────────────────────────────────
   // In auto mode (non-interactive CI/hook runs), all advisory items are promoted
@@ -498,4 +754,14 @@ if (require.main === module) {
   process.exit(results.hard.length > 0 ? 1 : 0);
 }
 
-module.exports = { checkInvariants, formatOutput, formatViolation, parseDiff, TAGS };
+module.exports = {
+  checkInvariants,
+  formatOutput,
+  formatViolation,
+  parseDiff,
+  TAGS,
+  checkMockCoveringGap,
+  checkReqOnlyInTests,
+  checkPhantoms,
+  checkScopeGaps,
+};
