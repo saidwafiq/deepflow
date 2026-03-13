@@ -273,8 +273,10 @@ function checkStubsAndTodos(files, specContent, taskType) {
 }
 
 /**
- * T6 placeholder: Check for hardcoded values that should be configurable.
- * Detects magic numbers, hardcoded URLs, hardcoded credentials patterns, etc.
+ * REQ-3: Check for hardcoded values that should be configurable.
+ * Parses spec for requirements containing "configurable" or "dynamic", then
+ * scans added diff lines for numeric/string literals assigned to module-level
+ * constants or returned directly.
  *
  * @param {Array} files - Parsed diff files
  * @param {string} specContent - Raw spec markdown
@@ -282,13 +284,124 @@ function checkStubsAndTodos(files, specContent, taskType) {
  * @returns {Array<{ file: string, line: number, tag: string, description: string }>}
  */
 function checkHardcoded(files, specContent, taskType) { // eslint-disable-line no-unused-vars
-  // TODO (T6): Implement hardcoded-value detection
-  // Suggested approach:
-  //   - Scan added lines for hardcoded IPs, URLs, API keys, magic numbers
-  //   - Allow common safe literals (0, 1, -1, true, false, empty string)
-  //   - Cross-reference spec Constraints section for explicitly allowed constants
-  //   - Return { file, line, tag: TAGS.HARDCODED, description } for each hit
-  return [];
+  const violations = [];
+
+  // Step 1: Parse spec Requirements section for REQ-Ns that mention
+  // "configurable" or "dynamic" (case-insensitive).
+  const reqSection = extractSection(specContent, 'Requirements');
+  if (!reqSection) return violations;
+
+  // Split into individual requirement lines/blocks. Each REQ-N block starts
+  // with a REQ-N identifier and may span multiple lines until the next REQ-N
+  // or end of section.
+  const reqBlockPattern = /\*\*?(REQ-\d+[a-z]?)\b.*?\*\*?[^]*?(?=\*\*?REQ-\d+|$)/gi;
+  const configurableReqs = new Set();
+
+  let m;
+  while ((m = reqBlockPattern.exec(reqSection)) !== null) {
+    const block = m[0];
+    if (/configurable|dynamic/i.test(block)) {
+      // Extract the REQ-N identifier from this block
+      const idMatch = block.match(/REQ-\d+[a-z]?/i);
+      if (idMatch) {
+        configurableReqs.add(idMatch[0]);
+      }
+    }
+  }
+
+  // Fallback: also scan line-by-line for simpler markdown formats
+  for (const line of reqSection.split('\n')) {
+    if (/configurable|dynamic/i.test(line)) {
+      const idMatch = line.match(/REQ-\d+[a-z]?/i);
+      if (idMatch) {
+        configurableReqs.add(idMatch[0]);
+      }
+    }
+  }
+
+  // If no "configurable" or "dynamic" requirements exist in spec, nothing to check.
+  if (configurableReqs.size === 0) return violations;
+
+  // Step 2: Scan added diff lines for patterns indicating hardcoded literals
+  // in module-level constant assignments or direct returns.
+  //
+  // Patterns we consider "hardcoded":
+  //   - Module-level const/let/var assignment with a numeric literal:
+  //       const MAX_RETRIES = 42;
+  //       const BASE_URL = "https://example.com";
+  //   - Direct return of a literal (not trivially safe like 0, 1, -1, true, false, ""):
+  //       return 3000;
+  //       return "https://api.example.com";
+  //
+  // Safe literals that are excluded (common, non-configurable values):
+  //   Numbers: 0, 1, -1, 2, 100, null
+  //   Strings: '', "", true, false
+
+  const SAFE_NUMERIC_LITERALS = new Set(['0', '1', '-1', '2', '100', '-0']);
+  const SAFE_STRING_LITERALS = new Set(['""', "''", '``', '"true"', '"false"', "'true'", "'false'"]);
+
+  // Matches: const/let/var NAME = <literal>;  (module-level, not indented heavily)
+  // We consider lines with <=2 leading spaces as module-level.
+  const MODULE_CONST_PATTERN =
+    /^[ \t]{0,2}(?:const|let|var)\s+[A-Z_][A-Z0-9_]*\s*=\s*(.+?)\s*;?\s*$/;
+
+  // Matches: return <literal>;
+  const RETURN_LITERAL_PATTERN =
+    /^\s*return\s+(.+?)\s*;?\s*$/;
+
+  // Numeric literal (integer or float, optional sign)
+  const NUMERIC_LITERAL_RE = /^-?\d+(\.\d+)?$/;
+
+  // String literal (single, double, or template quotes — no interpolation)
+  const STRING_LITERAL_RE = /^(['"`])[^'"`]*\1$/;
+
+  for (const fileObj of files) {
+    // Skip test files — hardcoded values in tests are expected
+    if (isTestFile(fileObj.file)) continue;
+
+    for (const hunk of fileObj.hunks) {
+      for (const { lineNo, content } of hunk.lines) {
+        let literal = null;
+        let context = null;
+
+        const constMatch = MODULE_CONST_PATTERN.exec(content);
+        if (constMatch) {
+          literal = constMatch[1].trim();
+          context = 'module-level constant';
+        } else {
+          const returnMatch = RETURN_LITERAL_PATTERN.exec(content);
+          if (returnMatch) {
+            literal = returnMatch[1].trim();
+            context = 'direct return';
+          }
+        }
+
+        if (!literal) continue;
+
+        // Determine if literal is a numeric or string literal
+        const isNumeric = NUMERIC_LITERAL_RE.test(literal);
+        const isString = STRING_LITERAL_RE.test(literal);
+
+        if (!isNumeric && !isString) continue;
+
+        // Skip safe/trivial literals
+        if (isNumeric && SAFE_NUMERIC_LITERALS.has(literal)) continue;
+        if (isString && SAFE_STRING_LITERALS.has(literal)) continue;
+
+        // This is a meaningful hardcoded literal in a file modified under
+        // a spec that requires configurability/dynamic behavior.
+        const reqList = [...configurableReqs].join(', ');
+        violations.push({
+          file: fileObj.file,
+          line: lineNo,
+          tag: TAGS.HARDCODED,
+          description: `Hardcoded literal ${literal} in ${context}; spec requires configurable/dynamic values (${reqList})`,
+        });
+      }
+    }
+  }
+
+  return violations;
 }
 
 /**
