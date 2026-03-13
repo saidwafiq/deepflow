@@ -233,4 +233,4 @@ if (require.main === module) {
   process.exit(result.hard.length > 0 ? 1 : 0);
 }
 
-module.exports = { validateSpec };
+module.exports = { validateSpec, extractSection };
