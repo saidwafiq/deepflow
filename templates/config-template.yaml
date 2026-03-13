@@ -75,3 +75,17 @@ quality:
 
   # Retry flaky tests once before failing (default: true)
   test_retry_on_fail: true
+
+  # Enable L5 browser verification after tests pass (default: false)
+  # When true, deepflow will start the dev server and run visual checks
+  browser_verify: false
+
+  # Override the dev server start command for browser verification
+  # If empty, deepflow will attempt to auto-detect (e.g., "npm run dev", "yarn dev")
+  dev_command: ""
+
+  # Port that the dev server listens on (default: 3000)
+  dev_port: 3000
+
+  # Timeout in seconds to wait for the dev server to become ready (default: 30)
+  browser_timeout: 30
