@@ -14,7 +14,123 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
 const { extractSection } = require('./df-spec-lint');
+
+// ── LSP availability check (REQ-5, AC-11) ────────────────────────────────────
+
+/**
+ * Language server detection rules.
+ * Each entry maps a set of indicator files/patterns to a language server binary
+ * and its install instructions.
+ */
+const LSP_DETECTION_RULES = [
+  {
+    indicators: ['tsconfig.json'],
+    fileExtensions: ['.ts', '.tsx'],
+    binary: 'typescript-language-server',
+    installCmd: 'npm install -g typescript-language-server',
+  },
+  {
+    indicators: ['jsconfig.json', 'package.json'],
+    fileExtensions: ['.js', '.jsx', '.mjs', '.cjs'],
+    binary: 'typescript-language-server',
+    installCmd: 'npm install -g typescript-language-server',
+  },
+  {
+    indicators: ['pyrightconfig.json'],
+    fileExtensions: ['.py'],
+    binary: 'pyright',
+    installCmd: 'npm install -g pyright',
+  },
+  {
+    indicators: ['Cargo.toml'],
+    fileExtensions: ['.rs'],
+    binary: 'rust-analyzer',
+    installCmd: 'rustup component add rust-analyzer',
+  },
+  {
+    indicators: ['go.mod'],
+    fileExtensions: ['.go'],
+    binary: 'gopls',
+    installCmd: 'go install golang.org/x/tools/gopls@latest',
+  },
+];
+
+/**
+ * Detect the appropriate language server for the given project root.
+ * Checks for indicator files first, then falls back to file extensions in the diff.
+ *
+ * @param {string} projectRoot - Absolute path to the project root directory
+ * @param {string[]} diffFilePaths - List of file paths from the diff
+ * @returns {{ binary: string, installCmd: string } | null}
+ */
+function detectLanguageServer(projectRoot, diffFilePaths) {
+  for (const rule of LSP_DETECTION_RULES) {
+    // Check for indicator files in the project root
+    for (const indicator of rule.indicators) {
+      try {
+        fs.accessSync(path.join(projectRoot, indicator));
+        return { binary: rule.binary, installCmd: rule.installCmd };
+      } catch (_) {
+        // File not present, continue
+      }
+    }
+    // Check for matching file extensions in the diff
+    if (rule.fileExtensions && diffFilePaths.some((f) => rule.fileExtensions.some((ext) => f.endsWith(ext)))) {
+      return { binary: rule.binary, installCmd: rule.installCmd };
+    }
+  }
+  return null;
+}
+
+/**
+ * Check whether a binary is available on the system PATH.
+ *
+ * @param {string} binary - Binary name to check
+ * @returns {boolean}
+ */
+function isBinaryAvailable(binary) {
+  try {
+    execSync(`which ${binary}`, { stdio: 'ignore' });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Check LSP availability for the project.
+ * Auto-detects the appropriate language server based on project files and the diff,
+ * then verifies the binary is present on PATH.
+ *
+ * @param {string} projectRoot - Absolute path to the project root directory
+ * @param {string[]} diffFilePaths - List of file paths from the diff (used for extension-based detection)
+ * @returns {{ available: boolean, binary: string | null, installCmd: string | null, message: string | null }}
+ */
+function checkLspAvailability(projectRoot, diffFilePaths) {
+  const detected = detectLanguageServer(projectRoot, diffFilePaths);
+
+  if (!detected) {
+    // No language server detected for this project type — not a hard failure
+    return { available: true, binary: null, installCmd: null, message: null };
+  }
+
+  const available = isBinaryAvailable(detected.binary);
+  if (!available) {
+    return {
+      available: false,
+      binary: detected.binary,
+      installCmd: detected.installCmd,
+      message:
+        `LSP binary "${detected.binary}" not found on PATH. ` +
+        `Install it with: ${detected.installCmd}`,
+    };
+  }
+
+  return { available: true, binary: detected.binary, installCmd: null, message: null };
+}
 
 // ── Valid violation tags (REQ-7) ──────────────────────────────────────────────
 const TAGS = {
@@ -743,17 +859,30 @@ function formatOutput(results) {
  * @param {object} opts
  * @param {'interactive'|'auto'} opts.mode - 'auto' promotes advisory to hard (REQ-9)
  * @param {'bootstrap'|'spike'|'implementation'} opts.taskType - Affects which checks apply
+ * @param {string} [opts.projectRoot] - Project root for LSP detection (defaults to process.cwd())
  * @returns {{ hard: Array<{ file: string, line: number, tag: string, description: string }>,
  *             advisory: Array<{ file: string, line: number, tag: string, description: string }> }}
  */
 function checkInvariants(diff, specContent, opts = {}) {
-  const { mode = 'interactive', taskType = 'implementation' } = opts;
+  const { mode = 'interactive', taskType = 'implementation', projectRoot = process.cwd() } = opts;
 
   const hard = [];
   const advisory = [];
 
   // Parse the diff into structured file/hunk/line data
   const files = parseDiff(diff);
+
+  // ── REQ-5, AC-11: LSP availability check ────────────────────────────────
+  const diffFilePaths = files.map((f) => f.file);
+  const lspCheck = checkLspAvailability(projectRoot, diffFilePaths);
+  if (!lspCheck.available) {
+    hard.push({
+      file: 'lsp',
+      line: 0,
+      tag: 'LSP_UNAVAILABLE',
+      description: lspCheck.message,
+    });
+  }
 
   // ── Run placeholder checks (T4-T8 will fill these in) ───────────────────
   // Hard invariant checks: failures block the commit/task
@@ -869,6 +998,9 @@ if (require.main === module) {
 
 module.exports = {
   checkInvariants,
+  checkLspAvailability,
+  detectLanguageServer,
+  isBinaryAvailable,
   formatOutput,
   formatViolation,
   parseDiff,
