@@ -125,6 +125,10 @@ Run Build → Test → Typecheck → Lint (stop on first failure).
 
 **Edit scope validation** (if spec declares `edit_scope`): check `git diff HEAD~1 --name-only` against allowed globs. Violations → `git revert HEAD --no-edit`, report "Edit scope violation: {files}".
 
+**Impact completeness check** (if task has Impact block in PLAN.md):
+Compare `git diff HEAD~1 --name-only` against Impact callers/duplicates list.
+File listed but not modified → **advisory warning**: "Impact gap: {file} listed as {caller|duplicate} but not modified — verify manually". Not auto-revert (callers sometimes don't need changes), but flags the risk.
+
 **Evaluate:** All pass + no violations → commit stands. Any failure → `git revert HEAD --no-edit`.
 
 Ratchet uses ONLY pre-existing test files from `.deepflow/auto-snapshot.txt`.
@@ -179,11 +183,17 @@ STOP after committing. Do NOT merge branches, rename spec files, remove worktree
 ```
 {task_id}: {description from PLAN.md}
 Files: {target files}  Spec: {spec_name}
+{Impact block from PLAN.md — include verbatim if present}
+
+CRITICAL: If Impact lists duplicates or callers, you MUST verify each one is consistent with your changes.
+- [active] duplicates → consolidate into single source of truth (e.g., local generateYAML → use shared buildConfigData)
+- [dead] duplicates → DELETE the dead code entirely. Dead code pollutes context and causes drift.
 
 Steps:
 1. External APIs/SDKs → chub search "<library>" --json → chub get <id> --lang <lang> (skip if chub unavailable or internal code only)
-2. Implement the task
-3. Commit as feat({spec}): {description}
+2. Read ALL files in Impact before implementing — understand the full picture
+3. Implement the task, updating all impacted files
+4. Commit as feat({spec}): {description}
 
 Your ONLY job is to write code and commit. Orchestrator runs health checks after.
 ```

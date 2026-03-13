@@ -3,7 +3,7 @@
 ## Purpose
 Compare specs against codebase and past experiments. Generate prioritized tasks.
 
-**NEVER:** use EnterPlanMode, use ExitPlanMode — this command IS the planning phase; native plan mode conflicts with it
+**NEVER:** use EnterPlanMode, use ExitPlanMode — this command IS the planning phase
 
 ## Usage
 ```
@@ -17,71 +17,50 @@ Compare specs against codebase and past experiments. Generate prioritized tasks.
 
 ## Spec File States
 
-| Prefix | State | Action |
-|--------|-------|--------|
-| (none) | New | Plan this |
-| `doing-` | In progress | Skip |
-| `done-` | Completed | Skip |
+| Prefix | Action |
+|--------|--------|
+| (none) | Plan this |
+| `doing-` | Skip |
+| `done-` | Skip |
 
 ## Behavior
 
 ### 1. LOAD CONTEXT
 
 ```
-Load:
-- specs/*.md EXCLUDING doing-* and done-* (only new specs)
-- PLAN.md (if exists, for appending)
-- .deepflow/config.yaml (if exists)
-
+Load: specs/*.md (exclude doing-*/done-*), PLAN.md (if exists), .deepflow/config.yaml
 Determine source_dir from config or default to src/
 ```
 
-Run `validateSpec` on each loaded spec. Hard failures → skip that spec entirely and emit an error line. Advisory warnings → include them in plan output.
-
-If no new specs: report counts, suggest `/df:execute`.
+Run `validateSpec` on each spec. Hard failures → skip + error. Advisory → include in output.
+No new specs → report counts, suggest `/df:execute`.
 
 ### 2. CHECK PAST EXPERIMENTS (SPIKE-FIRST)
 
 **CRITICAL**: Check experiments BEFORE generating any tasks.
 
-Extract topic from spec name (fuzzy match), then:
-
 ```
 Glob .deepflow/experiments/{topic}--*
 ```
 
-**Experiment file naming:** `{topic}--{hypothesis}--{status}.md`
-Statuses: `active`, `passed`, `failed`
+File naming: `{topic}--{hypothesis}--{status}.md` (active/passed/failed)
 
 | Result | Action |
 |--------|--------|
-| `--failed.md` exists | Extract "next hypothesis" from Conclusion section |
-| `--passed.md` exists | Reference as validated pattern, can proceed to full implementation |
-| `--active.md` exists | Wait for experiment completion before planning |
-| No matches | New topic, needs initial spike |
+| `--failed.md` | Extract "next hypothesis" from Conclusion, generate spike |
+| `--passed.md` | Proceed to full implementation |
+| `--active.md` | Wait for completion |
+| No matches | New topic, generate initial spike |
 
-**Spike-First Rule**:
-- If `--failed.md` exists: Generate spike task to test the next hypothesis (from failed experiment's Conclusion)
-- If no experiments exist: Generate spike task for the core hypothesis
-- Full implementation tasks are BLOCKED until a spike validates the approach
-- Only proceed to full task generation after `--passed.md` exists
-
-See: `templates/experiment-template.md` for experiment format
+Full implementation tasks BLOCKED until spike validates. See `templates/experiment-template.md`.
 
 ### 3. DETECT PROJECT CONTEXT
 
-For existing codebases, identify:
-- Code style/conventions
-- Existing patterns (error handling, API structure)
-- Integration points
-
-Include patterns in task descriptions for agents to follow.
+Identify code style, patterns (error handling, API structure), integration points. Include in task descriptions.
 
 ### 4. ANALYZE CODEBASE
 
-Follow `templates/explore-agent.md` for spawn rules, prompt structure, and scope restrictions.
-
-Scale agent count based on codebase size:
+Follow `templates/explore-agent.md` for spawn rules and scope.
 
 | File Count | Agents |
 |------------|--------|
@@ -90,125 +69,111 @@ Scale agent count based on codebase size:
 | 100-500 | 25-40 |
 | 500+ | 50-100 (cap) |
 
-**Use `code-completeness` skill patterns** to search for:
-- Implementations matching spec requirements
-- TODO, FIXME, HACK comments
-- Stub functions, placeholder returns
-- Skipped tests, incomplete coverage
+Use `code-completeness` skill to search for: implementations matching spec requirements, TODOs/FIXMEs/HACKs, stubs, skipped tests.
+
+### 4.5. IMPACT ANALYSIS (per planned file)
+
+For each file in a task's "Files:" list, find the full blast radius.
+
+**Search for:**
+
+1. **Callers:** `grep -r "{exported_function}" --include="*.{ext}" -l` — files that import/call what's being changed
+2. **Duplicates:** Files with similar logic (same function name, same transformation). Classify:
+   - `[active]` — used in production → must consolidate
+   - `[dead]` — bypassed/unreachable → must delete
+3. **Data flow:** If file produces/transforms data, find ALL consumers of that shape across languages
+
+**Embed as `Impact:` block in each task:**
+```markdown
+- [ ] **T2**: Add new features to YAML export
+  - Files: src/utils/buildConfigData.ts
+  - Impact:
+    - Callers: src/routes/index.ts:12, src/api/handler.ts:45
+    - Duplicates:
+      - src/components/YamlViewer.tsx:19 (own generateYAML) [active — consolidate]
+      - backend/yaml_gen.go (generateYAMLFromConfig) [dead — DELETE]
+    - Data flow: buildConfigData → YamlViewer, SimControls, RoleplayPage
+  - Blocked by: T1
+```
+
+Files outside original "Files:" → add with `(impact — verify/update)`.
+Skip for spike tasks.
 
 ### 5. COMPARE & PRIORITIZE
 
-Spawn `Task(subagent_type="reasoner", model="opus")`. Reasoner maps each requirement to DONE / PARTIAL / MISSING / CONFLICT. Flag spec gaps; don't silently assume.
+Spawn `Task(subagent_type="reasoner", model="opus")`. Map each requirement to DONE / PARTIAL / MISSING / CONFLICT. Check REQ-AC alignment. Flag spec gaps.
 
-Check spec health: verify REQ-AC alignment, requirement clarity, and completeness. Note any issues (orphan ACs, vague requirements) in plan output.
-
-**Priority order:** Dependencies → Impact → Risk
+Priority: Dependencies → Impact → Risk
 
 ### 6. GENERATE SPIKE TASKS (IF NEEDED)
-
-**When to generate spike tasks:**
-1. Failed experiment exists → Test the next hypothesis
-2. No experiments exist → Test the core hypothesis
-3. Passed experiment exists → Skip to full implementation
 
 **Spike Task Format:**
 ```markdown
 - [ ] **T1** [SPIKE]: Validate {hypothesis}
   - Type: spike
   - Hypothesis: {what we're testing}
-  - Method: {minimal steps to validate}
-  - Success criteria: {how to know it passed}
+  - Method: {minimal steps}
+  - Success criteria: {measurable}
   - Time-box: 30 min
   - Files: .deepflow/experiments/{topic}--{hypothesis}--{status}.md
   - Blocked by: none
 ```
 
-**Blocking Logic:** All implementation tasks MUST have `Blocked by: T{spike}` until spike passes. If spike fails: update to `--failed.md`, DO NOT generate implementation tasks.
+All implementation tasks MUST `Blocked by: T{spike}`. Spike fails → `--failed.md`, no implementation tasks.
 
 #### Probe Diversity
 
-When generating multiple spike probes for the same problem, diversity is required to avoid confirmation bias and enable discovery of unexpected solutions.
+When generating multiple spikes for the same problem:
 
 | Requirement | Rule |
 |-------------|------|
-| Contradictory | At least 2 probes must use opposing/contradictory approaches (e.g., streaming vs buffering, in-process vs external) |
-| Naive | At least 1 probe must be a naive/simple approach without prior technical justification — enables exaptation (discovering unexpected solutions) |
-| Parallel | All probes for the same problem run simultaneously, not sequentially |
-| Scoped | Each probe is minimal — just enough to validate the hypothesis |
-| Safe to fail | Each probe runs in its own worktree; failure has zero impact on main |
+| Contradictory | ≥2 probes with opposing approaches |
+| Naive | ≥1 probe without prior technical justification |
+| Parallel | All run simultaneously |
+| Scoped | Minimal — just enough to validate |
 
-**Diversity validation step** — before outputting spike tasks, verify:
-1. Are there at least 2 probes with opposing assumptions? If not, add a contradictory probe.
-2. Is there at least 1 naive probe with no prior technical justification? If not, add one.
-3. Are all probes independent (no probe depends on another probe's result)?
+Before output, verify: ≥2 opposing probes, ≥1 naive, all independent.
 
-**Example — 3 diverse probes for a caching problem:**
-
+**Example — caching problem, 3 diverse probes:**
 ```markdown
 - [ ] **T1** [SPIKE]: Validate in-memory LRU cache
-  - Type: spike
   - Role: Contradictory-A (in-process)
-  - Hypothesis: In-memory LRU cache reduces DB queries by ≥80%
-  - Method: Implement LRU with 1000-item cap, run load test
-  - Success criteria: DB query count drops ≥80% under 100 concurrent users
-  - Blocked by: none
+  - Hypothesis: In-memory LRU reduces DB queries by ≥80%
+  - Method: LRU with 1000-item cap, load test
+  - Success criteria: DB queries drop ≥80% under 100 concurrent users
 
 - [ ] **T2** [SPIKE]: Validate Redis distributed cache
-  - Type: spike
   - Role: Contradictory-B (external, opposing T1)
-  - Hypothesis: Redis cache scales across multiple instances
-  - Method: Add Redis client, cache top 10 queries, same load test
-  - Success criteria: DB queries drop ≥80%, works across 2 app instances
-  - Blocked by: none
+  - Hypothesis: Redis scales across multiple instances
+  - Method: Redis client, cache top 10 queries, same load test
+  - Success criteria: DB queries drop ≥80%, works across 2 instances
 
-- [ ] **T3** [SPIKE]: Validate query optimization without cache (naive)
-  - Type: spike
+- [ ] **T3** [SPIKE]: Validate query optimization without cache
   - Role: Naive (no prior justification — tests if caching is even necessary)
-  - Hypothesis: Indexes + query batching alone may be sufficient
-  - Method: Add missing indexes, batch N+1 queries, same load test — no cache
+  - Hypothesis: Indexes + query batching alone may suffice
+  - Method: Add indexes, batch N+1 queries, same load test — no cache
   - Success criteria: DB queries drop ≥80% with zero cache infrastructure
-  - Blocked by: none
 ```
 
 ### 7. VALIDATE HYPOTHESES
 
-For unfamiliar APIs, ambiguous approaches, or performance-critical work: prototype in scratchpad (not committed). If assumption fails, write `.deepflow/experiments/{topic}--{hypothesis}--failed.md`. Skip for well-known patterns/simple CRUD.
+Unfamiliar APIs or performance-critical → prototype in scratchpad. Fails → write `--failed.md`. Skip for known patterns.
 
 ### 8. CLEANUP PLAN.md
 
-Before writing new tasks, prune stale sections:
+Prune stale sections: remove `done-*` sections and orphaned headers. Recalculate Summary table. Empty → recreate fresh.
 
-```
-For each ### section in PLAN.md:
-  Extract spec name from header (e.g. "doing-upload" or "done-upload")
-  If specs/done-{name}.md exists:
-    → Remove the ENTIRE section: header, tasks, execution summary, fix tasks, separators
-  If header references a spec with no matching specs/doing-*.md or specs/done-*.md:
-    → Remove it (orphaned section)
-```
+### 9. OUTPUT & RENAME
 
-Also recalculate the Summary table (specs analyzed, tasks created/completed/pending) to reflect only remaining sections.
+Append tasks grouped by `### doing-{spec-name}`. Rename `specs/feature.md` → `specs/doing-feature.md`.
 
-If PLAN.md becomes empty after cleanup, delete the file and recreate fresh.
-
-### 9. OUTPUT PLAN.md
-
-Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validation findings.
-
-### 10. RENAME SPECS
-
-`mv specs/feature.md specs/doing-feature.md`
-
-### 11. REPORT
-
-`✓ Plan generated — {n} specs, {n} tasks. Run /df:execute`
+Report: `✓ Plan generated — {n} specs, {n} tasks. Run /df:execute`
 
 ## Rules
-- **Spike-first** — Generate spike task before full implementation if no `--passed.md` experiment exists
-- **Block on spike** — Full implementation tasks MUST be blocked by spike validation
-- **Learn from failures** — Extract "next hypothesis" from failed experiments, never repeat same approach
+- **Spike-first** — No `--passed.md` → spike before implementation
+- **Block on spike** — Implementation tasks blocked until spike validates
+- **Learn from failures** — Extract next hypothesis, never repeat approach
 - **Plan only** — Do NOT implement (except quick validation prototypes)
-- **Confirm before assume** — Search code before marking "missing"
 - **One task = one logical unit** — Atomic, committable
 - Prefer existing utilities over new code; flag spec gaps
 
@@ -216,74 +181,31 @@ Append tasks grouped by `### doing-{spec-name}`. Include spec gaps and validatio
 
 | Agent | Model | Base | Scale |
 |-------|-------|------|-------|
-| Explore (search) | haiku | 10 | +1 per 20 files |
-| Reasoner (analyze) | opus | 5 | +1 per 2 specs |
+| Explore | haiku | 10 | +1 per 20 files |
+| Reasoner | opus | 5 | +1 per 2 specs |
 
-Always use the `Task` tool with explicit `subagent_type` and `model`. Do NOT use Glob/Grep/Read directly.
+Always use `Task` tool with explicit `subagent_type` and `model`.
 
 ## Example
 
-### Spike-First (No Prior Experiments)
-
 ```markdown
-# Plan
-
 ### doing-upload
 
 - [ ] **T1** [SPIKE]: Validate streaming upload approach
   - Type: spike
-  - Hypothesis: Streaming uploads will handle files >1GB without memory issues
-  - Method: Create minimal endpoint, upload 2GB file, measure memory
-  - Success criteria: Memory stays under 500MB during upload
-  - Time-box: 30 min
+  - Hypothesis: Streaming uploads handle >1GB without memory issues
+  - Success criteria: Memory <500MB during 2GB upload
   - Files: .deepflow/experiments/upload--streaming--active.md
   - Blocked by: none
 
 - [ ] **T2**: Create upload endpoint
   - Files: src/api/upload.ts
-  - Blocked by: T1 (spike must pass)
+  - Impact:
+    - Callers: src/routes/index.ts:5
+    - Duplicates: backend/legacy-upload.go [dead — DELETE]
+  - Blocked by: T1
 
 - [ ] **T3**: Add S3 service with streaming
   - Files: src/services/storage.ts
-  - Blocked by: T1 (spike must pass), T2
-```
-
-### Spike-First (After Failed Experiment)
-
-```markdown
-# Plan
-
-### doing-upload
-
-- [ ] **T1** [SPIKE]: Validate chunked upload with backpressure
-  - Type: spike
-  - Hypothesis: Adding backpressure control will prevent buffer overflow
-  - Method: Implement pause/resume on buffer threshold, test with 2GB file
-  - Success criteria: No memory spikes above 500MB
-  - Time-box: 30 min
-  - Files: .deepflow/experiments/upload--chunked-backpressure--active.md
-  - Blocked by: none
-  - Note: Previous approach failed (see upload--buffer-upload--failed.md)
-
-- [ ] **T2**: Implement chunked upload endpoint
-  - Files: src/api/upload.ts
-  - Blocked by: T1 (spike must pass)
-```
-
-### After Spike Validates (Full Implementation)
-
-```markdown
-# Plan
-
-### doing-upload
-
-- [ ] **T1**: Create upload endpoint
-  - Files: src/api/upload.ts
-  - Blocked by: none
-  - Note: Use streaming (validated in upload--streaming--passed.md)
-
-- [ ] **T2**: Add S3 service with streaming
-  - Files: src/services/storage.ts
-  - Blocked by: T1
-  - Avoid: Direct buffer upload failed (see upload--buffer-upload--failed.md)
+  - Blocked by: T1, T2
 ```
