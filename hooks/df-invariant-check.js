@@ -81,6 +81,22 @@ function parseDiff(diff) {
   return files;
 }
 
+// ── Task-type helpers (REQ-8) ─────────────────────────────────────────────────
+
+/**
+ * Classify a file path as a test file or a production file.
+ *
+ * @param {string} filePath
+ * @returns {boolean}
+ */
+function isTestFile(filePath) {
+  return (
+    /\.(test|spec)\.[jt]sx?$/.test(filePath) ||
+    /^tests?\//.test(filePath) ||
+    /\/__tests__\//.test(filePath)
+  );
+}
+
 // ── Placeholder check functions (T4-T8 will implement these) ─────────────────
 //
 // Each check function receives:
@@ -101,7 +117,20 @@ function parseDiff(diff) {
  * @returns {Array<{ file: string, line: number, tag: string, description: string }>}
  */
 function checkMocks(files, specContent, taskType) { // eslint-disable-line no-unused-vars
-  // TODO (T4): Implement mock/stub detection
+  // REQ-8: taskType filtering
+  //   bootstrap: skip mock detection entirely for test files
+  //   spike: only check production files (skip test files)
+  //   implementation: check all files
+  let filesToCheck = files;
+  if (taskType === 'bootstrap') {
+    filesToCheck = files.filter((f) => !isTestFile(f.file));
+  } else if (taskType === 'spike') {
+    filesToCheck = files.filter((f) => !isTestFile(f.file));
+  }
+  // filesToCheck is available for T7 to iterate over
+  void filesToCheck;
+
+  // TODO (T7): Implement mock/stub detection
   // Suggested approach:
   //   - Scan added lines for patterns: /\b(TODO|FIXME|HACK|XXX)\b/i
   //   - Detect console.log / console.error left in production paths
@@ -119,7 +148,15 @@ function checkMocks(files, specContent, taskType) { // eslint-disable-line no-un
  * @param {string} taskType - Task type
  * @returns {Array<{ file: string, line: number, tag: string, description: string }>}
  */
-function checkMissingTests(files, specContent, taskType) { // eslint-disable-line no-unused-vars
+function checkMissingTests(files, specContent, taskType) {
+  // REQ-8: taskType filtering
+  //   spike: skip entirely (spikes don't require test coverage)
+  //   bootstrap: skip (bootstrapping doesn't need tests yet)
+  //   implementation: enforce
+  if (taskType === 'spike' || taskType === 'bootstrap') {
+    return [];
+  }
+
   const violations = [];
 
   // Extract the Requirements section and collect all REQ-N identifiers
@@ -167,7 +204,10 @@ function checkMissingTests(files, specContent, taskType) { // eslint-disable-lin
  * @param {string} taskType - Task type
  * @returns {Array<{ file: string, line: number, tag: string, description: string }>}
  */
-function checkStubsAndTodos(files, specContent, taskType) { // eslint-disable-line no-unused-vars
+function checkStubsAndTodos(files, specContent, taskType) {
+  // REQ-8: taskType filtering
+  //   spike: skip TODO/FIXME/HACK detection (spikes are exploratory)
+  //   implementation: all checks enforced
   const violations = [];
 
   const stubReturnPattern = /\breturn\s+(null|undefined|\[\]|\{\})\s*;?\s*$/;
@@ -177,7 +217,7 @@ function checkStubsAndTodos(files, specContent, taskType) { // eslint-disable-li
   for (const fileEntry of files) {
     for (const hunk of fileEntry.hunks) {
       for (const { lineNo, content } of hunk.lines) {
-        if (todoCommentPattern.test(content)) {
+        if (taskType !== 'spike' && todoCommentPattern.test(content)) {
           violations.push({
             file: fileEntry.file,
             line: lineNo,
