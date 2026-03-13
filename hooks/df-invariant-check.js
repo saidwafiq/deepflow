@@ -158,6 +158,55 @@ function checkMissingTests(files, specContent, taskType) { // eslint-disable-lin
 }
 
 /**
+ * Check for stub returns and TODO/FIXME/HACK markers left in production code.
+ * Detects patterns like `return null`, `return []`, `throw new Error('not implemented')`,
+ * and comment markers that indicate incomplete work.
+ *
+ * @param {Array} files - Parsed diff files
+ * @param {string} specContent - Raw spec markdown
+ * @param {string} taskType - Task type
+ * @returns {Array<{ file: string, line: number, tag: string, description: string }>}
+ */
+function checkStubsAndTodos(files, specContent, taskType) { // eslint-disable-line no-unused-vars
+  const violations = [];
+
+  const stubReturnPattern = /\breturn\s+(null|undefined|\[\]|\{\})\s*;?\s*$/;
+  const notImplementedPattern = /throw\s+new\s+Error\s*\(\s*['"]not implemented['"]\s*\)/i;
+  const todoCommentPattern = /\/\/\s*(TODO|FIXME|HACK)\b/i;
+
+  for (const fileEntry of files) {
+    for (const hunk of fileEntry.hunks) {
+      for (const { lineNo, content } of hunk.lines) {
+        if (todoCommentPattern.test(content)) {
+          violations.push({
+            file: fileEntry.file,
+            line: lineNo,
+            tag: TAGS.STUB,
+            description: `TODO/FIXME/HACK comment found: ${content.trim()}`,
+          });
+        } else if (notImplementedPattern.test(content)) {
+          violations.push({
+            file: fileEntry.file,
+            line: lineNo,
+            tag: TAGS.STUB,
+            description: `Stub return found: ${content.trim()}`,
+          });
+        } else if (stubReturnPattern.test(content)) {
+          violations.push({
+            file: fileEntry.file,
+            line: lineNo,
+            tag: TAGS.STUB,
+            description: `Stub return found: ${content.trim()}`,
+          });
+        }
+      }
+    }
+  }
+
+  return violations;
+}
+
+/**
  * T6 placeholder: Check for hardcoded values that should be configurable.
  * Detects magic numbers, hardcoded URLs, hardcoded credentials patterns, etc.
  *
@@ -285,6 +334,9 @@ function checkInvariants(diff, specContent, opts = {}) {
   // Hard invariant checks: failures block the commit/task
   const mockViolations = checkMocks(files, specContent, taskType);
   hard.push(...mockViolations);
+
+  const stubViolations = checkStubsAndTodos(files, specContent, taskType);
+  hard.push(...stubViolations);
 
   const phantomViolations = checkPhantoms(files, specContent, taskType);
   hard.push(...phantomViolations);
