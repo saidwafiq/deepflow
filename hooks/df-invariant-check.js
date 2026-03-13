@@ -111,8 +111,8 @@ function checkMocks(files, specContent, taskType) { // eslint-disable-line no-un
 }
 
 /**
- * T5 placeholder: Check for missing test coverage on changed code.
- * Verifies that non-test files with added lines have a corresponding test file change.
+ * Check that every REQ-N identifier in the spec has at least one mention
+ * in the added lines of a test file in the diff (REQ-2).
  *
  * @param {Array} files - Parsed diff files
  * @param {string} specContent - Raw spec markdown
@@ -120,13 +120,41 @@ function checkMocks(files, specContent, taskType) { // eslint-disable-line no-un
  * @returns {Array<{ file: string, line: number, tag: string, description: string }>}
  */
 function checkMissingTests(files, specContent, taskType) { // eslint-disable-line no-unused-vars
-  // TODO (T5): Implement missing-test detection
-  // Suggested approach:
-  //   - Skip if taskType === 'spike' (spikes don't require tests)
-  //   - For each changed non-test source file (not *.test.js / *.spec.js / test/**),
-  //     check whether a corresponding test file also appears in the diff
-  //   - If no test file found, emit { file, line: 1, tag: TAGS.MISSING_TEST, description }
-  return [];
+  const violations = [];
+
+  // Extract the Requirements section and collect all REQ-N identifiers
+  const reqSection = extractSection(specContent, 'Requirements');
+  if (!reqSection) return violations;
+
+  const reqPattern = /REQ-\d+[a-z]?/g;
+  const allReqIds = new Set(reqSection.match(reqPattern) || []);
+  if (allReqIds.size === 0) return violations;
+
+  // Identify test files in the diff
+  const isTestFile = (filePath) =>
+    /\.test\.js$/.test(filePath) ||
+    /\.spec\.js$/.test(filePath) ||
+    /(^|\/)test(s)?\//.test(filePath);
+
+  // Collect all added-line content from test files in the diff
+  const testFileContent = files
+    .filter((f) => isTestFile(f.file))
+    .flatMap((f) => f.hunks.flatMap((h) => h.lines.map((l) => l.content)))
+    .join('\n');
+
+  // Emit a violation for each REQ-N that has no mention in any test file's added lines
+  for (const reqId of allReqIds) {
+    if (!testFileContent.includes(reqId)) {
+      violations.push({
+        file: 'spec',
+        line: 1,
+        tag: TAGS.MISSING_TEST,
+        description: `${reqId} has no test reference in diff`,
+      });
+    }
+  }
+
+  return violations;
 }
 
 /**
@@ -264,9 +292,9 @@ function checkInvariants(diff, specContent, opts = {}) {
   const scopeGapViolations = checkScopeGaps(files, specContent, taskType);
   hard.push(...scopeGapViolations);
 
-  // Advisory checks: warnings in interactive mode, escalated in auto mode
+  // Hard invariant: REQ-2 requires hard fail when any REQ-N has zero test references
   const missingTestViolations = checkMissingTests(files, specContent, taskType);
-  advisory.push(...missingTestViolations);
+  hard.push(...missingTestViolations);
 
   const hardcodedViolations = checkHardcoded(files, specContent, taskType);
   advisory.push(...hardcodedViolations);
