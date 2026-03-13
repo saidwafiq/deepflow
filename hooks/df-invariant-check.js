@@ -127,16 +127,42 @@ function checkMocks(files, specContent, taskType) { // eslint-disable-line no-un
   } else if (taskType === 'spike') {
     filesToCheck = files.filter((f) => !isTestFile(f.file));
   }
-  // filesToCheck is available for T7 to iterate over
-  void filesToCheck;
 
-  // TODO (T7): Implement mock/stub detection
-  // Suggested approach:
-  //   - Scan added lines for patterns: /\b(TODO|FIXME|HACK|XXX)\b/i
-  //   - Detect console.log / console.error left in production paths
-  //   - Detect jest.mock(), sinon.stub(), mock(), stub() calls outside test files
-  //   - Return { file, line, tag: TAGS.MOCK, description } for each hit
-  return [];
+  // REQ-1: Detect mock usage patterns in production (non-test) files
+  const MOCK_PATTERNS = [
+    /\bjest\.fn\s*\(/,
+    /\bvi\.fn\s*\(/,
+    /\bsinon\.stub\s*\(/,
+    /=\s*mock\s*\(/,
+    /\bjest\.mock\s*\(/,
+    /\bvi\.mock\s*\(/,
+    /\bsinon\.mock\s*\(/,
+    /\bjest\.spyOn\s*\(/,
+    /\bcreateMock\s*\(/,
+    /\bmockImplementation\s*\(/,
+  ];
+
+  const violations = [];
+
+  for (const fileObj of filesToCheck) {
+    for (const hunk of fileObj.hunks) {
+      for (const addedLine of hunk.lines) {
+        for (const pattern of MOCK_PATTERNS) {
+          if (pattern.test(addedLine.content)) {
+            violations.push({
+              file: fileObj.file,
+              line: addedLine.lineNo,
+              tag: TAGS.MOCK,
+              description: `Mock pattern found: ${pattern}`,
+            });
+            break; // Only report one violation per line
+          }
+        }
+      }
+    }
+  }
+
+  return violations;
 }
 
 /**
