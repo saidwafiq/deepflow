@@ -282,8 +282,91 @@ function checkMocks(files, specContent, taskType) { // eslint-disable-line no-un
 }
 
 /**
+ * Assertion patterns used to count meaningful assertions in test code.
+ * Covers Jest, Chai, Node assert, and other common assertion styles.
+ */
+const ASSERTION_PATTERNS = [
+  /\bexpect\s*\(/,
+  /\bassert\s*\(/,
+  /\bassert\./,
+  /\bassert_eq\s*\(/,
+  /\bassertEqual\s*\(/,
+  /\bassertThat\s*\(/,
+  /\bshould\./,
+  /\.should\b/,
+  /\.to\./,
+  /\.toBe\s*\(/,
+  /\.toEqual\s*\(/,
+  /\.toHave\w*\s*\(/,
+  /\.toContain\s*\(/,
+  /\.toThrow\s*\(/,
+  /\.toMatch\s*\(/,
+];
+
+/**
+ * Count assertion calls in an array of source lines.
+ * Each line is checked against all ASSERTION_PATTERNS; a line may only count once.
+ *
+ * @param {string[]} lines - Source lines to scan
+ * @returns {number} Total number of lines containing at least one assertion
+ */
+function countAssertions(lines) {
+  let count = 0;
+  for (const line of lines) {
+    if (ASSERTION_PATTERNS.some((p) => p.test(line))) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * Extract the lines belonging to test blocks (describe/it/test) that mention a
+ * given REQ-N identifier from a flat array of source lines.
+ *
+ * Strategy: find every line that contains the reqId, then walk outward to capture
+ * the surrounding block delimited by matching braces.  We keep a simple brace-depth
+ * counter so nested blocks are included.
+ *
+ * @param {string[]} lines - All source lines (added lines from test files)
+ * @param {string} reqId - e.g. "REQ-3"
+ * @returns {string[]} Lines that are part of blocks mentioning the reqId
+ */
+function extractReqTestBlockLines(lines, reqId) {
+  const result = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].includes(reqId)) continue;
+
+    // Walk backwards to find the opening of the nearest enclosing describe/it/test block
+    let blockStart = i;
+    for (let j = i; j >= 0; j--) {
+      if (/\b(describe|it|test)\s*\(/.test(lines[j])) {
+        blockStart = j;
+        break;
+      }
+    }
+
+    // Walk forward from blockStart, tracking brace depth to find the end of the block
+    let depth = 0;
+    let started = false;
+    for (let k = blockStart; k < lines.length; k++) {
+      for (const ch of lines[k]) {
+        if (ch === '{') { depth++; started = true; }
+        else if (ch === '}') { depth--; }
+      }
+      result.push(lines[k]);
+      if (started && depth === 0) break;
+    }
+  }
+
+  return result;
+}
+
+/**
  * Check that every REQ-N identifier in the spec has at least one mention
- * in the added lines of a test file in the diff (REQ-2).
+ * in the added lines of a test file in the diff (REQ-2), and that those test
+ * references include at least 2 assertion calls (AC-5).
  *
  * @param {Array} files - Parsed diff files
  * @param {string} specContent - Raw spec markdown
@@ -310,26 +393,38 @@ function checkMissingTests(files, specContent, taskType) {
   if (allReqIds.size === 0) return violations;
 
   // Identify test files in the diff
-  const isTestFile = (filePath) =>
+  const isTestFilePath = (filePath) =>
     /\.test\.js$/.test(filePath) ||
     /\.spec\.js$/.test(filePath) ||
     /(^|\/)test(s)?\//.test(filePath);
 
-  // Collect all added-line content from test files in the diff
-  const testFileContent = files
-    .filter((f) => isTestFile(f.file))
-    .flatMap((f) => f.hunks.flatMap((h) => h.lines.map((l) => l.content)))
-    .join('\n');
+  // Collect added lines (with file context) from test files in the diff
+  const testFiles = files.filter((f) => isTestFilePath(f.file));
+  const allTestLines = testFiles.flatMap((f) => f.hunks.flatMap((h) => h.lines.map((l) => l.content)));
+  const testFileContent = allTestLines.join('\n');
 
-  // Emit a violation for each REQ-N that has no mention in any test file's added lines
+  // For each REQ-N: check existence then assertion count
   for (const reqId of allReqIds) {
     if (!testFileContent.includes(reqId)) {
+      // Zero test references — existing behavior
       violations.push({
         file: 'spec',
         line: 1,
         tag: TAGS.MISSING_TEST,
         description: `${reqId} has no test reference in diff`,
       });
+    } else {
+      // Has at least one test reference — count assertions in the relevant test blocks
+      const blockLines = extractReqTestBlockLines(allTestLines, reqId);
+      const assertionCount = countAssertions(blockLines);
+      if (assertionCount < 2) {
+        violations.push({
+          file: 'spec',
+          line: 1,
+          tag: TAGS.MISSING_TEST,
+          description: `${reqId} has test reference but only ${assertionCount} assertion(s) (minimum 2 required)`,
+        });
+      }
     }
   }
 
