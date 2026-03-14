@@ -135,18 +135,75 @@ Run AFTER L0 passes and L1-L2 complete. Run even if L1-L2 found issues.
 
 **Step 1: Detect frontend framework** (config override always wins):
 
-If `.deepflow/config.yaml` has `quality.browser_check: false` → skip L5 entirely (L5 — no frontend).
-If `.deepflow/config.yaml` has `quality.frontend_framework` → use that value.
-Otherwise auto-detect from `package.json` dependencies (first match wins):
+```bash
+BROWSER_VERIFY=$(yq '.quality.browser_verify' .deepflow/config.yaml 2>/dev/null)
 
-| Dependency | Framework |
-|------------|-----------|
+if [ "${BROWSER_VERIFY}" = "false" ]; then
+  # Explicitly disabled — skip L5 unconditionally
+  echo "L5 — (no frontend)"
+  L5_RESULT="skipped-no-frontend"
+elif [ "${BROWSER_VERIFY}" = "true" ]; then
+  # Explicitly enabled — proceed even without frontend deps
+  FRONTEND_DETECTED=true
+  FRONTEND_FRAMEWORK="configured"
+else
+  # Auto-detect from package.json (both dependencies and devDependencies)
+  FRONTEND_DETECTED=false
+  FRONTEND_FRAMEWORK=""
+
+  if [ -f package.json ]; then
+    # Check for React / Next.js
+    if jq -e '(.dependencies + (.devDependencies // {})) | keys[] | select(. == "react" or . == "react-dom" or . == "next")' package.json >/dev/null 2>&1; then
+      FRONTEND_DETECTED=true
+      # Prefer Next.js label when next is present
+      if jq -e '(.dependencies + (.devDependencies // {}))["next"]' package.json >/dev/null 2>&1; then
+        FRONTEND_FRAMEWORK="Next.js"
+      else
+        FRONTEND_FRAMEWORK="React"
+      fi
+    # Check for Nuxt / Vue
+    elif jq -e '(.dependencies + (.devDependencies // {})) | keys[] | select(. == "vue" or . == "nuxt" or startswith("@vue/"))' package.json >/dev/null 2>&1; then
+      FRONTEND_DETECTED=true
+      if jq -e '(.dependencies + (.devDependencies // {}))["nuxt"]' package.json >/dev/null 2>&1; then
+        FRONTEND_FRAMEWORK="Nuxt"
+      else
+        FRONTEND_FRAMEWORK="Vue"
+      fi
+    # Check for Svelte / SvelteKit
+    elif jq -e '(.dependencies + (.devDependencies // {})) | keys[] | select(. == "svelte" or startswith("@sveltejs/"))' package.json >/dev/null 2>&1; then
+      FRONTEND_DETECTED=true
+      if jq -e '(.dependencies + (.devDependencies // {}))["@sveltejs/kit"]' package.json >/dev/null 2>&1; then
+        FRONTEND_FRAMEWORK="SvelteKit"
+      else
+        FRONTEND_FRAMEWORK="Svelte"
+      fi
+    fi
+  fi
+
+  if [ "${FRONTEND_DETECTED}" = "false" ]; then
+    echo "L5 — (no frontend)"
+    L5_RESULT="skipped-no-frontend"
+  fi
+fi
+```
+
+Packages checked in both `dependencies` and `devDependencies`:
+
+| Package(s) | Detected Framework |
+|------------|--------------------|
 | `next` | Next.js |
-| `react` | React |
-| `vue` | Vue |
-| `svelte` | Svelte |
+| `react`, `react-dom` | React |
+| `nuxt` | Nuxt |
+| `vue`, `@vue/*` | Vue |
+| `@sveltejs/kit` | SvelteKit |
+| `svelte`, `@sveltejs/*` | Svelte |
 
-No frontend deps found and no config override → L5 — (no frontend), skip all remaining L5 steps.
+Config key `quality.browser_verify`:
+- `false` → always skip L5, output `L5 — (no frontend)`, even if frontend deps are present
+- `true` → always run L5, even if no frontend deps detected
+- absent → auto-detect from package.json as above
+
+No frontend deps found and `quality.browser_verify` not set → output `L5 — (no frontend)`, skip all remaining L5 steps.
 
 **Step 2: Dev server lifecycle**
 
