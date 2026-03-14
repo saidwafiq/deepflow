@@ -323,6 +323,41 @@ ASSERTIONS=$(parse_yaml_block "browser_assertions" PLAN.md)
 
 If no `browser_assertions` block found for the spec → L5 — (no assertions), skip Playwright step.
 
+**Step 3.5: Playwright browser auto-install**
+
+Before launching Playwright, verify the Chromium browser binary is available. Run this check once per session; cache the result to avoid repeated installs.
+
+```bash
+# Marker file path — presence means Playwright Chromium was verified this session
+PW_MARKER="${TMPDIR:-/tmp}/.deepflow-pw-chromium-ok"
+
+if [ ! -f "${PW_MARKER}" ]; then
+  # Dry-run to detect whether the browser binary is already installed
+  if ! npx --yes playwright install --dry-run chromium 2>&1 | grep -q "chromium.*already installed"; then
+    echo "ℹ L5: Playwright Chromium not found — installing (one-time setup)..."
+    if npx --yes playwright install chromium 2>&1; then
+      echo "✓ L5: Playwright Chromium installed successfully."
+      touch "${PW_MARKER}"
+    else
+      echo "✗ L5 FAIL: Playwright Chromium install failed. Browser verification skipped."
+      L5_RESULT="skipped-install-failed"
+      # Skip the remaining L5 steps for this run
+    fi
+  else
+    # Already installed — cache for this session
+    touch "${PW_MARKER}"
+  fi
+fi
+
+# If install failed, skip Playwright launch and jump to L5 outcome reporting
+if [ "${L5_RESULT}" = "skipped-install-failed" ]; then
+  # No assertions can be evaluated — treat as a non-blocking skip with error notice
+  : # fall through to report section
+fi
+```
+
+Skip Steps 4–6 when `L5_RESULT="skipped-install-failed"`.
+
 **Step 4: Playwright verification**
 
 Launch Chromium headlessly via Playwright and evaluate each assertion deterministically — no LLM judgment:
@@ -396,6 +431,7 @@ On first failure, retry once from Step 4 (re-navigate and re-evaluate all assert
 - L5 ✗ — assertions failed (both attempts), fix tasks added
 - L5 — (no frontend) — no frontend deps detected and no config override
 - L5 — (no assertions) — frontend detected but no `browser_assertions` in PLAN.md
+- L5 ✗ (install failed) — Playwright Chromium install failed; browser verification skipped for this run
 
 ### 3. GENERATE REPORT
 
