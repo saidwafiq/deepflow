@@ -50,6 +50,25 @@ quality:
   test_retry_on_fail: true   # re-run failed tests once (flaky detection)
 ```
 
+#### Browser verification
+
+Controls L5 browser verification, which launches a dev server and checks the UI in a headless browser after implementation. Automatically enabled when frontend dependencies (e.g. React, Vue, Next.js) are detected.
+
+```yaml
+quality:
+  browser_verify: true        # true = always enable, false = always disable, absent = auto-detect
+  dev_command: "npm run dev"  # override auto-detected dev server command
+  dev_port: 3000              # port the dev server listens on (default: 3000)
+  browser_timeout: 30         # seconds to wait for HTTP 200 before failing (default: 30)
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `browser_verify` | bool | auto-detect | `true` forces browser verification on; `false` disables it even when frontend deps are detected; omit to let deepflow decide |
+| `dev_command` | string | from `package.json` scripts.dev | Command used to start the dev server |
+| `dev_port` | number | `3000` | Port the dev server binds to |
+| `browser_timeout` | number | `30` | Seconds to wait for the dev server to return HTTP 200 before marking verification as failed |
+
 ### worktree
 
 ```yaml
