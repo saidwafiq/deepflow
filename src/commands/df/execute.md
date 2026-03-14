@@ -259,7 +259,7 @@ When all tasks done for a `doing-*` spec:
 ## Skills & Agents
 
 - Skill: `atomic-commits` — Clean commit protocol
-- Skill: `context-hub` — Fetch external API docs before coding
+- Skill: `browse-fetch` — Fetch live web pages and external API docs via browser before coding
 
 | Agent | subagent_type | Purpose |
 |-------|---------------|---------|

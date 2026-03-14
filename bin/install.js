@@ -184,7 +184,7 @@ async function main() {
   console.log('');
   console.log(`Installed to ${c.cyan}${CLAUDE_DIR}${c.reset}:`);
   console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:auto, /df:note, /df:resume, /df:update');
-  console.log('  skills/          — gap-discovery, atomic-commits, code-completeness, context-hub, browse-verify');
+  console.log('  skills/          — gap-discovery, atomic-commits, code-completeness, browse-fetch, browse-verify');
   console.log('  agents/          — reasoner (/df:auto — autonomous execution via /loop)');
   if (level === 'global') {
     console.log('  hooks/           — statusline, update checker, invariant checker');
@@ -469,7 +469,7 @@ async function uninstall() {
     'skills/atomic-commits',
     'skills/code-completeness',
     'skills/gap-discovery',
-    'skills/context-hub',
+    'skills/browse-fetch',
     'skills/browse-verify',
     'agents/reasoner.md'
   ];
