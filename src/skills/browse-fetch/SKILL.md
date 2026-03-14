@@ -29,8 +29,8 @@ This protocol is the reusable foundation for all browser-based skills (browse-fe
 Before launching, verify Playwright is available:
 
 ```bash
-# Prefer bun if available, fall back to node
-if which bun > /dev/null 2>&1; then RUNTIME=bun; else RUNTIME=node; fi
+# Prefer Node.js; fall back to Bun
+if which node > /dev/null 2>&1; then RUNTIME=node; elif which bun > /dev/null 2>&1; then RUNTIME=bun; else echo "Error: neither node nor bun found" && exit 1; fi
 
 $RUNTIME -e "require('playwright')" 2>/dev/null \
   || npx --yes playwright install chromium --with-deps 2>&1 | tail -5
@@ -41,8 +41,8 @@ If installation fails, fall back to WebFetch (see Fallback section below).
 ### 2. Launch Command
 
 ```bash
-# Detect runtime
-if which bun > /dev/null 2>&1; then RUNTIME=bun; else RUNTIME=node; fi
+# Detect runtime — prefer Node.js per decision
+if which node > /dev/null 2>&1; then RUNTIME=node; elif which bun > /dev/null 2>&1; then RUNTIME=bun; else echo "Error: neither node nor bun found" && exit 1; fi
 
 $RUNTIME -e "
 const { chromium } = require('playwright');
@@ -74,13 +74,100 @@ await page.waitForTimeout(1500);
 
 ### 4. Content Extraction
 
-Extract the main readable text, not raw HTML:
+Extract content as **structured Markdown** optimized for LLM consumption (not raw HTML or flat text).
 
 ```js
-// Primary: semantic content containers
-let text = await page.innerText('main, article, [role="main"]').catch(() => '');
+// Convert DOM to Markdown inside the browser context — zero dependencies
+let text = await page.evaluate(() => {
+  // Remove noise elements
+  const noise = 'nav, footer, header, aside, script, style, noscript, svg, [role="navigation"], [role="banner"], [role="contentinfo"], .cookie-banner, #cookie-consent';
+  document.querySelectorAll(noise).forEach(el => el.remove());
 
-// Fallback: full body text
+  // Pick main content container
+  const root = document.querySelector('main, article, [role="main"]') || document.body;
+
+  function md(node, listDepth = 0) {
+    if (node.nodeType === 3) return node.textContent;
+    if (node.nodeType !== 1) return '';
+    const tag = node.tagName.toLowerCase();
+    const children = () => Array.from(node.childNodes).map(c => md(c, listDepth)).join('');
+
+    // Skip hidden elements
+    if (node.getAttribute('aria-hidden') === 'true' || node.hidden) return '';
+
+    switch (tag) {
+      case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6': {
+        const level = '#'.repeat(parseInt(tag[1]));
+        const text = node.textContent.trim();
+        return text ? '\n\n' + level + ' ' + text + '\n\n' : '';
+      }
+      case 'p': return '\n\n' + children().trim() + '\n\n';
+      case 'br': return '\n';
+      case 'hr': return '\n\n---\n\n';
+      case 'strong': case 'b': { const t = children().trim(); return t ? '**' + t + '**' : ''; }
+      case 'em': case 'i': { const t = children().trim(); return t ? '*' + t + '*' : ''; }
+      case 'code': {
+        const t = node.textContent;
+        return node.parentElement && node.parentElement.tagName.toLowerCase() === 'pre' ? t : '`' + t + '`';
+      }
+      case 'pre': {
+        const code = node.querySelector('code');
+        const lang = code ? (code.className.match(/language-(\w+)/)||[])[1] || '' : '';
+        const t = (code || node).textContent.trim();
+        return '\n\n```' + lang + '\n' + t + '\n```\n\n';
+      }
+      case 'a': {
+        const href = node.getAttribute('href');
+        const t = children().trim();
+        return (href && t && !href.startsWith('#')) ? '[' + t + '](' + href + ')' : t;
+      }
+      case 'img': {
+        const alt = node.getAttribute('alt') || '';
+        return alt ? '[image: ' + alt + ']' : '';
+      }
+      case 'ul': case 'ol': return '\n\n' + children() + '\n';
+      case 'li': {
+        const indent = '  '.repeat(listDepth);
+        const bullet = node.parentElement && node.parentElement.tagName.toLowerCase() === 'ol'
+          ? (Array.from(node.parentElement.children).indexOf(node) + 1) + '. '
+          : '- ';
+        const content = Array.from(node.childNodes).map(c => {
+          const t = c.tagName && (c.tagName.toLowerCase() === 'ul' || c.tagName.toLowerCase() === 'ol')
+            ? md(c, listDepth + 1) : md(c, listDepth);
+          return t;
+        }).join('').trim();
+        return indent + bullet + content + '\n';
+      }
+      case 'table': {
+        const rows = Array.from(node.querySelectorAll('tr'));
+        if (!rows.length) return '';
+        const matrix = rows.map(r => Array.from(r.querySelectorAll('th, td')).map(c => c.textContent.trim()));
+        const cols = Math.max(...matrix.map(r => r.length));
+        const widths = Array.from({length: cols}, (_, i) => Math.max(...matrix.map(r => (r[i]||'').length), 3));
+        let out = '\n\n';
+        matrix.forEach((row, ri) => {
+          out += '| ' + Array.from({length: cols}, (_, i) => (row[i]||'').padEnd(widths[i])).join(' | ') + ' |\n';
+          if (ri === 0) out += '| ' + widths.map(w => '-'.repeat(w)).join(' | ') + ' |\n';
+        });
+        return out + '\n';
+      }
+      case 'blockquote': return '\n\n> ' + children().trim().replace(/\n/g, '\n> ') + '\n\n';
+      case 'dl': return '\n\n' + children() + '\n';
+      case 'dt': return '**' + children().trim() + '**\n';
+      case 'dd': return ': ' + children().trim() + '\n';
+      case 'div': case 'section': case 'span': case 'figure': case 'figcaption':
+        return children();
+      default: return children();
+    }
+  }
+
+  let result = md(root);
+  // Collapse excessive whitespace
+  result = result.replace(/\n{3,}/g, '\n\n').trim();
+  return result;
+});
+
+// Fallback if extraction is too short
 if (!text || text.trim().length < 100) {
   text = await page.innerText('body').catch(() => '');
 }
@@ -134,11 +221,13 @@ await browser.close();
 
 ## Fetch Workflow
 
-**Goal:** retrieve and return the text content of a single URL.
+**Goal:** retrieve and return structured Markdown content of a single URL.
+
+The full inline script uses `page.evaluate()` to convert DOM → Markdown inside the browser (zero Node dependencies). Adapt the URL per query.
 
 ```bash
-# Full inline script — adapt URL and selector per query
-if which bun > /dev/null 2>&1; then RUNTIME=bun; else RUNTIME=node; fi
+# Full inline script — adapt URL per query
+if which node > /dev/null 2>&1; then RUNTIME=node; elif which bun > /dev/null 2>&1; then RUNTIME=bun; else echo "Error: neither node nor bun found" && exit 1; fi
 
 $RUNTIME -e "
 const { chromium } = require('playwright');
@@ -157,14 +246,83 @@ const { chromium } = require('playwright');
     await page.waitForTimeout(1500);
 
     const title = await page.title();
-    const url   = page.url();
+    const url = page.url();
 
     if (/sign.?in|log.?in|auth/i.test(title) || url.includes('/login')) {
       console.log('[browse-fetch] Blocked by login wall at ' + url);
       return;
     }
 
-    let text = await page.innerText('main, article, [role=\"main\"]').catch(() => '');
+    let text = await page.evaluate(() => {
+      const noise = 'nav, footer, header, aside, script, style, noscript, svg, [role=\"navigation\"], [role=\"banner\"], [role=\"contentinfo\"], .cookie-banner, #cookie-consent';
+      document.querySelectorAll(noise).forEach(el => el.remove());
+      const root = document.querySelector('main, article, [role=\"main\"]') || document.body;
+
+      function md(node, listDepth) {
+        listDepth = listDepth || 0;
+        if (node.nodeType === 3) return node.textContent;
+        if (node.nodeType !== 1) return '';
+        var tag = node.tagName.toLowerCase();
+        var kids = function() { return Array.from(node.childNodes).map(function(c) { return md(c, listDepth); }).join(''); };
+        if (node.getAttribute('aria-hidden') === 'true' || node.hidden) return '';
+        switch (tag) {
+          case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6':
+            var level = '#'.repeat(parseInt(tag[1]));
+            var t = node.textContent.trim();
+            return t ? '\\n\\n' + level + ' ' + t + '\\n\\n' : '';
+          case 'p': return '\\n\\n' + kids().trim() + '\\n\\n';
+          case 'br': return '\\n';
+          case 'hr': return '\\n\\n---\\n\\n';
+          case 'strong': case 'b': var s = kids().trim(); return s ? '**' + s + '**' : '';
+          case 'em': case 'i': var e = kids().trim(); return e ? '*' + e + '*' : '';
+          case 'code':
+            var ct = node.textContent;
+            return node.parentElement && node.parentElement.tagName.toLowerCase() === 'pre' ? ct : '\`' + ct + '\`';
+          case 'pre':
+            var codeEl = node.querySelector('code');
+            var lang = codeEl ? ((codeEl.className.match(/language-(\\w+)/) || [])[1] || '') : '';
+            var pt = (codeEl || node).textContent.trim();
+            return '\\n\\n\`\`\`' + lang + '\\n' + pt + '\\n\`\`\`\\n\\n';
+          case 'a':
+            var href = node.getAttribute('href');
+            var at = kids().trim();
+            return (href && at && !href.startsWith('#')) ? '[' + at + '](' + href + ')' : at;
+          case 'img':
+            var alt = node.getAttribute('alt') || '';
+            return alt ? '[image: ' + alt + ']' : '';
+          case 'ul': case 'ol': return '\\n\\n' + kids() + '\\n';
+          case 'li':
+            var indent = '  '.repeat(listDepth);
+            var bullet = node.parentElement && node.parentElement.tagName.toLowerCase() === 'ol'
+              ? (Array.from(node.parentElement.children).indexOf(node) + 1) + '. ' : '- ';
+            var content = Array.from(node.childNodes).map(function(c) {
+              var tg = c.tagName && c.tagName.toLowerCase();
+              return (tg === 'ul' || tg === 'ol') ? md(c, listDepth + 1) : md(c, listDepth);
+            }).join('').trim();
+            return indent + bullet + content + '\\n';
+          case 'table':
+            var rows = Array.from(node.querySelectorAll('tr'));
+            if (!rows.length) return '';
+            var matrix = rows.map(function(r) { return Array.from(r.querySelectorAll('th, td')).map(function(c) { return c.textContent.trim(); }); });
+            var cols = Math.max.apply(null, matrix.map(function(r) { return r.length; }));
+            var widths = Array.from({length: cols}, function(_, i) { return Math.max.apply(null, matrix.map(function(r) { return (r[i]||'').length; }).concat([3])); });
+            var out = '\\n\\n';
+            matrix.forEach(function(row, ri) {
+              out += '| ' + Array.from({length: cols}, function(_, i) { return (row[i]||'').padEnd(widths[i]); }).join(' | ') + ' |\\n';
+              if (ri === 0) out += '| ' + widths.map(function(w) { return '-'.repeat(w); }).join(' | ') + ' |\\n';
+            });
+            return out + '\\n';
+          case 'blockquote': return '\\n\\n> ' + kids().trim().replace(/\\n/g, '\\n> ') + '\\n\\n';
+          case 'dt': return '**' + kids().trim() + '**\\n';
+          case 'dd': return ': ' + kids().trim() + '\\n';
+          default: return kids();
+        }
+      }
+
+      var result = md(root);
+      return result.replace(/\\n{3,}/g, '\\n\\n').trim();
+    });
+
     if (!text || text.trim().length < 100) {
       text = await page.innerText('body').catch(() => '');
     }
@@ -182,7 +340,7 @@ const { chromium } = require('playwright');
 "
 ```
 
-Adapt the URL and selector per query. The agent inlines the full script via `node -e` or `bun -e` so no temp files are needed for extractions under ~4000 tokens.
+The agent inlines the full script via `node -e` or `bun -e` so no temp files are needed for extractions under ~4000 tokens.
 
 ---
 
