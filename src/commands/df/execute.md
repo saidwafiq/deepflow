@@ -202,7 +202,7 @@ Spike results (follow these approaches):
 STOP after committing. Do NOT merge branches, rename spec files, remove worktrees, or run git checkout on main.
 ```
 
-**Standard Task:**
+**Standard Task** (spawn with `Agent(model="{Model from PLAN.md}", ...)`):
 ```
 {task_id}: {description from PLAN.md}
 Files: {target files}  Spec: {spec_name}
@@ -282,7 +282,14 @@ When all tasks done for a `doing-*` spec:
 | Implementation | `general-purpose` | Task implementation |
 | Debugger | `reasoner` | Debugging failures |
 
-**Model routing:** Use `model:` from command/agent/skill frontmatter. Default: `sonnet`.
+**Model routing:** Read `Model:` field from each task block in PLAN.md. Pass as `model:` parameter when spawning the agent. Default: `sonnet` if field is missing.
+
+| Task field | Agent call |
+|------------|-----------|
+| `Model: haiku` | `Agent(model="haiku", ...)` |
+| `Model: sonnet` | `Agent(model="sonnet", ...)` |
+| `Model: opus` | `Agent(model="opus", ...)` |
+| (missing) | `Agent(model="sonnet", ...)` |
 
 **Checkpoint schema:** `.deepflow/checkpoint.json` in worktree:
 ```json

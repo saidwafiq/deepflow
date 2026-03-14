@@ -133,6 +133,25 @@ Spawn `Task(subagent_type="reasoner", model="opus")`. Map each requirement to DO
 
 Priority: Dependencies → Impact → Risk
 
+### 5.5. CLASSIFY MODEL PER TASK
+
+For each task, assign `Model:` based on complexity signals:
+
+| Model | When | Signals |
+|-------|------|---------|
+| `haiku` | Mechanical / low-risk | Single file, config changes, renames, formatting, browse-fetch, simple additions with clear pattern to follow |
+| `sonnet` | Standard implementation | Feature work, bug fixes, refactoring, multi-file changes with clear specs |
+| `opus` | High complexity | Architecture changes, complex multi-file refactors, ambiguous specs, unfamiliar APIs, >5 files in Impact |
+
+**Decision inputs:**
+1. **File count** — 1 file → likely haiku/sonnet, >5 files → sonnet/opus
+2. **Impact blast radius** — many callers/duplicates → raise complexity
+3. **Spec clarity** — clear ACs with patterns → lower, ambiguous requirements → raise
+4. **Type** — spikes always `sonnet` (need reasoning but scoped), bootstrap → `haiku`
+5. **Has prior failures** — reverted tasks → raise one level (min `sonnet`)
+
+Add `Model: haiku|sonnet|opus` to each task block. Default: `sonnet` if unclear.
+
 ### 6. GENERATE SPIKE TASKS (IF NEEDED)
 
 **Spike Task Format:**
@@ -228,6 +247,7 @@ Always use `Task` tool with explicit `subagent_type` and `model`.
 
 - [ ] **T2**: Create upload endpoint
   - Files: src/api/upload.ts
+  - Model: sonnet
   - Impact:
     - Callers: src/routes/index.ts:5
     - Duplicates: backend/legacy-upload.go [dead — DELETE]
@@ -235,5 +255,6 @@ Always use `Task` tool with explicit `subagent_type` and `model`.
 
 - [ ] **T3**: Add S3 service with streaming
   - Files: src/services/storage.ts
+  - Model: opus
   - Blocked by: T1, T2
 ```
