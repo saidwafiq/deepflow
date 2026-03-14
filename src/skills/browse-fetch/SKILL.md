@@ -408,7 +408,7 @@ If WebFetch also fails, return the URL with an explanation and continue the task
 ## Rules
 
 - Always run the install check before the first browser launch in a session.
-- Detect runtime with `which bun` first; use `node` if bun is absent.
+- Detect runtime with `which node` first; fall back to `bun` if node is absent.
 - Never navigate to Google or DuckDuckGo with Playwright — use WebSearch tool or direct URLs.
 - Truncate output at ~4000 tokens (~16 000 chars) to protect context budget.
 - On login wall or CAPTCHA, log the block, skip, and continue — never retry infinitely.
