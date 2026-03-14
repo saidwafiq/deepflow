@@ -131,16 +131,150 @@ Run AFTER L0 passes and L1-L2 complete. Run even if L1-L2 found issues.
 **Flaky test handling** (if `quality.test_retry_on_fail: true` in config):
 - Re-run ONCE on failure. Second pass → "⚠ L4: Passed on retry (possible flaky test)". Second fail → genuine failure.
 
+**L5: Browser Verification** (if frontend detected)
+
+**Step 1: Detect frontend framework** (config override always wins):
+
+If `.deepflow/config.yaml` has `quality.browser_check: false` → skip L5 entirely (L5 — no frontend).
+If `.deepflow/config.yaml` has `quality.frontend_framework` → use that value.
+Otherwise auto-detect from `package.json` dependencies (first match wins):
+
+| Dependency | Framework |
+|------------|-----------|
+| `next` | Next.js |
+| `react` | React |
+| `vue` | Vue |
+| `svelte` | Svelte |
+
+No frontend deps found and no config override → L5 — (no frontend), skip all remaining L5 steps.
+
+**Step 2: Dev server lifecycle**
+
+```bash
+# Start dev server in background
+npm run dev &
+DEV_SERVER_PID=$!
+
+# Wait for HTTP 200 (poll every 500ms, timeout 30s)
+for i in $(seq 1 60); do
+  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000)
+  [ "${HTTP_STATUS}" = "200" ] && break
+  sleep 0.5
+done
+
+if [ "${HTTP_STATUS}" != "200" ]; then
+  kill ${DEV_SERVER_PID} 2>/dev/null
+  echo "✗ L5: Dev server did not start (HTTP ${HTTP_STATUS} after 30s)"
+  # add fix task to PLAN.md
+  exit 1
+fi
+```
+
+Use port from `quality.dev_port` config if set; default to `3000`. Kill the dev server (`kill ${DEV_SERVER_PID}`) after L5 completes regardless of outcome.
+
+**Step 3: Read assertions from PLAN.md**
+
+Assertions are written into PLAN.md at plan-time (REQ-8). Extract them for the current spec:
+
+```bash
+# Parse structured browser assertions block from PLAN.md
+# Format expected in PLAN.md under each spec section:
+# browser_assertions:
+#   - selector: "nav"
+#     role: "navigation"
+#     name: "Main navigation"
+#   - selector: "button[type=submit]"
+#     visible: true
+#     text: "Submit"
+ASSERTIONS=$(parse_yaml_block "browser_assertions" PLAN.md)
+```
+
+If no `browser_assertions` block found for the spec → L5 — (no assertions), skip Playwright step.
+
+**Step 4: Playwright verification**
+
+Launch Chromium headlessly via Playwright and evaluate each assertion deterministically — no LLM judgment:
+
+```javascript
+const { chromium } = require('playwright');
+const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage();
+await page.goto('http://localhost:3000');
+
+const failures = [];
+
+for (const assertion of assertions) {
+  const locator = page.locator(assertion.selector);
+
+  // Capture accessibility tree (replaces deprecated page.accessibility.snapshot())
+  // locator.ariaSnapshot() returns YAML-like text with roles, names, hierarchy
+  const ariaSnapshot = await locator.ariaSnapshot();
+
+  if (assertion.role && !ariaSnapshot.includes(`role: ${assertion.role}`)) {
+    failures.push(`${assertion.selector}: expected role "${assertion.role}", not found in aria snapshot`);
+  }
+  if (assertion.name && !ariaSnapshot.includes(assertion.name)) {
+    failures.push(`${assertion.selector}: expected name "${assertion.name}", not found in aria snapshot`);
+  }
+
+  // Capture bounding boxes for visible assertions
+  if (assertion.visible !== undefined) {
+    const box = await locator.boundingBox();
+    const isVisible = box !== null && box.width > 0 && box.height > 0;
+    if (assertion.visible !== isVisible) {
+      failures.push(`${assertion.selector}: expected visible=${assertion.visible}, got visible=${isVisible}`);
+    }
+  }
+
+  if (assertion.text) {
+    const text = await locator.innerText();
+    if (!text.includes(assertion.text)) {
+      failures.push(`${assertion.selector}: expected text "${assertion.text}", got "${text}"`);
+    }
+  }
+}
+```
+
+Note: `page.accessibility.snapshot()` was removed in Playwright 1.x. Always use `locator.ariaSnapshot()`, which returns YAML-like text describing roles, names, and hierarchy for the matched element subtree.
+
+**Step 5: Screenshot capture**
+
+After evaluation (pass or fail), capture a full-page screenshot:
+
+```javascript
+const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+const specName = 'doing-upload'; // derived from current spec filename
+const screenshotPath = `.deepflow/screenshots/${specName}/${timestamp}.png`;
+await fs.mkdirSync(path.dirname(screenshotPath), { recursive: true });
+await page.screenshot({ path: screenshotPath, fullPage: true });
+```
+
+Screenshot path: `.deepflow/screenshots/{spec-name}/{timestamp}.png`
+
+**Step 6: Retry logic**
+
+On first failure, retry once from Step 4 (re-navigate and re-evaluate all assertions):
+- First attempt passes → L5 ✓
+- First attempt fails, second attempt passes → "⚠ L5: Passed on retry (possible flaky render)" → L5 pass with warning
+- Both attempts fail on same assertions → L5 FAIL: report "✗ L5: Browser assertions failed", list each failing assertion, add fix task to PLAN.md
+
+**L5 outcomes:**
+- L5 ✓ — all assertions pass
+- L5 ⚠ — passed on retry (possible flaky render)
+- L5 ✗ — assertions failed (both attempts), fix tasks added
+- L5 — (no frontend) — no frontend deps detected and no config override
+- L5 — (no assertions) — frontend detected but no `browser_assertions` in PLAN.md
+
 ### 3. GENERATE REPORT
 
 **Format on success:**
 ```
-doing-upload.md: L0 ✓ | L1 ✓ (5/5 files) | L2 ⚠ (no coverage tool) | L3 — (subsumed) | L4 ✓ (12 tests) | 0 quality issues
+doing-upload.md: L0 ✓ | L1 ✓ (5/5 files) | L2 ⚠ (no coverage tool) | L3 — (subsumed) | L4 ✓ (12 tests) | L5 ✓ | 0 quality issues
 ```
 
 **Format on failure:**
 ```
-doing-upload.md: L0 ✓ | L1 ✗ (3/5 files) | L2 ⚠ | L3 — | L4 ✗ (3 failed)
+doing-upload.md: L0 ✓ | L1 ✗ (3/5 files) | L2 ⚠ | L3 — | L4 ✗ (3 failed) | L5 ✗ (2 assertions failed)
 
 Issues:
   ✗ L1: Missing files: src/api/upload.ts, src/services/storage.ts
@@ -160,6 +294,7 @@ Run /df:execute --continue to fix in the same worktree.
 - L1: All planned files appear in diff
 - L2: Coverage didn't drop (or no coverage tool detected)
 - L4: Tests pass (or no test command detected)
+- L5: Browser assertions pass (or no frontend detected, or no assertions defined)
 
 **If all gates pass:** Proceed to Post-Verification merge.
 
@@ -192,8 +327,9 @@ Files: ...
 | L2: Coverage | Coverage didn't drop | Coverage tool (before/after) | Orchestrator (Bash) |
 | L3: Integration | Build + tests pass | Subsumed by L0 + L4 | — |
 | L4: Tested | Tests pass | Run test command | Orchestrator (Bash) |
+| L5: Browser | UI assertions pass | Playwright + `locator.ariaSnapshot()` | Orchestrator (Bash + Node) |
 
-**Default: L0 through L4.** L0 and L4 skipped ONLY if no build/test command detected (see step 1.5). All checks are machine-verifiable. No LLM agents are used.
+**Default: L0 through L5.** L0 and L4 skipped ONLY if no build/test command detected (see step 1.5). L5 skipped if no frontend detected and no config override. All checks are machine-verifiable. No LLM agents are used.
 
 ## Rules
 - Verify against spec, not assumptions
