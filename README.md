@@ -33,6 +33,7 @@ Most spec-driven frameworks start from a finished spec and execute a static plan
 - **Spec as living hypothesis** — Core intent stays fixed, details refine through implementation. "The spec becomes bulletproof because you built it, not before."
 - **Parallel probes reveal the best path** — Uncertain approaches spawn parallel spikes in isolated worktrees. The machine selects the winner (fewer regressions > better coverage > fewer files changed). Failed approaches stay recorded and never repeat.
 - **Metrics decide, not opinions** — No LLM judges another LLM. Build, tests, typecheck, lint, and invariant checks are the only judges. After an agent commits, the orchestrator runs health checks. Pass = keep. Fail = revert + new hypothesis.
+- **Browser verification closes the loop** — L5 launches headless Chromium via Playwright, captures the accessibility tree, and evaluates structured assertions extracted at plan-time from your spec's acceptance criteria. Deterministic pass/fail — no LLM calls during verification. Screenshots saved as evidence.
 - **The loop is the product** — Not "execute a plan" — "evolve the codebase toward the spec's goals through iterative cycles." Each cycle reveals what the previous one couldn't see.
 
 ## What We Learned by Doing
@@ -111,7 +112,7 @@ $ git log --oneline
 1. Runs `/df:plan` if no PLAN.md exists
 2. Snapshots pre-existing tests (ratchet baseline)
 3. Starts a loop (`/loop 1m /df:auto-cycle`) — fresh context each cycle
-4. Each cycle: picks next task → executes in worktree → runs health checks (build/tests/typecheck/lint/invariant-check)
+4. Each cycle: picks next task → executes in worktree → runs health checks (build/tests/typecheck/lint/invariant-check/browser-verify)
 5. Pass = commit stands. Fail = revert + retry next cycle
 6. Circuit breaker: halts after N consecutive reverts on same task
 7. When all tasks done: runs `/df:verify`, merges to main
@@ -142,7 +143,7 @@ $ git log --oneline
 | `/df:spec <name>` | Generate spec from conversation |
 | `/df:plan` | Compare specs to code, create tasks |
 | `/df:execute` | Run tasks with parallel agents |
-| `/df:verify` | Check specs satisfied, merge to main |
+| `/df:verify` | Check specs satisfied (L0-L5), merge to main |
 | `/df:note` | Capture decisions ad-hoc from conversation |
 | `/df:consolidate` | Deduplicate and clean up decisions.md |
 | `/df:resume` | Session continuity briefing |
@@ -179,11 +180,21 @@ your-project/
 
 1. **Discover before specifying, spike before implementing** — Ask, debate, probe — then commit
 2. **You define WHAT, AI figures out HOW** — Specs are the contract
-3. **Metrics decide, not opinions** — Build/test/typecheck/lint/invariant-check are the only judges
+3. **Metrics decide, not opinions** — Build/test/typecheck/lint/invariant-check/browser-verify are the only judges
 4. **Confirm before assume** — Search the code before marking "missing"
 5. **Complete implementations** — No stubs, no placeholders
 6. **Atomic commits** — One task = one commit
 7. **Context-aware** — Checkpoint before limits, resume seamlessly
+
+## Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `browse-fetch` | Fetch external API docs via headless Chromium (replaces context-hub) |
+| `browse-verify` | L5 browser verification — Playwright a11y tree assertions |
+| `atomic-commits` | One logical change per commit |
+| `code-completeness` | Find TODOs, stubs, and missing implementations |
+| `gap-discovery` | Surface missing requirements during ideation |
 
 ## More
 
