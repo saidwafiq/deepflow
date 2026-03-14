@@ -111,7 +111,22 @@ Read the current file first (create if missing), merge the new values, and write
 
 After `/df:execute` returns, check whether the task was reverted (ratchet failed):
 
-**On revert (ratchet failed):**
+**What counts as a failure (increments counter):**
+
+```
+- L0 ✗ (build failed)
+- L1 ✗ (files missing)
+- L2 ✗ (coverage dropped)
+- L4 ✗ (tests failed)
+- L5 ✗ (browser assertions failed — both attempts)
+- L5 ✗ (flaky) (browser assertions failed on both attempts, different assertions)
+
+What does NOT count as a failure:
+- L5 — (no frontend): skipped, not a revert trigger
+- L5 ⚠ (passed on retry): treated as pass, resets counter
+```
+
+**On revert (ratchet failed — any of L0 ✗, L1 ✗, L2 ✗, L4 ✗, L5 ✗, or L5 ✗ flaky):**
 
 ```
 1. Read .deepflow/auto-memory.yaml (create if missing)
@@ -126,7 +141,7 @@ After `/df:execute` returns, check whether the task was reverted (ratchet failed
      → Continue to step 4 (UPDATE REPORT) as normal
 ```
 
-**On success (ratchet passed):**
+**On success (ratchet passed — including L5 — no frontend or L5 ⚠ pass-on-retry):**
 
 ```
 1. Reset consecutive_reverts[task_id] to 0 in .deepflow/auto-memory.yaml
