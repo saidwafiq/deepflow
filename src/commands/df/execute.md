@@ -153,9 +153,17 @@ Trigger: ≥2 [SPIKE] tasks with same "Blocked by:" target or identical hypothes
    - Rank: fewer regressions > higher coverage_delta > fewer files_changed > first to complete
    - No passes → reset all to pending for retry with debugger
 6. **Preserve all worktrees.** Losers: rename branch + `-failed` suffix. Record in checkpoint.json under `"spike_probes"`
-7. **Log failed probes** to `.deepflow/auto-memory.yaml` (main tree):
+7. **Log ALL probe outcomes** to `.deepflow/auto-memory.yaml` (main tree):
    ```yaml
    spike_insights:
+     - date: "YYYY-MM-DD"
+       spec: "{spec_name}"
+       spike_id: "SPIKE_A"
+       hypothesis: "{from PLAN.md}"
+       outcome: "winner"
+       approach: "{one-sentence summary of what the winning probe chose}"
+       ratchet_metrics: {regressions: N, coverage_delta: N, files_changed: N}
+       branch: "df/{spec}--probe-SPIKE_A"
      - date: "YYYY-MM-DD"
        spec: "{spec_name}"
        spike_id: "SPIKE_B"
@@ -165,12 +173,15 @@ Trigger: ≥2 [SPIKE] tasks with same "Blocked by:" target or identical hypothes
        ratchet_metrics: {regressions: N, coverage_delta: N, files_changed: N}
        worktree: ".deepflow/worktrees/{spec}/probe-SPIKE_B-failed"
        branch: "df/{spec}--probe-SPIKE_B-failed"
-   probe_learnings:  # read by /df:auto-cycle each start
+   probe_learnings:  # read by /df:auto-cycle each start AND included in per-task preamble
+     - spike: "SPIKE_A"
+       probe: "probe-SPIKE_A"
+       insight: "{one-sentence summary of winning approach — e.g. 'Use Node.js over Bun for Playwright'}"
      - spike: "SPIKE_B"
        probe: "probe-SPIKE_B"
        insight: "{one-sentence summary from failure_reason}"
    ```
-   Create file if missing. Preserve existing keys when merging.
+   Create file if missing. Preserve existing keys when merging. Log BOTH winners and losers — downstream tasks need to know what was chosen, not just what failed.
 8. **Promote winner:** Cherry-pick into shared worktree. Winner → `[x] [PROBE_WINNER]`, losers → `[~] [PROBE_FAILED]`. Resume standard loop.
 
 ---
@@ -182,6 +193,11 @@ Trigger: ≥2 [SPIKE] tasks with same "Blocked by:" target or identical hypothes
 Working directory: {worktree_absolute_path}
 All file operations MUST use this absolute path as base. Do NOT write files to the main project directory.
 Commit format: {commit_type}({spec}): {description}
+
+{If .deepflow/auto-memory.yaml exists and has probe_learnings, include:}
+Spike results (follow these approaches):
+{each probe_learning with outcome "winner" → "- {insight}"}
+{Omit this block if no probe_learnings exist.}
 
 STOP after committing. Do NOT merge branches, rename spec files, remove worktrees, or run git checkout on main.
 ```
