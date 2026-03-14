@@ -150,27 +150,102 @@ No frontend deps found and no config override → L5 — (no frontend), skip all
 
 **Step 2: Dev server lifecycle**
 
-```bash
-# Start dev server in background
-npm run dev &
-DEV_SERVER_PID=$!
+**2a. Resolve dev command** (config override always wins):
 
-# Wait for HTTP 200 (poll every 500ms, timeout 30s)
-for i in $(seq 1 60); do
-  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000)
+```bash
+# 1. Config override
+DEV_COMMAND=$(yq '.quality.dev_command' .deepflow/config.yaml 2>/dev/null)
+
+# 2. Auto-detect from package.json scripts.dev
+if [ -z "${DEV_COMMAND}" ] || [ "${DEV_COMMAND}" = "null" ]; then
+  if [ -f package.json ] && jq -e '.scripts.dev' package.json >/dev/null 2>&1; then
+    DEV_COMMAND="npm run dev"
+  fi
+fi
+
+# 3. No dev command found → skip L5 dev server steps
+if [ -z "${DEV_COMMAND}" ]; then
+  echo "⚠ L5: No dev command found (scripts.dev not in package.json, quality.dev_command not set). Skipping browser check."
+  L5_RESULT="skipped-no-dev-command"
+fi
+```
+
+**2b. Resolve port:**
+
+```bash
+# Config override wins; fallback to 3000
+DEV_PORT=$(yq '.quality.dev_port' .deepflow/config.yaml 2>/dev/null)
+if [ -z "${DEV_PORT}" ] || [ "${DEV_PORT}" = "null" ]; then
+  DEV_PORT=3000
+fi
+```
+
+**2c. Check if dev server is already running (port already bound):**
+
+```bash
+PORT_IN_USE=false
+if curl -s -o /dev/null -w "%{http_code}" "http://localhost:${DEV_PORT}" | grep -q "200"; then
+  PORT_IN_USE=true
+  echo "ℹ L5: Port ${DEV_PORT} already bound — using existing dev server, will not kill on exit."
+fi
+```
+
+**2d. Start dev server and poll for readiness:**
+
+```bash
+DEV_SERVER_PID=""
+if [ "${PORT_IN_USE}" = "false" ]; then
+  # Start in a new process group so all child processes can be killed together
+  setsid ${DEV_COMMAND} &
+  DEV_SERVER_PID=$!
+fi
+
+# Resolve timeout from config (default 30s)
+TIMEOUT=$(yq '.quality.browser_timeout' .deepflow/config.yaml 2>/dev/null)
+if [ -z "${TIMEOUT}" ] || [ "${TIMEOUT}" = "null" ]; then
+  TIMEOUT=30
+fi
+POLL_INTERVAL=0.5
+MAX_POLLS=$(echo "${TIMEOUT} / ${POLL_INTERVAL}" | bc)
+
+HTTP_STATUS=""
+for i in $(seq 1 ${MAX_POLLS}); do
+  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${DEV_PORT}" 2>/dev/null)
   [ "${HTTP_STATUS}" = "200" ] && break
-  sleep 0.5
+  sleep ${POLL_INTERVAL}
 done
 
 if [ "${HTTP_STATUS}" != "200" ]; then
-  kill ${DEV_SERVER_PID} 2>/dev/null
-  echo "✗ L5: Dev server did not start (HTTP ${HTTP_STATUS} after 30s)"
+  # Kill process group before reporting failure
+  if [ -n "${DEV_SERVER_PID}" ]; then
+    kill -SIGTERM -${DEV_SERVER_PID} 2>/dev/null
+  fi
+  echo "✗ L5 FAIL: dev server did not start within ${TIMEOUT}s"
   # add fix task to PLAN.md
   exit 1
 fi
 ```
 
-Use port from `quality.dev_port` config if set; default to `3000`. Kill the dev server (`kill ${DEV_SERVER_PID}`) after L5 completes regardless of outcome.
+**2e. Teardown — always runs on both pass and fail paths:**
+
+```bash
+cleanup_dev_server() {
+  if [ -n "${DEV_SERVER_PID}" ]; then
+    # Kill the entire process group to catch any child processes spawned by the dev server
+    kill -SIGTERM -${DEV_SERVER_PID} 2>/dev/null
+    # Give it up to 5s to exit cleanly, then force-kill
+    for i in $(seq 1 10); do
+      kill -0 ${DEV_SERVER_PID} 2>/dev/null || break
+      sleep 0.5
+    done
+    kill -SIGKILL -${DEV_SERVER_PID} 2>/dev/null || true
+  fi
+}
+# Register cleanup for both success and failure paths
+trap cleanup_dev_server EXIT
+```
+
+Note: When `PORT_IN_USE=true` (dev server was already running before L5 began), `DEV_SERVER_PID` is empty and `cleanup_dev_server` is a no-op — the pre-existing server is left running.
 
 **Step 3: Read assertions from PLAN.md**
 
