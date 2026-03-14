@@ -477,6 +477,59 @@ if (attempt1_failures.length > 0) {
   ```
   → L5 ✗ (flaky). Add fix task to PLAN.md noting flakiness.
 
+**Fix task generation on L5 failure (both same and flaky):**
+
+When both attempts fail (`L5_RESULT = 'fail'` or `L5_RESULT = 'fail-flaky'`), generate a fix task and append it to PLAN.md under the spec's section:
+
+```javascript
+// 1. Determine next task ID
+// Scan PLAN.md for highest T{n} and increment
+const planContent = fs.readFileSync('PLAN.md', 'utf8');
+const taskIds = [...planContent.matchAll(/\bT(\d+)\b/g)].map(m => parseInt(m[1], 10));
+const nextId = taskIds.length > 0 ? Math.max(...taskIds) + 1 : 1;
+const taskId = `T${nextId}`;
+
+// 2. Collect fix task context
+// - Failing assertions: the structured assertion objects that failed
+const failingAssertions = attempt2_failures.length > 0 ? attempt2_failures : attempt1_failures;
+
+// - DOM snapshot excerpt: capture aria snapshot of body at the time of failure
+const domSnapshotExcerpt = await page.locator('body').ariaSnapshot();
+
+// - Screenshot path: already captured in Step 5 / Step 6 retry
+// screenshotPath / retryScreenshotPath are available from those steps
+
+// 3. Build task description
+const isFlaky = L5_RESULT === 'fail-flaky';
+const flakySuffix = isFlaky ? ' (flaky — inconsistent failures across attempts)' : '';
+const screenshotRef = isFlaky ? retryScreenshotPath : screenshotPath;
+
+const fixTaskBlock = `
+- [ ] ${taskId}: Fix L5 browser assertion failures in ${specName}${flakySuffix}
+  **Failing assertions:**
+${failingAssertions.map(f => `    - ${f}`).join('\n')}
+  **DOM snapshot (aria tree excerpt at failure):**
+  \`\`\`
+${domSnapshotExcerpt.split('\n').slice(0, 40).join('\n')}
+  \`\`\`
+  **Screenshot:** ${screenshotRef}
+`;
+
+// 4. Append fix task under spec section in PLAN.md
+// Find the spec section and append before the next section header or EOF
+const specSectionPattern = new RegExp(`(## ${specName}[\\s\\S]*?)(\n## |$)`);
+const updated = planContent.replace(specSectionPattern, (_, section, next) => section + fixTaskBlock + next);
+fs.writeFileSync('PLAN.md', updated);
+
+console.log(`Fix task added to PLAN.md: ${taskId}: Fix L5 browser assertion failures in ${specName}`);
+```
+
+Fix task context included:
+- **Failing assertions**: the structured assertion data (selector + failure detail) from whichever attempt(s) failed
+- **DOM snapshot excerpt**: first 40 lines of `locator('body').ariaSnapshot()` output at time of failure (textual a11y tree)
+- **Screenshot path**: `.deepflow/screenshots/{spec-name}/{timestamp}.png` (retry screenshot when available)
+- **Flakiness note**: appended to task title when assertion sets differed between attempts
+
 **Comparing assertion sets (same vs. different):**
 
 ```javascript
