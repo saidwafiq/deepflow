@@ -420,15 +420,88 @@ Screenshot path: `.deepflow/screenshots/{spec-name}/{timestamp}.png`
 
 **Step 6: Retry logic**
 
-On first failure, retry once from Step 4 (re-navigate and re-evaluate all assertions):
-- First attempt passes → L5 ✓
-- First attempt fails, second attempt passes → "⚠ L5: Passed on retry (possible flaky render)" → L5 pass with warning
-- Both attempts fail on same assertions → L5 FAIL: report "✗ L5: Browser assertions failed", list each failing assertion, add fix task to PLAN.md
+On first failure, retry the FULL L5 check once (total 2 attempts). Re-navigate and re-evaluate all assertions from scratch on the retry:
+
+```javascript
+// attempt1_failures populated by Step 4 above
+let attempt2_failures = [];
+
+if (attempt1_failures.length > 0) {
+  // Retry: re-navigate and re-evaluate all assertions (identical logic to Step 4)
+  await page.goto('http://localhost:' + DEV_PORT);
+  attempt2_failures = await evaluateAssertions(page, assertions); // same loop as Step 4
+
+  // Capture a second screenshot for the retry attempt
+  const retryTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const retryScreenshotPath = `.deepflow/screenshots/${specName}/${retryTimestamp}-retry.png`;
+  await page.screenshot({ path: retryScreenshotPath, fullPage: true });
+}
+```
+
+**Outcome matrix:**
+
+| Attempt 1 | Attempt 2 | Result |
+|-----------|-----------|--------|
+| Pass | — (not run) | L5 ✓ |
+| Fail | Pass | L5 ✓ with warning "(passed on retry)" |
+| Fail | Fail — same assertions | L5 ✗ — genuine failure |
+| Fail | Fail — different assertions | L5 ✗ (flaky) |
+
+**Outcome reporting:**
+
+- **First attempt passes:** `✓ L5: All assertions passed` — no retry needed.
+
+- **First fails, retry passes:**
+  ```
+  ⚠ L5: Passed on retry (possible flaky render)
+    First attempt failed on: {list of assertion selectors from attempt 1}
+  ```
+  → L5 pass with warning. No fix task added.
+
+- **Both fail on SAME assertions** (identical set of failing selectors):
+  ```
+  ✗ L5: Browser assertions failed (both attempts)
+    {selector}: {failure detail}
+    {selector}: {failure detail}
+    ...
+  ```
+  → L5 FAIL. Add fix task to PLAN.md.
+
+- **Both fail on DIFFERENT assertions** (flaky — assertion sets differ between attempts):
+  ```
+  ✗ L5: Browser assertions failed (flaky — inconsistent failures across attempts)
+    Attempt 1 failures:
+      {selector}: {failure detail}
+    Attempt 2 failures:
+      {selector}: {failure detail}
+  ```
+  → L5 ✗ (flaky). Add fix task to PLAN.md noting flakiness.
+
+**Comparing assertion sets (same vs. different):**
+
+```javascript
+// Compare by selector strings only — ignore detail text differences
+const attempt1_selectors = attempt1_failures.map(f => f.split(':')[0]).sort();
+const attempt2_selectors = attempt2_failures.map(f => f.split(':')[0]).sort();
+const same_assertions = JSON.stringify(attempt1_selectors) === JSON.stringify(attempt2_selectors);
+
+if (attempt2_failures.length === 0) {
+  // Retry passed
+  L5_RESULT = 'pass-on-retry';
+} else if (same_assertions) {
+  // Genuine failure — same assertions failed both times
+  L5_RESULT = 'fail';
+} else {
+  // Flaky — different assertions failed each time
+  L5_RESULT = 'fail-flaky';
+}
+```
 
 **L5 outcomes:**
-- L5 ✓ — all assertions pass
-- L5 ⚠ — passed on retry (possible flaky render)
-- L5 ✗ — assertions failed (both attempts), fix tasks added
+- L5 ✓ — all assertions pass on first attempt
+- L5 ⚠ — passed on retry (possible flaky render); first-attempt failures listed as context
+- L5 ✗ — assertions failed on both attempts (same assertions), fix tasks added
+- L5 ✗ (flaky) — assertions failed on both attempts but on different assertions; fix tasks added noting flakiness
 - L5 — (no frontend) — no frontend deps detected and no config override
 - L5 — (no assertions) — frontend detected but no `browser_assertions` in PLAN.md
 - L5 ✗ (install failed) — Playwright Chromium install failed; browser verification skipped for this run
