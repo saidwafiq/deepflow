@@ -99,6 +99,34 @@ For each file in a task's "Files:" list, find the full blast radius.
 Files outside original "Files:" → add with `(impact — verify/update)`.
 Skip for spike tasks.
 
+### 4.6. CROSS-TASK FILE CONFLICT DETECTION
+
+After all tasks have their `Files:` lists, detect overlaps that require sequential execution.
+
+**Algorithm:**
+1. Build a map: `file → [task IDs that list it]`
+2. For each file with >1 task: add `Blocked by` edge from later task → earlier task (by task number)
+3. If a dependency already exists (direct or transitive), skip (no redundant edges)
+
+**Example:**
+```
+T1: Files: config.go, feature.go  — Blocked by: none
+T3: Files: config.go              — Blocked by: none
+T5: Files: config.go              — Blocked by: none
+```
+After conflict detection:
+```
+T1: Blocked by: none
+T3: Blocked by: T1 (file conflict: config.go)
+T5: Blocked by: T3 (file conflict: config.go)
+```
+
+**Rules:**
+- Only add the minimum edges needed (chain, not full mesh — T5 blocks on T3, not T1+T3)
+- Append `(file conflict: {filename})` to the Blocked by reason for traceability
+- If a logical dependency already covers the ordering, don't add a redundant conflict edge
+- Cross-spec conflicts: tasks from different specs sharing files get the same treatment
+
 ### 5. COMPARE & PRIORITIZE
 
 Spawn `Task(subagent_type="reasoner", model="opus")`. Map each requirement to DONE / PARTIAL / MISSING / CONFLICT. Check REQ-AC alignment. Flag spec gaps.

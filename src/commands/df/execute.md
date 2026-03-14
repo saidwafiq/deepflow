@@ -104,7 +104,14 @@ Before spawning: `TaskUpdate(taskId: native_id, status: "in_progress")` — acti
 
 **NEVER use `isolation: "worktree"` on Task calls.** Deepflow manages a shared worktree so wave 2 sees wave 1 commits.
 
-**Spawn ALL ready tasks in ONE message.** Same-file conflicts: spawn sequentially.
+**Spawn ALL ready tasks in ONE message** — EXCEPT file conflicts (see below).
+
+**File conflict enforcement (1 file = 1 writer):**
+Before spawning, check `Files:` lists of all ready tasks. If two+ ready tasks share a file:
+1. Sort conflicting tasks by task number (T1 < T2 < T3)
+2. Spawn only the lowest-numbered task from each conflict group
+3. Remaining tasks stay `pending` — they become ready once the spawned task completes
+4. Log: `"⏳ T{N} deferred — file conflict with T{M} on {filename}"`
 
 **≥2 [SPIKE] tasks for same problem:** Follow Parallel Spike Probes (section 5.7).
 
@@ -138,7 +145,7 @@ Ratchet uses ONLY pre-existing test files from `.deepflow/auto-snapshot.txt`.
 Trigger: ≥2 [SPIKE] tasks with same "Blocked by:" target or identical hypothesis.
 
 1. **Baseline:** Record `BASELINE=$(git rev-parse HEAD)` in shared worktree
-2. **Sub-worktrees:** Per spike: `git worktree add -b df/{spec}/probe-{SPIKE_ID} .deepflow/worktrees/{spec}/probe-{SPIKE_ID} ${BASELINE}`
+2. **Sub-worktrees:** Per spike: `git worktree add -b df/{spec}--probe-{SPIKE_ID} .deepflow/worktrees/{spec}/probe-{SPIKE_ID} ${BASELINE}`
 3. **Spawn:** All probes in ONE message, each targeting its probe worktree. End turn.
 4. **Ratchet:** Per notification, run standard ratchet (5.5) in probe worktree. Record: ratchet_passed, regressions, coverage_delta, files_changed, commit
 5. **Select winner** (after ALL complete, no LLM judge):
@@ -157,7 +164,7 @@ Trigger: ≥2 [SPIKE] tasks with same "Blocked by:" target or identical hypothes
        failure_reason: "{first failed check + error summary}"
        ratchet_metrics: {regressions: N, coverage_delta: N, files_changed: N}
        worktree: ".deepflow/worktrees/{spec}/probe-SPIKE_B-failed"
-       branch: "df/{spec}/probe-SPIKE_B-failed"
+       branch: "df/{spec}--probe-SPIKE_B-failed"
    probe_learnings:  # read by /df:auto-cycle each start
      - spike: "SPIKE_B"
        probe: "probe-SPIKE_B"
