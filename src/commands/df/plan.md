@@ -75,13 +75,13 @@ Use `code-completeness` skill to search for: implementations matching spec requi
 
 For each file in a task's "Files:" list, find the full blast radius.
 
-**Search for:**
+**Search for (prefer LSP, fallback to grep):**
 
-1. **Callers:** `grep -r "{exported_function}" --include="*.{ext}" -l` — files that import/call what's being changed
+1. **Callers:** Use LSP `findReferences` / `incomingCalls` on each exported function/type being changed. Annotate each caller with WHY it's impacted (e.g. "imports validateToken which this task changes"). Fallback: `grep -r "{exported_function}" --include="*.{ext}" -l`
 2. **Duplicates:** Files with similar logic (same function name, same transformation). Classify:
    - `[active]` — used in production → must consolidate
    - `[dead]` — bypassed/unreachable → must delete
-3. **Data flow:** If file produces/transforms data, find ALL consumers of that shape across languages
+3. **Data flow:** If file produces/transforms data, use LSP `outgoingCalls` to trace consumers. Fallback: grep across languages
 
 **Embed as `Impact:` block in each task:**
 ```markdown
@@ -133,24 +133,46 @@ Spawn `Task(subagent_type="reasoner", model="opus")`. Map each requirement to DO
 
 Priority: Dependencies → Impact → Risk
 
-### 5.5. CLASSIFY MODEL PER TASK
+### 5.5. CLASSIFY MODEL + EFFORT PER TASK
 
-For each task, assign `Model:` based on complexity signals:
+For each task, assign `Model:` and `Effort:` based on the routing matrix:
 
-| Model | When | Signals |
-|-------|------|---------|
-| `haiku` | Mechanical / low-risk | Single file, config changes, renames, formatting, browse-fetch, simple additions with clear pattern to follow |
-| `sonnet` | Standard implementation | Feature work, bug fixes, refactoring, multi-file changes with clear specs |
-| `opus` | High complexity | Architecture changes, complex multi-file refactors, ambiguous specs, unfamiliar APIs, >5 files in Impact |
+#### Routing matrix
 
-**Decision inputs:**
-1. **File count** — 1 file → likely haiku/sonnet, >5 files → sonnet/opus
-2. **Impact blast radius** — many callers/duplicates → raise complexity
-3. **Spec clarity** — clear ACs with patterns → lower, ambiguous requirements → raise
-4. **Type** — spikes always `sonnet` (need reasoning but scoped), bootstrap → `haiku`
-5. **Has prior failures** — reverted tasks → raise one level (min `sonnet`)
+| Task type | Model | Effort | Rationale |
+|-----------|-------|--------|-----------|
+| Bootstrap (scaffold, config, rename) | `haiku` | `low` | Mechanical, pattern-following, zero ambiguity |
+| browse-fetch (doc retrieval) | `haiku` | `low` | Just fetching and extracting, no reasoning |
+| Single-file simple addition | `haiku` | `high` | Small scope but needs to get it right |
+| Multi-file with clear specs | `sonnet` | `medium` | Standard work, specs remove need for deep thinking |
+| Bug fix (clear repro) | `sonnet` | `medium` | Diagnosis done, just apply fix |
+| Bug fix (unclear cause) | `sonnet` | `high` | Needs reasoning to find root cause |
+| Spike / validation | `sonnet` | `high` | Scoped but needs reasoning to validate hypothesis |
+| Feature work (well-specced) | `sonnet` | `medium` | Clear ACs reduce thinking overhead |
+| Feature work (ambiguous ACs) | `opus` | `medium` | Needs intelligence but effort can be moderate with good specs |
+| Refactor (>5 files, many callers) | `opus` | `medium` | Blast radius needs intelligence, patterns are repetitive |
+| Architecture change | `opus` | `high` | High complexity + high ambiguity |
+| Unfamiliar API integration | `opus` | `high` | Needs deep reasoning about unknown patterns |
+| Retried after revert | _(raise one level)_ | `high` | Prior failure means harder than expected |
 
-Add `Model: haiku|sonnet|opus` to each task block. Default: `sonnet` if unclear.
+#### Decision inputs
+
+1. **File count** — 1 file → haiku/sonnet, 2-5 → sonnet, >5 → sonnet/opus
+2. **Impact blast radius** — many callers/duplicates → raise model
+3. **Spec clarity** — clear ACs → lower effort, ambiguous → raise effort
+4. **Type** — spikes → `sonnet high`, bootstrap → `haiku low`
+5. **Has prior failures** — raise model one level AND set effort to `high`
+6. **Repetitiveness** — repetitive pattern across files → lower effort even at higher model
+
+#### Effort economics
+
+Effort controls ALL token spend (text, tool calls, thinking). Lower effort = fewer tool calls, less preamble, shorter reasoning.
+
+- `low` → ~60-70% token reduction vs high. Use when task is mechanical.
+- `medium` → ~30-40% token reduction. Use when specs are clear.
+- `high` → full spend (default). Use when ambiguity or risk is high.
+
+Add `Model: haiku|sonnet|opus` and `Effort: low|medium|high` to each task block. Defaults: `Model: sonnet`, `Effort: medium`.
 
 ### 6. GENERATE SPIKE TASKS (IF NEEDED)
 

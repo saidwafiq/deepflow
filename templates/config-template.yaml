@@ -62,6 +62,12 @@ worktree:
   # Keep worktree after failed execution for debugging
   cleanup_on_fail: false
 
+  # Sparse checkout paths (for large monorepos only)
+  # When set, worktrees checkout only these directories via git sparse-checkout
+  # Leave empty for full checkout (default, works for most repos)
+  # Example: ["src/", "tests/", "package.json", "tsconfig.json"]
+  sparse_paths: []
+
 # Quality gates for /df:verify
 quality:
   # Override auto-detected build command (e.g., "npm run build", "cargo build")

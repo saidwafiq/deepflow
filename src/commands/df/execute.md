@@ -20,8 +20,8 @@ Each task = one background agent. Completion notifications drive the loop.
 3. On EACH notification:
    a. Run ratchet check (section 5.5)
    b. Passed → TaskUpdate(status: "completed"), update PLAN.md [x] + commit hash
-   c. Failed → git revert HEAD --no-edit, TaskUpdate(status: "pending")
-   d. Report ONE line: "✓ T1: ratchet passed (abc123)" or "✗ T1: ratchet failed, reverted"
+   c. Failed → run partial salvage protocol (section 5.5). If salvaged → treat as passed. If not → git revert, TaskUpdate(status: "pending")
+   d. Report ONE line: "✓ T1: ratchet passed (abc123)" or "⚕ T1: salvaged lint fix (abc124)" or "✗ T1: ratchet failed, reverted"
    e. NOT all done → end turn, wait | ALL done → next wave or finish
 4. Between waves: check context %. If ≥50% → checkpoint and exit.
 5. Repeat until: all done, all blocked, or context ≥50%.
@@ -56,6 +56,14 @@ else → Start fresh
 Require clean HEAD (`git diff --quiet`). Derive SPEC_NAME from `specs/doing-*.md`.
 Create worktree: `.deepflow/worktrees/{spec}` on branch `df/{spec}`.
 Reuse if exists. `--fresh` deletes first.
+
+If `worktree.sparse_paths` is non-empty in config, enable sparse checkout:
+```bash
+git worktree add --no-checkout -b df/{spec} .deepflow/worktrees/{spec}
+cd .deepflow/worktrees/{spec}
+git sparse-checkout set {sparse_paths...}
+git checkout df/{spec}
+```
 
 ### 1.6. RATCHET SNAPSHOT
 
@@ -136,7 +144,15 @@ Run Build → Test → Typecheck → Lint (stop on first failure).
 Compare `git diff HEAD~1 --name-only` against Impact callers/duplicates list.
 File listed but not modified → **advisory warning**: "Impact gap: {file} listed as {caller|duplicate} but not modified — verify manually". Not auto-revert (callers sometimes don't need changes), but flags the risk.
 
-**Evaluate:** All pass + no violations → commit stands. Any failure → `git revert HEAD --no-edit`.
+**Evaluate:** All pass + no violations → commit stands. Any failure → attempt partial salvage before reverting:
+
+**Partial salvage protocol:**
+1. Run `git diff HEAD~1 --stat` to see what the agent changed
+2. If failure is lint-only or typecheck-only (build + tests passed):
+   - Spawn `Agent(model="haiku", subagent_type="general-purpose")` with prompt: `Fix the {lint|typecheck} errors in the worktree. Only fix what's broken, change nothing else. Files changed: {diff stat}. Error output: {error}`
+   - Run ratchet again on the fix commit
+   - If passes → both commits stand. If fails → `git revert HEAD --no-edit && git revert HEAD --no-edit` (revert both)
+3. If failure is build or test → `git revert HEAD --no-edit` (no salvage, too risky)
 
 Ratchet uses ONLY pre-existing test files from `.deepflow/auto-snapshot.txt`.
 
@@ -188,44 +204,74 @@ Trigger: ≥2 [SPIKE] tasks with same "Blocked by:" target or identical hypothes
 
 ### 6. PER-TASK (agent prompt)
 
+> **Context engineering rationale:** Prompt order follows the attention U-curve (start/end = high attention, middle = low).
+> Critical instructions go at start and end. Navigable data goes in the middle.
+> See: Chroma "Context Rot" (2025) — performance degrades ~2%/100K tokens; distractors and semantic ambiguity compound degradation.
+
 **Common preamble (include in all agent prompts):**
 ```
 Working directory: {worktree_absolute_path}
 All file operations MUST use this absolute path as base. Do NOT write files to the main project directory.
 Commit format: {commit_type}({spec}): {description}
+```
+
+**Standard Task** (spawn with `Agent(model="{Model from PLAN.md}", ...)`):
+
+Prompt sections in order (START = high attention, MIDDLE = navigable data, END = high attention):
+
+```
+--- START (high attention zone) ---
+
+{task_id}: {description from PLAN.md}
+Files: {target files}  Spec: {spec_name}
+
+{Prior failure context — include ONLY if task was previously reverted. Read from .deepflow/auto-memory.yaml revert_history for this task_id:}
+DO NOT repeat these approaches:
+- Cycle {N}: reverted — "{reason from revert_history}"
+{Omit this entire block if task has no revert history.}
+
+{Acceptance criteria excerpt — extract 2-3 key ACs from the spec file (specs/doing-*.md). Include only the criteria relevant to THIS task, not the full spec.}
+Success criteria:
+- {AC relevant to this task}
+- {AC relevant to this task}
+{Omit if spec has no structured ACs.}
+
+--- MIDDLE (navigable data zone) ---
+
+{Impact block from PLAN.md — include verbatim if present. Annotate each caller with WHY it's impacted:}
+Impact:
+  - Callers: {file} ({why — e.g. "imports validateToken which you're changing"})
+  - Duplicates:
+    - {file} [active — consolidate]
+    - {file} [dead — DELETE]
+  - Data flow: {consumers}
+{Omit if no Impact in PLAN.md.}
+
+{Dependency context — for each completed blocker task, include a one-liner summary:}
+Prior tasks:
+- {dep_task_id}: {one-line summary of what changed — e.g. "refactored validateToken to async, changed signature (string) → (string, opts)"}
+{Omit if task has no dependencies or all deps are bootstrap/spike tasks.}
+
+Steps:
+1. External APIs/SDKs → chub search "<library>" --json → chub get <id> --lang <lang> (skip if chub unavailable or internal code only)
+2. LSP freshness check: run `findReferences` on each function/type you're about to change. If callers exist beyond the Impact list, add them to your scope before implementing.
+3. Read ALL files in Impact (+ any new callers from step 2) before implementing — understand the full picture
+4. Implement the task, updating all impacted files
+5. Commit as feat({spec}): {description}
+
+--- END (high attention zone) ---
 
 {If .deepflow/auto-memory.yaml exists and has probe_learnings, include:}
 Spike results (follow these approaches):
 {each probe_learning with outcome "winner" → "- {insight}"}
 {Omit this block if no probe_learnings exist.}
 
+If Impact lists duplicates: [active] → consolidate into single source of truth. [dead] → DELETE entirely.
+Your ONLY job is to write code and commit. Orchestrator runs health checks after.
 STOP after committing. Do NOT merge branches, rename spec files, remove worktrees, or run git checkout on main.
 ```
 
-**Standard Task** (spawn with `Agent(model="{Model from PLAN.md}", ...)`):
-```
-{task_id}: {description from PLAN.md}
-Files: {target files}  Spec: {spec_name}
-{Impact block from PLAN.md — include verbatim if present}
-
-{Prior failure context — include ONLY if task was previously reverted. Read from .deepflow/auto-memory.yaml revert_history for this task_id:}
-Previous attempts (DO NOT repeat these approaches):
-- Cycle {N}: reverted — "{reason from revert_history}"
-- Cycle {N}: reverted — "{reason from revert_history}"
-{Omit this entire block if task has no revert history.}
-
-CRITICAL: If Impact lists duplicates or callers, you MUST verify each one is consistent with your changes.
-- [active] duplicates → consolidate into single source of truth (e.g., local generateYAML → use shared buildConfigData)
-- [dead] duplicates → DELETE the dead code entirely. Dead code pollutes context and causes drift.
-
-Steps:
-1. External APIs/SDKs → chub search "<library>" --json → chub get <id> --lang <lang> (skip if chub unavailable or internal code only)
-2. Read ALL files in Impact before implementing — understand the full picture
-3. Implement the task, updating all impacted files
-4. Commit as feat({spec}): {description}
-
-Your ONLY job is to write code and commit. Orchestrator runs health checks after.
-```
+**Effort-aware context budget:** For `Effort: low` tasks, omit the MIDDLE section entirely (no Impact, no dependency context, no steps). For `Effort: medium`, include Impact but omit dependency context. For `Effort: high`, include everything.
 
 **Bootstrap Task:**
 ```
@@ -242,7 +288,7 @@ Commit as test({spec}): bootstrap tests for edit_scope
 Files: {target files}  Spec: {spec_name}
 
 {Prior failure context — include ONLY if this spike was previously reverted. Read from .deepflow/auto-memory.yaml revert_history + spike_insights for this task_id:}
-Previous attempts (DO NOT repeat these approaches):
+DO NOT repeat these approaches:
 - Cycle {N}: reverted — "{reason}"
 {Omit this entire block if no revert history.}
 
@@ -282,14 +328,19 @@ When all tasks done for a `doing-*` spec:
 | Implementation | `general-purpose` | Task implementation |
 | Debugger | `reasoner` | Debugging failures |
 
-**Model routing:** Read `Model:` field from each task block in PLAN.md. Pass as `model:` parameter when spawning the agent. Default: `sonnet` if field is missing.
+**Model + effort routing:** Read `Model:` and `Effort:` fields from each task block in PLAN.md. Pass `model:` parameter when spawning the agent. Prepend effort instruction to the agent prompt. Defaults: `Model: sonnet`, `Effort: medium`.
 
-| Task field | Agent call |
-|------------|-----------|
-| `Model: haiku` | `Agent(model="haiku", ...)` |
-| `Model: sonnet` | `Agent(model="sonnet", ...)` |
-| `Model: opus` | `Agent(model="opus", ...)` |
-| (missing) | `Agent(model="sonnet", ...)` |
+| Task fields | Agent call | Prompt preamble |
+|-------------|-----------|-----------------|
+| `Model: haiku, Effort: low` | `Agent(model="haiku", ...)` | `You MUST be maximally efficient: skip explanations, minimize tool calls, go straight to implementation.` |
+| `Model: sonnet, Effort: medium` | `Agent(model="sonnet", ...)` | `Be direct and efficient. Explain only when the logic is non-obvious.` |
+| `Model: opus, Effort: high` | `Agent(model="opus", ...)` | _(no preamble — default behavior)_ |
+| (missing) | `Agent(model="sonnet", ...)` | `Be direct and efficient. Explain only when the logic is non-obvious.` |
+
+**Effort preamble rules:**
+- `low` → Prepend efficiency instruction. Agent should make fewest possible tool calls.
+- `medium` → Prepend balanced instruction. Agent skips preamble but explains non-obvious decisions.
+- `high` → No preamble added. Agent uses full reasoning capabilities.
 
 **Checkpoint schema:** `.deepflow/checkpoint.json` in worktree:
 ```json
