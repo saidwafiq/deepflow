@@ -1,6 +1,8 @@
 ---
 name: browse-fetch
 description: Fetches live web content using headless Chromium via Playwright. Use when you need to read documentation, articles, or any public URL that requires JavaScript rendering. Falls back to WebFetch for simple HTML pages.
+context: fork
+allowed-tools: [Bash, WebFetch, WebSearch, Read]
 ---
 
 # Browse-Fetch

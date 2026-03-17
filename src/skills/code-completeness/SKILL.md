@@ -1,6 +1,7 @@
 ---
 name: code-completeness
 description: Finds incomplete code in codebase. Use when analyzing for TODOs, stubs, placeholders, skipped tests, or missing implementations. Helps compare specs against actual code state.
+allowed-tools: [Read, Grep, Glob]
 ---
 
 # Code Completeness

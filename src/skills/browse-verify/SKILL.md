@@ -1,6 +1,7 @@
 ---
 name: browse-verify
 description: Verifies UI acceptance criteria by launching a headless browser, extracting the accessibility tree, and evaluating structured assertions deterministically. Use when a spec has browser-based ACs that need automated verification after implementation.
+context: fork
 ---
 
 # Browse-Verify
