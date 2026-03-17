@@ -186,6 +186,20 @@ your-project/
 6. **Atomic commits** — One task = one commit
 7. **Context-aware** — Checkpoint before limits, resume seamlessly
 
+## Why This Architecture Works
+
+Deepflow's design isn't opinionated — it's a direct response to measured LLM limitations:
+
+**Focused tasks > giant context** — LLMs lose ~2% effectiveness per 100K additional tokens, even on trivial tasks ([Chroma "Context Rot", 2025](https://research.trychroma.com/context-rot), 18 models tested). Deepflow keeps each task's context minimal and focused instead of loading the entire codebase.
+
+**Tool use > context stuffing** — Information in the middle of context has up to 40% less recall than at the start/end ([Lost in the Middle, 2023](https://arxiv.org/abs/2307.03172)). Agents access code on-demand via LSP (`findReferences`, `incomingCalls`) and grep — always fresh, no attention dilution.
+
+**Model routing > one-size-fits-all** — Mechanical tasks with cheap models (haiku), complex tasks with powerful models (opus). Fewer tokens per task = less degradation = better results. Effort-aware context budgets strip unnecessary sections from prompts for simpler tasks.
+
+**Prompt order follows attention** — Execute prompts follow the attention U-curve: critical instructions (task definition, failure history, success criteria) at start and end, navigable data (impact analysis, dependency context) in the middle. Distractors eliminated by design.
+
+**LSP-powered impact analysis** — Plan-time uses `findReferences` and `incomingCalls` to map blast radius precisely. Execute-time runs a freshness check before implementing — catching callers added after planning. Grep as fallback when LSP is unavailable.
+
 ## Skills
 
 | Skill | Purpose |
