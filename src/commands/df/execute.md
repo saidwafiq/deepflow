@@ -136,6 +136,8 @@ Before spawning, check `Files:` lists of all ready tasks. If two+ ready tasks sh
 
 **≥2 [SPIKE] tasks for same problem:** Follow Parallel Spike Probes (section 5.7).
 
+**[OPTIMIZE] tasks:** Follow Optimize Cycle (section 5.9). Only ONE optimize task runs at a time — defer others until the active one completes.
+
 ### 5.5. RATCHET CHECK
 
 After each agent completes, run health checks in the worktree.
@@ -156,6 +158,19 @@ Run Build → Test → Typecheck → Lint (stop on first failure).
 **Impact completeness check** (if task has Impact block in PLAN.md):
 Compare `git diff HEAD~1 --name-only` against Impact callers/duplicates list.
 File listed but not modified → **advisory warning**: "Impact gap: {file} listed as {caller|duplicate} but not modified — verify manually". Not auto-revert (callers sometimes don't need changes), but flags the risk.
+
+**Metric gate (Optimize tasks only):**
+
+After ratchet passes, if the current task has an `Optimize:` block, run the metric gate:
+
+1. Run the `metric` shell command in the worktree: `cd ${WORKTREE_PATH} && eval "${metric_command}"`
+2. Parse output as float. Non-numeric output → cycle failure (revert, log "metric parse error: {raw output}")
+3. Compare against previous measurement using `direction`:
+   - `direction: higher` → new value must be > previous + (previous × min_improvement_threshold)
+   - `direction: lower` → new value must be < previous - (previous × min_improvement_threshold)
+4. Both ratchet AND metric improvement required → keep commit
+5. Ratchet passes but metric did not improve → revert (log "ratchet passed but metric stagnant/regressed: {old} → {new}")
+6. Run each `secondary_metrics` command, parse as float. If regression > `regression_threshold` (default 5%) compared to baseline: append WARNING to `.deepflow/auto-report.md`: `"WARNING: {name} regressed {delta}% ({baseline_val} → {new_val}) at cycle {N}"`. Do NOT auto-revert.
 
 **Evaluate:** All pass + no violations → commit stands. Any failure → attempt partial salvage before reverting:
 
@@ -179,7 +194,8 @@ Trigger: ≥2 [SPIKE] tasks with same "Blocked by:" target or identical hypothes
 4. **Ratchet:** Per notification, run standard ratchet (5.5) in probe worktree. Record: ratchet_passed, regressions, coverage_delta, files_changed, commit
 5. **Select winner** (after ALL complete, no LLM judge):
    - Disqualify any with regressions
-   - Rank: fewer regressions > higher coverage_delta > fewer files_changed > first to complete
+   - **Standard spikes**: Rank: fewer regressions > higher coverage_delta > fewer files_changed > first to complete
+   - **Optimize probes**: Rank: best metric improvement (absolute delta toward target) > fewer regressions > fewer files_changed
    - No passes → reset all to pending for retry with debugger
 6. **Preserve all worktrees.** Losers: rename branch + `-failed` suffix. Record in checkpoint.json under `"spike_probes"`
 7. **Log ALL probe outcomes** to `.deepflow/auto-memory.yaml` (main tree):
@@ -212,6 +228,141 @@ Trigger: ≥2 [SPIKE] tasks with same "Blocked by:" target or identical hypothes
    ```
    Create file if missing. Preserve existing keys when merging. Log BOTH winners and losers — downstream tasks need to know what was chosen, not just what failed.
 8. **Promote winner:** Cherry-pick into shared worktree. Winner → `[x] [PROBE_WINNER]`, losers → `[~] [PROBE_FAILED]`. Resume standard loop.
+
+#### 5.7.1. PROBE DIVERSITY ENFORCEMENT (Optimize Probes)
+
+When spawning probes for optimize plateau resolution, enforce diversity roles:
+
+**Role definitions:**
+- **contextualizada**: Builds on the best approach so far — refines, extends, or combines what worked. Prompt includes: "Build on the best result so far: {best_approach_summary}. Refine or extend it."
+- **contraditoria**: Tries the opposite of the current best. Prompt includes: "The best approach so far is {best_approach_summary}. Try the OPPOSITE direction — if it cached, don't cache; if it optimized hot path, optimize cold path; etc."
+- **ingenua**: No prior context — naive fresh attempt. Prompt includes: "Ignore all prior attempts. Approach this from scratch with no assumptions about what works."
+
+**Auto-scaling by probe round:**
+
+| Probe round | Count | Required roles |
+|-------------|-------|----------------|
+| 1st plateau | 2 | 1 contraditoria + 1 ingenua |
+| 2nd plateau | 4 | 1 contextualizada + 2 contraditoria + 1 ingenua |
+| 3rd+ plateau | 6 | 2 contextualizada + 2 contraditoria + 2 ingenua |
+
+**Rules:**
+- Every probe set MUST include ≥1 contraditoria and ≥1 ingenua (minimum diversity)
+- contextualizada only added from round 2+ (needs prior data to build on)
+- Each probe prompt includes its role label and role-specific instruction
+- Probe scale persists in `optimize_state.probe_scale` in `auto-memory.yaml`
+
+### 5.9. OPTIMIZE CYCLE
+
+Trigger: task has `Optimize:` block in PLAN.md. Runs instead of standard single-agent spawn.
+
+**Optimize is a distinct execution mode** — one optimize task at a time, spanning N cycles until a stop condition.
+
+#### 5.9.1. INITIALIZATION
+
+1. Parse `Optimize:` block from PLAN.md task: `metric`, `target`, `direction`, `max_cycles`, `secondary_metrics`
+2. Load or initialize `optimize_state` from `.deepflow/auto-memory.yaml`:
+   ```yaml
+   optimize_state:
+     task_id: "T{n}"
+     metric_command: "{shell command}"
+     target: {number}
+     direction: "higher|lower"
+     baseline: null          # set on first measure
+     current_best: null      # best metric value seen
+     best_commit: null       # commit hash of best value
+     cycles_run: 0
+     cycles_without_improvement: 0
+     consecutive_reverts: 0
+     probe_scale: 0          # 0=no probes yet, 2/4/6
+     max_cycles: {number}
+     history: []             # [{cycle, value, delta, kept, commit}]
+     failed_hypotheses: []   # ["{description}"]
+   ```
+3. **Measure baseline**: `cd ${WORKTREE_PATH} && eval "${metric_command}"` → parse float → store as `baseline` and `current_best`
+4. Measure each secondary metric → store as `secondary_baselines`
+5. Check if target already met (`direction: higher` → baseline >= target; `lower` → baseline <= target). If met → mark task `[x]`, log "target already met: {baseline}", done.
+
+#### 5.9.2. CYCLE LOOP
+
+Each cycle = one agent spawn + measure + keep/revert decision.
+
+```
+REPEAT:
+  1. Check stop conditions (5.9.3) → if triggered, exit loop
+  2. Spawn ONE optimize agent (section 6, Optimize Task prompt) with run_in_background=true
+  3. STOP. End turn. Wait for notification.
+  4. On notification:
+     a. Run ratchet check (section 5.5) — build/test/lint must pass
+     b. If ratchet fails → git revert HEAD --no-edit, increment consecutive_reverts, log failed hypothesis, go to step 1
+     c. Run metric gate (section 5.5 metric gate) — measure new value
+     d. If metric parse error → git revert HEAD --no-edit, increment consecutive_reverts, log "metric parse error"
+     e. Compute improvement:
+        - direction: higher → improvement = (new - current_best) / |current_best| × 100
+        - direction: lower  → improvement = (current_best - new) / |current_best| × 100
+        - current_best == 0 → use absolute delta
+     f. If improvement >= min_improvement_threshold (default 1%):
+        → KEEP: update current_best, best_commit, reset cycles_without_improvement=0, reset consecutive_reverts=0
+     g. If improvement < min_improvement_threshold:
+        → REVERT: git revert HEAD --no-edit, increment cycles_without_improvement
+     h. Increment cycles_run
+     i. Append to history: {cycle, value, delta_pct, kept: bool, commit}
+     j. Measure secondary metrics, check regression (WARNING only, no revert)
+     k. Persist optimize_state to auto-memory.yaml
+     l. Report: "⟳ T{n} cycle {N}: {old} → {new} ({+/-delta}%) — {kept|reverted} [best: {current_best}, target: {target}]"
+     m. Check context %. If ≥50% → checkpoint and exit (auto-cycle resumes).
+```
+
+#### 5.9.3. STOP CONDITIONS
+
+| Condition | Detection | Action |
+|-----------|-----------|--------|
+| **Target reached** | `direction: higher` → value >= target; `lower` → value <= target | Mark task `[x]`, log "target reached: {value}" |
+| **Max cycles** | `cycles_run >= max_cycles` | Mark task `[x]` with note: "max cycles reached, best: {current_best}". If current_best worse than baseline → `git reset --hard {best_commit}`, log "reverted to best-known" |
+| **Plateau** | `cycles_without_improvement >= 3` | Pause normal cycle → launch probes (5.9.4) |
+| **Circuit breaker** | `consecutive_reverts >= 3` | Halt, task stays `[ ]`, log "circuit breaker: 3 consecutive reverts". Requires human intervention. |
+
+On **max cycles** with final value worse than baseline:
+1. `git reset --hard {best_commit}` in worktree
+2. Log: "final value {current} worse than baseline {baseline}, reverted to best-known commit {best_commit} (value: {current_best})"
+
+#### 5.9.4. PLATEAU → PROBE LAUNCH
+
+When plateau detected (3 cycles without ≥1% improvement):
+
+1. Pause normal optimize cycle
+2. Determine probe count from `probe_scale` (section 5.7.1 auto-scaling table): 0→2, 2→4, 4→6
+3. Update `probe_scale` in optimize_state
+4. Record `BASELINE=$(git rev-parse HEAD)` in shared worktree
+5. Create sub-worktrees per probe: `git worktree add -b df/{spec}--opt-probe-{N} .deepflow/worktrees/{spec}/opt-probe-{N} ${BASELINE}`
+6. Spawn ALL probes in ONE message using Optimize Probe prompt (section 6), each with its diversity role
+7. End turn. Wait for all notifications.
+8. Per notification: run ratchet + metric measurement in probe worktree
+9. Select winner (section 5.7 step 5, optimize ranking): best metric improvement toward target
+10. Winner → cherry-pick into shared worktree, update current_best, reset cycles_without_improvement=0
+11. Losers → rename branch with `-failed` suffix, preserve worktrees
+12. Log all probe outcomes to `auto-memory.yaml` under `spike_insights` (reuse existing format)
+13. Log probe learnings: winning approach summary + each loser's failure reason
+14. Resume normal optimize cycle from step 1
+
+#### 5.9.5. STATE PERSISTENCE (auto-memory.yaml)
+
+After every cycle, write `optimize_state` to `.deepflow/auto-memory.yaml` (main tree). This ensures:
+- Context exhaustion at 50% → auto-cycle resumes with full history
+- Failed hypotheses carry forward (agents won't repeat approaches)
+- Probe scale persists across context windows
+
+Also append cycle results to `.deepflow/auto-report.md`:
+```
+## Optimize: T{n} — {metric_name}
+| Cycle | Value | Delta | Kept | Commit |
+|-------|-------|-------|------|--------|
+| 1 | 72.3 | — | baseline | abc123 |
+| 2 | 74.1 | +2.5% | ✓ | def456 |
+| 3 | 73.8 | -0.4% | ✗ | (reverted) |
+...
+Best: {current_best} | Target: {target} | Status: {in_progress|reached|max_cycles|circuit_breaker}
+```
 
 ---
 
@@ -309,6 +460,91 @@ Implement minimal spike to validate hypothesis.
 Commit as spike({spec}): {description}
 ```
 
+**Optimize Task** (spawn with `Agent(model="opus", subagent_type="general-purpose")`):
+
+One agent per cycle. Agent makes ONE atomic change to improve the metric.
+
+```
+--- START (high attention zone) ---
+
+{task_id} [OPTIMIZE]: Improve {metric_name} — cycle {N}/{max_cycles}
+Files: {target files}  Spec: {spec_name}
+
+Current metric: {current_value} (baseline: {baseline}, best: {current_best})
+Target: {target} ({direction})
+Improvement needed: {delta_to_target} ({direction})
+
+CONSTRAINT: Make exactly ONE atomic change. Do not refactor broadly.
+The metric is measured by: {metric_command}
+You succeed if the metric moves toward {target} after your change.
+
+--- MIDDLE (navigable data zone) ---
+
+Attempt history (last 5 cycles):
+{For each recent history entry:}
+- Cycle {N}: {value} ({+/-delta}%) — {kept|reverted} — "{one-line description of what was tried}"
+{Omit if cycle 1.}
+
+DO NOT repeat these failed approaches:
+{For each failed_hypothesis in optimize_state:}
+- "{hypothesis description}"
+{Omit if no failed hypotheses.}
+
+{Impact block from PLAN.md if present}
+
+{Dependency context if present}
+
+Steps:
+1. Analyze the metric command to understand what's being measured
+2. Read the target files and identify ONE specific improvement
+3. Implement the change (ONE atomic modification)
+4. Commit as feat({spec}): optimize {metric_name} — {what you changed}
+
+--- END (high attention zone) ---
+
+{Spike/probe learnings if any}
+
+Your ONLY job is to make ONE atomic change and commit. Orchestrator measures the metric after.
+Do NOT run the metric command yourself. Do NOT make multiple changes.
+STOP after committing. Do NOT merge branches, rename spec files, remove worktrees, or run git checkout on main.
+```
+
+**Optimize Probe Task** (spawn with `Agent(model="opus", subagent_type="general-purpose")`):
+
+Used during plateau resolution. Each probe has a diversity role.
+
+```
+--- START (high attention zone) ---
+
+{task_id} [OPTIMIZE PROBE]: {metric_name} — probe {probe_id} ({role_label})
+Files: {target files}  Spec: {spec_name}
+
+Current metric: {current_value} (baseline: {baseline}, best: {current_best})
+Target: {target} ({direction})
+
+Role: {role_label}
+{role_instruction — one of:}
+  contextualizada: "Build on the best approach so far: {best_approach_summary}. Refine, extend, or combine what worked."
+  contraditoria: "The best approach so far was: {best_approach_summary}. Try the OPPOSITE — if it optimized X, try Y instead. Challenge the current direction."
+  ingenua: "Ignore all prior attempts. Approach this metric from scratch with no assumptions about what has or hasn't worked."
+
+--- MIDDLE (navigable data zone) ---
+
+Full attempt history:
+{ALL history entries from optimize_state}
+- Cycle {N}: {value} ({+/-delta}%) — {kept|reverted}
+
+All failed approaches (DO NOT repeat):
+{ALL failed_hypotheses}
+- "{hypothesis description}"
+
+--- END (high attention zone) ---
+
+Make ONE atomic change that moves the metric toward {target}.
+Commit as feat({spec}): optimize probe {probe_id} — {what you changed}
+STOP after committing.
+```
+
 ### 8. COMPLETE SPECS
 
 When all tasks done for a `doing-*` spec:
@@ -383,6 +619,12 @@ When task fails ratchet and is reverted:
 | All probe worktrees preserved | Losers renamed `-failed`; never deleted |
 | Machine-selected winner | Regressions > coverage > files changed; no LLM judge |
 | External APIs → chub first | Skip if unavailable |
+| 1 optimize task at a time | Inherently sequential — no parallel optimize tasks |
+| Optimize = atomic changes only | One modification per cycle for diagnosability |
+| Ratchet + metric = both required | Optimize keeps commit only if ratchet AND metric improve |
+| Plateau → probes, not more cycles | 3 cycles without ≥1% improvement triggers probe launch |
+| Circuit breaker = 3 consecutive reverts | Halts optimize loop, requires human intervention |
+| Optimize probes need diversity | Every probe set: ≥1 contraditoria + ≥1 ingenua minimum |
 
 ## Example
 
