@@ -1,6 +1,7 @@
 ---
 name: df:debate
 description: Generate multi-perspective analysis of a problem before formalizing into a spec
+allowed-tools: [Read, Grep, Glob, Agent]
 ---
 
 # /df:debate — Multi-Perspective Analysis

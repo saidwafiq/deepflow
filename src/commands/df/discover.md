@@ -1,6 +1,7 @@
 ---
 name: df:discover
 description: Explore a problem space deeply through structured questioning to surface requirements and constraints
+allowed-tools: [AskUserQuestion, Read]
 ---
 
 # /df:discover — Deep Problem Exploration
