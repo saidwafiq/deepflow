@@ -1,3 +1,8 @@
+---
+name: df:note
+description: Capture decisions that emerged during free conversations outside of deepflow commands
+---
+
 # /df:note — Capture Decisions from Free Conversations
 
 ## Orchestrator Role

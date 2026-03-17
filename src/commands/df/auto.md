@@ -1,3 +1,8 @@
+---
+name: df:auto
+description: Set up and launch fully autonomous execution with plan generation and ratchet snapshots
+---
+
 # /df:auto — Autonomous Mode Setup
 
 Set up and launch fully autonomous execution. Runs `/df:plan` if no PLAN.md exists, takes a ratchet snapshot, then starts `/loop 1m /df:auto-cycle`.

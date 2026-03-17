@@ -1,3 +1,9 @@
+---
+name: df:verify
+description: Check that implemented code satisfies spec requirements and acceptance criteria through machine-verifiable checks
+context: fork
+---
+
 # /df:verify — Verify Specs Satisfied
 
 ## Purpose
@@ -25,7 +31,7 @@ specs/
 
 ### 1. LOAD CONTEXT
 
-Load: `specs/doing-*.md`, `PLAN.md`, source code. Load `specs/done-*.md` only if `--re-verify`.
+Load: `!`ls specs/doing-*.md 2>/dev/null || echo 'NOT_FOUND'``, `!`cat PLAN.md 2>/dev/null || echo 'NOT_FOUND'``, source code. Load `specs/done-*.md` only if `--re-verify`.
 
 **Readiness check:** For each `doing-*` spec, check PLAN.md:
 - All tasks `[x]` → ready (proceed)
@@ -35,7 +41,7 @@ If no `doing-*` specs found: report counts, suggest `/df:execute`.
 
 ### 1.5. DETECT PROJECT COMMANDS
 
-**Config override always wins.** If `.deepflow/config.yaml` has `quality.test_command` or `quality.build_command`, use those.
+**Config override always wins.** If `!`cat .deepflow/config.yaml 2>/dev/null || echo 'NOT_FOUND'`` has `quality.test_command` or `quality.build_command`, use those.
 
 **Auto-detection (first match wins):**
 

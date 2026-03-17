@@ -1,3 +1,8 @@
+---
+name: df:spec
+description: Transform conversation context into a structured specification file with requirements and acceptance criteria
+---
+
 # /df:spec — Generate Spec from Conversation
 
 ## Orchestrator Role

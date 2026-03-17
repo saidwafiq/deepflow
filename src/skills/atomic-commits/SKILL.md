@@ -45,8 +45,9 @@ Task: T1
 1. Implement task completely
 2. Verify it works (tests, types, lint)
 3. Stage specific files (`git add {files}`, not `-A`)
-4. Commit with proper format
-5. Return hash
+4. Read staged changes: !`git diff --cached --stat 2>/dev/null || echo 'NOT_FOUND'`
+5. Commit with proper format
+6. Return hash
 
 ## Pre-Commit
 

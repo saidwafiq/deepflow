@@ -1,3 +1,9 @@
+---
+name: df:resume
+description: Synthesize project state into a briefing covering what happened, current decisions, and next steps
+allowed-tools: [Read, Grep, Glob, Bash]
+---
+
 # /df:resume — Session Continuity Briefing
 
 ## Orchestrator Role
@@ -28,11 +34,11 @@ Read these sources in parallel (all reads, no writes):
 
 | Source | Command/Path | Purpose |
 |--------|-------------|---------|
-| Git timeline | `git log --oneline -20` | What changed and when |
-| Decisions | `.deepflow/decisions.md` | Current [APPROACH], [PROVISIONAL], [ASSUMPTION] entries |
-| Plan | `PLAN.md` | Task status (checked vs unchecked) |
-| Spec headers | `specs/doing-*.md` (first 20 lines each) | What features are in-flight |
-| Experiments | `.deepflow/experiments/` (file listing + names) | Validated and failed approaches |
+| Git timeline | `!`git log --oneline -20`` | What changed and when |
+| Decisions | `!`cat .deepflow/decisions.md 2>/dev/null \|\| echo 'NOT_FOUND'`` | Current [APPROACH], [PROVISIONAL], [ASSUMPTION] entries |
+| Plan | `!`cat PLAN.md 2>/dev/null \|\| echo 'NOT_FOUND'`` | Task status (checked vs unchecked) |
+| Spec headers | `!`head -20 specs/doing-*.md 2>/dev/null \|\| echo 'NOT_FOUND'`` | What features are in-flight |
+| Experiments | `!`ls .deepflow/experiments/ 2>/dev/null \|\| echo 'NOT_FOUND'`` | Validated and failed approaches |
 
 **Token budget:** Read only what's needed — ~2500 tokens total across all sources.
 

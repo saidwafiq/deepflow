@@ -1,3 +1,8 @@
+---
+name: df:plan
+description: Compare specs against codebase and past experiments, generate prioritized tasks
+---
+
 # /df:plan — Generate Task Plan from Specs
 
 ## Purpose
@@ -31,6 +36,10 @@ Compare specs against codebase and past experiments. Generate prioritized tasks.
 Load: specs/*.md (exclude doing-*/done-*), PLAN.md (if exists), .deepflow/config.yaml
 Determine source_dir from config or default to src/
 ```
+
+Shell injection (use output directly — no manual file reads needed):
+- `` !`ls specs/*.md 2>/dev/null || echo 'NOT_FOUND'` ``
+- `` !`cat PLAN.md 2>/dev/null || echo 'NOT_FOUND'` ``
 
 Run `validateSpec` on each spec. Hard failures → skip + error. Advisory → include in output.
 No new specs → report counts, suggest `/df:execute`.

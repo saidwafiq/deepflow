@@ -1,6 +1,7 @@
 ---
 name: gap-discovery
 description: Discovers requirement gaps during ideation. Use when user describes features, planning specs, or requirements seem incomplete. Asks clarifying questions about scope, constraints, edge cases, success criteria.
+allowed-tools: [AskUserQuestion, Read]
 ---
 
 # Gap Discovery
