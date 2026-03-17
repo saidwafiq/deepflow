@@ -259,14 +259,19 @@ async function configureHooks(claudeDir) {
 
   // Configure statusline
   if (settings.statusLine) {
-    const answer = await ask(
-      `  ${c.yellow}!${c.reset} Existing statusLine found. Replace with deepflow? [y/N] `
-    );
-    if (answer.toLowerCase() === 'y') {
-      settings.statusLine = { type: 'command', command: statuslineCmd };
-      log('Statusline configured');
+    if (process.stdin.isTTY) {
+      const answer = await ask(
+        `  ${c.yellow}!${c.reset} Existing statusLine found. Replace with deepflow? [y/N] `
+      );
+      if (answer.toLowerCase() === 'y') {
+        settings.statusLine = { type: 'command', command: statuslineCmd };
+        log('Statusline configured');
+      } else {
+        console.log(`  ${c.yellow}!${c.reset} Skipped statusline configuration`);
+      }
     } else {
-      console.log(`  ${c.yellow}!${c.reset} Skipped statusline configuration`);
+      // Non-interactive (e.g. Claude Code bash tool) — skip prompt, keep existing
+      console.log(`  ${c.yellow}!${c.reset} Existing statusLine found — kept (non-interactive mode)`);
     }
   } else {
     settings.statusLine = { type: 'command', command: statuslineCmd };
@@ -407,6 +412,11 @@ function ask(question) {
 }
 
 async function askInstallLevel(prompt) {
+  if (!process.stdin.isTTY) {
+    // Non-interactive — default to global
+    console.log(`${c.dim}Non-interactive mode — defaulting to global install${c.reset}`);
+    return 'global';
+  }
   console.log(prompt);
   console.log('');
   console.log(`  ${c.cyan}1${c.reset}) Global  ${c.dim}(~/.claude/ - available in all projects)${c.reset}`);
@@ -455,6 +465,10 @@ async function uninstall() {
   const CLAUDE_DIR = level === 'global' ? GLOBAL_DIR : PROJECT_DIR;
   const levelLabel = level === 'global' ? 'global' : 'project';
 
+  if (!process.stdin.isTTY) {
+    console.log('Uninstall requires interactive mode. Run from a terminal.');
+    return;
+  }
   const confirm = await ask(`Remove ${levelLabel} installation from ${CLAUDE_DIR}? [y/N] `);
   if (confirm.toLowerCase() !== 'y') {
     console.log('Cancelled.');
