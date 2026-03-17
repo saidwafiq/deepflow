@@ -27,6 +27,10 @@ Load: PLAN.md (required)
 Load: .deepflow/auto-memory.yaml (optional — cross-cycle state, ignore if missing)
 ```
 
+Shell injection (use output directly — no manual file reads needed):
+- `` !`cat PLAN.md 2>/dev/null || echo 'NOT_FOUND'` ``
+- `` !`cat .deepflow/auto-memory.yaml 2>/dev/null || echo 'NOT_FOUND'` ``
+
 **auto-memory.yaml full schema:**
 
 ```yaml

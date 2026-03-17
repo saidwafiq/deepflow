@@ -56,6 +56,10 @@ checkpoint exists → Prompt: "Resume? (y/n)"
 else → Start fresh
 ```
 
+Shell injection (use output directly — no manual file reads needed):
+- `` !`cat .deepflow/checkpoint.json 2>/dev/null || echo 'NOT_FOUND'` ``
+- `` !`git diff --quiet && echo 'CLEAN' || echo 'DIRTY'` ``
+
 ### 1.5. CREATE WORKTREE
 
 Require clean HEAD (`git diff --quiet`). Derive SPEC_NAME from `specs/doing-*.md`.
@@ -96,6 +100,10 @@ Subsequent cycles use bootstrapped tests as ratchet baseline.
 Load: PLAN.md (required), specs/doing-*.md, .deepflow/config.yaml
 If missing: "No PLAN.md found. Run /df:plan first."
 ```
+
+Shell injection (use output directly — no manual file reads needed):
+- `` !`cat .deepflow/checkpoint.json 2>/dev/null || echo 'NOT_FOUND'` ``
+- `` !`git diff --quiet && echo 'CLEAN' || echo 'DIRTY'` ``
 
 ### 2.5. REGISTER NATIVE TASKS
 

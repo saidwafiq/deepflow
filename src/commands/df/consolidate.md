@@ -20,6 +20,9 @@ Remove duplicates, superseded entries, and promote stale provisionals. Keep deci
 ### 1. LOAD
 Read `.deepflow/decisions.md`. If missing or empty, report and exit.
 
+Shell injection (use output directly — no manual file reads needed):
+- `` !`cat .deepflow/decisions.md 2>/dev/null || echo 'NOT_FOUND'` ``
+
 ### 2. ANALYZE
 Model-driven analysis (not regex):
 - Identify duplicate decisions (same meaning, different wording)
