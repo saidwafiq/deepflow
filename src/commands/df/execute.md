@@ -1,3 +1,8 @@
+---
+name: df:execute
+description: Execute tasks from PLAN.md with agent spawning, ratchet health checks, and worktree management
+---
+
 # /df:execute — Execute Tasks from Plan
 
 ## Orchestrator Role

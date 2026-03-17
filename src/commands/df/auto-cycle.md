@@ -1,3 +1,8 @@
+---
+name: df:auto-cycle
+description: Execute one task from PLAN.md with ratchet health checks and state tracking for autonomous mode
+---
+
 # /df:auto-cycle — Single Cycle of Auto Mode
 
 ## Purpose

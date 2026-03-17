@@ -1,3 +1,8 @@
+---
+name: df:debate
+description: Generate multi-perspective analysis of a problem before formalizing into a spec
+---
+
 # /df:debate — Multi-Perspective Analysis
 
 ## Orchestrator Role

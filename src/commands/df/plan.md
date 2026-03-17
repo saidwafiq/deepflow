@@ -1,3 +1,8 @@
+---
+name: df:plan
+description: Compare specs against codebase and past experiments, generate prioritized tasks
+---
+
 # /df:plan — Generate Task Plan from Specs
 
 ## Purpose

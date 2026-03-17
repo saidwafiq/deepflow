@@ -1,3 +1,8 @@
+---
+name: df:verify
+description: Check that implemented code satisfies spec requirements and acceptance criteria through machine-verifiable checks
+---
+
 # /df:verify — Verify Specs Satisfied
 
 ## Purpose

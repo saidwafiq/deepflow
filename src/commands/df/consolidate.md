@@ -1,3 +1,8 @@
+---
+name: df:consolidate
+description: Remove duplicates and superseded entries from decisions file, promote stale provisionals
+---
+
 # /df:consolidate — Consolidate Decisions
 
 ## Purpose

@@ -1,3 +1,8 @@
+---
+name: df:resume
+description: Synthesize project state into a briefing covering what happened, current decisions, and next steps
+---
+
 # /df:resume — Session Continuity Briefing
 
 ## Orchestrator Role

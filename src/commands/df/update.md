@@ -1,3 +1,8 @@
+---
+name: df:update
+description: Update or uninstall deepflow, check installed version
+---
+
 # /df:update — Update deepflow
 
 ## Update

@@ -1,3 +1,8 @@
+---
+name: df:discover
+description: Explore a problem space deeply through structured questioning to surface requirements and constraints
+---
+
 # /df:discover — Deep Problem Exploration
 
 ## Orchestrator Role
