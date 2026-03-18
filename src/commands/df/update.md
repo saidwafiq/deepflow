@@ -5,7 +5,7 @@ description: Update or uninstall deepflow, check installed version
 
 # /df:update — Update deepflow
 
-## Update
+**ACTION REQUIRED:** Immediately run the update command below. Do NOT ask for confirmation — the user already confirmed by running `/df:update`.
 
 ```bash
 npx deepflow@latest
@@ -14,6 +14,8 @@ npx deepflow@latest
 Auto-detects existing installation and updates it.
 
 ## Uninstall
+
+To uninstall instead, run:
 
 ```bash
 npx deepflow --uninstall

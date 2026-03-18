@@ -125,7 +125,7 @@ Before spawning: `TaskUpdate(taskId: native_id, status: "in_progress")` — acti
 
 **Token tracking — record start:**
 ```
-start_percentage = !`cat .deepflow/context.json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('percentage',''))" 2>/dev/null || echo ''`
+start_percentage = !`grep -o '"percentage":[0-9]*' .deepflow/context.json 2>/dev/null | grep -o '[0-9]*' || echo ''`
 start_timestamp  = !`date -u +%Y-%m-%dT%H:%M:%SZ`
 ```
 Store both values in memory (keyed by task_id) for use after ratchet completes. Omit if context.json unavailable.
@@ -193,32 +193,24 @@ After ratchet checks complete, truncate command output for context efficiency:
 After all checks pass, compute and write the token block to `.deepflow/results/T{N}.yaml`:
 
 ```
-end_percentage = !`cat .deepflow/context.json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('percentage',''))" 2>/dev/null || echo ''`
+end_percentage = !`grep -o '"percentage":[0-9]*' .deepflow/context.json 2>/dev/null | grep -o '[0-9]*' || echo ''`
 ```
 
 Parse `.deepflow/token-history.jsonl` to sum token fields for lines whose `timestamp` falls between `start_timestamp` and `end_timestamp` (ISO 8601 compare):
 ```bash
-python3 - <<'EOF'
-import json, sys
-from datetime import datetime, timezone
-
-start = "REPLACE_start_timestamp"
-end   = "REPLACE_end_timestamp"   # current time: date -u +%Y-%m-%dT%H:%M:%SZ
-
-totals = {"input_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
-try:
-    with open(".deepflow/token-history.jsonl") as f:
-        for line in f:
-            entry = json.loads(line)
-            ts = entry.get("timestamp", "")
-            if start <= ts <= end:
-                for k in totals:
-                    totals[k] += entry.get(k, 0)
-except FileNotFoundError:
-    sys.exit(0)
-
-print(json.dumps(totals))
-EOF
+awk -v start="REPLACE_start_timestamp" -v end="REPLACE_end_timestamp" '
+{
+  ts=""; inp=0; cre=0; rd=0
+  if (match($0, /"timestamp":"[^"]*"/)) { ts=substr($0, RSTART+13, RLENGTH-14) }
+  if (ts >= start && ts <= end) {
+    if (match($0, /"input_tokens":[0-9]+/)) inp=substr($0, RSTART+15, RLENGTH-15)
+    if (match($0, /"cache_creation_input_tokens":[0-9]+/)) cre=substr($0, RSTART+30, RLENGTH-30)
+    if (match($0, /"cache_read_input_tokens":[0-9]+/)) rd=substr($0, RSTART+26, RLENGTH-26)
+    si+=inp; sc+=cre; sr+=rd
+  }
+}
+END { printf "{\"input_tokens\":%d,\"cache_creation_input_tokens\":%d,\"cache_read_input_tokens\":%d}\n", si+0, sc+0, sr+0 }
+' .deepflow/token-history.jsonl 2>/dev/null || echo '{}'
 ```
 
 Append (or create) `.deepflow/results/T{N}.yaml` with the following block. Use shell injection to read the existing file first:
@@ -237,7 +229,7 @@ tokens:
   cache_read_input_tokens: {sum from jsonl}
 ```
 
-**Omit entirely if:** context.json was unavailable at start OR end, OR token-history.jsonl is missing, OR python3 is unavailable. Never fail the ratchet due to token tracking errors.
+**Omit entirely if:** context.json was unavailable at start OR end, OR token-history.jsonl is missing, OR awk is unavailable. Never fail the ratchet due to token tracking errors.
 
 **Evaluate:** All pass + no violations → commit stands. Any failure → attempt partial salvage before reverting:
 

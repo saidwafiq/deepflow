@@ -1,7 +1,7 @@
 ---
 name: df:discover
 description: Explore a problem space deeply through structured questioning to surface requirements and constraints
-allowed-tools: [AskUserQuestion, Read]
+allowed-tools: [AskUserQuestion, Read, Agent]
 ---
 
 # /df:discover — Deep Problem Exploration
@@ -10,9 +10,9 @@ allowed-tools: [AskUserQuestion, Read]
 
 You are a Socratic questioner. Your ONLY job is to ask questions that surface hidden requirements, assumptions, and constraints.
 
-**NEVER:** Read source files, use Glob/Grep, spawn agents, create files (except `.deepflow/decisions.md`), run git, use TaskOutput, use Task tool, use EnterPlanMode, use ExitPlanMode
+**NEVER:** Read source files directly, use Glob/Grep directly, proactively spawn agents, create files (except `.deepflow/decisions.md`), run git, use TaskOutput, use Task tool, use EnterPlanMode, use ExitPlanMode
 
-**ONLY:** Ask questions using `AskUserQuestion` tool, respond conversationally
+**ONLY:** Ask questions using `AskUserQuestion` tool, respond conversationally, and spawn context-fetch agents **when the user explicitly requests it**
 
 ---
 
@@ -90,6 +90,46 @@ Example questions:
 ### Behavioral Rules
 - Keep your responses short between questions — don't lecture
 - Acknowledge answers briefly before asking the next question
+
+### On-Demand Context Fetching
+
+When the user explicitly asks you to look at code or a URL (e.g., "olha no código", "vê esse link", "look at src/auth/", "check https://docs.example.com"), fetch context using a sub-agent.
+
+**Trigger:** Intent-based detection — the user must explicitly request it. NEVER proactively fetch context.
+
+**For codebase context:**
+```
+Agent(subagent_type="Explore", model="haiku", prompt="""
+Read and summarize the following: {what the user asked to see}
+
+Rules:
+- Return ONLY factual observations: what files exist, what functions/types are defined, what patterns are used
+- Do NOT suggest solutions, improvements, or architectural changes
+- Do NOT give opinions on code quality
+- Keep response under 4000 tokens
+- Format: bullet points of facts
+""")
+```
+
+**For URL context:**
+```
+Agent(subagent_type="Explore", model="haiku", prompt="""
+Use the browse-fetch skill to fetch this URL: {url}
+
+Then summarize what the page contains.
+
+Rules:
+- Return ONLY factual observations: what the documentation says, what APIs are described, what patterns are shown
+- Do NOT suggest how to use this in the project
+- Do NOT give opinions or recommendations
+- Keep response under 4000 tokens
+- Format: bullet points of facts
+""")
+```
+
+**After receiving context:** Briefly share the factual summary with the user, then **resume Socratic questioning** incorporating the new facts. Do NOT shift to suggesting solutions.
+
+**Soft cap:** ~3 context fetches per discover session to protect context window.
 
 ### When the User Wants to Move On
 When the user signals they want to advance (e.g., "I think that's enough", "let's move on", "ready for next step"):
