@@ -190,15 +190,23 @@ your-project/
 
 Deepflow's design isn't opinionated — it's a direct response to measured LLM limitations:
 
-**Focused tasks > giant context** — LLMs lose ~2% effectiveness per 100K additional tokens, even on trivial tasks ([Chroma "Context Rot", 2025](https://research.trychroma.com/context-rot), 18 models tested). Deepflow keeps each task's context minimal and focused instead of loading the entire codebase.
+**Focused tasks > giant context** — LLMs lose ~2% effectiveness per 100K additional tokens, even on trivial tasks ([Chroma "Context Rot", 2025](https://research.trychroma.com/context-rot), 18 models tested). Accuracy drops from 89% at 8K tokens to 25% at 1M tokens ([Augment Code, 2025](https://www.augmentcode.com/tools/context-window-wars-200k-vs-1m-token-strategies)). Deepflow keeps each task's context minimal and focused instead of loading the entire codebase.
 
-**Tool use > context stuffing** — Information in the middle of context has up to 40% less recall than at the start/end ([Lost in the Middle, 2023](https://arxiv.org/abs/2307.03172)). Agents access code on-demand via LSP (`findReferences`, `incomingCalls`) and grep — always fresh, no attention dilution.
+**Search efficiency > model capability** — Coding agents spend [60% of their time searching, not coding](https://cognition.ai/blog/swe-grep) (Cognition, 2025). Input tokens dominate cost with up to [10x variance driven entirely by search efficiency](https://openreview.net/forum?id=1bUeVB3fov), not coding ability. Deepflow's LSP-first search and 3-phase explore protocol (DIVERSIFY/CONVERGE/EARLY STOP) minimize search waste.
+
+**The framework matters more than the model** — Same model, same tasks, different orchestration: [25.6 percentage point swing](https://arxiv.org/pdf/2509.16941) on SWE-Bench Lite (GPT-4: 2.7% with naive retrieval vs 28.3% with structured orchestration). On SWE-Bench Pro, three products using the same model scored 17 problems apart on 731 issues — the only difference was how they managed context, search, and edits. Deepflow is that orchestration layer.
+
+**Tool use > context stuffing** — Information in the middle of context has up to 40% less recall than at the start/end ([Lost in the Middle, 2024](https://arxiv.org/abs/2307.03172), Stanford/TACL). [LongMemEval](https://arxiv.org/abs/2410.10813) (ICLR 2025) found GPT-4O scoring 60-64% at full context vs 87-92% with oracle retrieval. Agents access code on-demand via LSP (`findReferences`, `incomingCalls`) and grep — always fresh, no attention dilution.
+
+**Fresh context beats long sessions** — Every AI agent's success rate decreases after [35 minutes of equivalent task time](https://zylos.ai/research/2026-01-16-long-running-ai-agents); doubling duration quadruples failure rate. Deepflow's autonomous mode (`/df:auto`) starts a fresh context each cycle — checkpoint state, not conversation history.
+
+**Input:output ratio matters** — Agent token ratio is [~100:1 input to output](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus) (Manus, 2025). Deepflow truncates ratchet output (success = zero tokens), context-forks high-ratio skills, and strips prompt sections by effort level to keep the ratio low.
 
 **Model routing > one-size-fits-all** — Mechanical tasks with cheap models (haiku), complex tasks with powerful models (opus). Fewer tokens per task = less degradation = better results. Effort-aware context budgets strip unnecessary sections from prompts for simpler tasks.
 
 **Prompt order follows attention** — Execute prompts follow the attention U-curve: critical instructions (task definition, failure history, success criteria) at start and end, navigable data (impact analysis, dependency context) in the middle. Distractors eliminated by design.
 
-**LSP-powered impact analysis** — Plan-time uses `findReferences` and `incomingCalls` to map blast radius precisely. Execute-time runs a freshness check before implementing — catching callers added after planning. Grep as fallback when LSP is unavailable.
+**LSP-powered impact analysis** — Plan-time uses `findReferences` and `incomingCalls` to map blast radius precisely. Execute-time runs a freshness check before implementing — catching callers added after planning. Grep as fallback — though [embedding-based retrieval has a hard mathematical ceiling](https://arxiv.org/abs/2508.21038) (Google DeepMind, 2025) that LSP doesn't share.
 
 ## Skills
 
