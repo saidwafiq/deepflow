@@ -172,6 +172,15 @@ After ratchet passes, if the current task has an `Optimize:` block, run the metr
 5. Ratchet passes but metric did not improve → revert (log "ratchet passed but metric stagnant/regressed: {old} → {new}")
 6. Run each `secondary_metrics` command, parse as float. If regression > `regression_threshold` (default 5%) compared to baseline: append WARNING to `.deepflow/auto-report.md`: `"WARNING: {name} regressed {delta}% ({baseline_val} → {new_val}) at cycle {N}"`. Do NOT auto-revert.
 
+**Output Truncation:**
+
+After ratchet checks complete, truncate command output for context efficiency:
+
+- **Success (all checks passed):** Suppress output entirely — do not include build/test/lint output in reports
+- **Build failure:** Include last 15 lines of build error only
+- **Test failure:** Include failed test name(s) + last 20 lines of test output
+- **Typecheck/lint failure:** Include error count + first 5 errors only
+
 **Evaluate:** All pass + no violations → commit stands. Any failure → attempt partial salvage before reverting:
 
 **Partial salvage protocol:**
