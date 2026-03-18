@@ -183,7 +183,7 @@ async function main() {
   console.log(`${c.green}Installation complete!${c.reset}`);
   console.log('');
   console.log(`Installed to ${c.cyan}${CLAUDE_DIR}${c.reset}:`);
-  console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:auto, /df:note, /df:resume, /df:update');
+  console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:auto, /df:note, /df:resume, /df:update, /df:report');
   console.log('  skills/          — gap-discovery, atomic-commits, code-completeness, browse-fetch, browse-verify');
   console.log('  agents/          — reasoner (/df:auto — autonomous execution via /loop)');
   if (level === 'global') {
@@ -237,6 +237,7 @@ async function configureHooks(claudeDir) {
   const statuslineCmd = `node "${path.join(claudeDir, 'hooks', 'df-statusline.js')}"`;
   const updateCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-check-update.js')}"`;
   const consolidationCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-consolidation-check.js')}"`;
+  const quotaLoggerCmd = `node "${path.join(claudeDir, 'hooks', 'df-quota-logger.js')}"`;
 
   let settings = {};
 
@@ -286,10 +287,10 @@ async function configureHooks(claudeDir) {
     settings.hooks.SessionStart = [];
   }
 
-  // Remove any existing deepflow update check hooks
+  // Remove any existing deepflow update check / quota logger hooks from SessionStart
   settings.hooks.SessionStart = settings.hooks.SessionStart.filter(hook => {
     const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-check-update') && !cmd.includes('df-consolidation-check');
+    return !cmd.includes('df-check-update') && !cmd.includes('df-consolidation-check') && !cmd.includes('df-quota-logger');
   });
 
   // Add update check hook
@@ -307,7 +308,35 @@ async function configureHooks(claudeDir) {
       command: consolidationCheckCmd
     }]
   });
+
+  // Add quota logger to SessionStart
+  settings.hooks.SessionStart.push({
+    hooks: [{
+      type: 'command',
+      command: quotaLoggerCmd
+    }]
+  });
   log('SessionStart hook configured');
+
+  // Configure SessionEnd hook for quota logging
+  if (!settings.hooks.SessionEnd) {
+    settings.hooks.SessionEnd = [];
+  }
+
+  // Remove any existing quota logger from SessionEnd
+  settings.hooks.SessionEnd = settings.hooks.SessionEnd.filter(hook => {
+    const cmd = hook.hooks?.[0]?.command || '';
+    return !cmd.includes('df-quota-logger');
+  });
+
+  // Add quota logger to SessionEnd
+  settings.hooks.SessionEnd.push({
+    hooks: [{
+      type: 'command',
+      command: quotaLoggerCmd
+    }]
+  });
+  log('Quota logger configured');
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 }
@@ -489,7 +518,7 @@ async function uninstall() {
   ];
 
   if (level === 'global') {
-    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-consolidation-check.js', 'hooks/df-invariant-check.js');
+    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-consolidation-check.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js');
   }
 
   for (const item of toRemove) {
@@ -518,17 +547,26 @@ async function uninstall() {
         if (settings.hooks?.SessionStart) {
           settings.hooks.SessionStart = settings.hooks.SessionStart.filter(hook => {
             const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-check-update') && !cmd.includes('df-consolidation-check');
+            return !cmd.includes('df-check-update') && !cmd.includes('df-consolidation-check') && !cmd.includes('df-quota-logger');
           });
           if (settings.hooks.SessionStart.length === 0) {
             delete settings.hooks.SessionStart;
           }
-          if (Object.keys(settings.hooks).length === 0) {
-            delete settings.hooks;
-          }
-          fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-          console.log(`  ${c.green}✓${c.reset} Removed SessionStart hook`);
         }
+        if (settings.hooks?.SessionEnd) {
+          settings.hooks.SessionEnd = settings.hooks.SessionEnd.filter(hook => {
+            const cmd = hook.hooks?.[0]?.command || '';
+            return !cmd.includes('df-quota-logger');
+          });
+          if (settings.hooks.SessionEnd.length === 0) {
+            delete settings.hooks.SessionEnd;
+          }
+        }
+        if (settings.hooks && Object.keys(settings.hooks).length === 0) {
+          delete settings.hooks;
+        }
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+        console.log(`  ${c.green}✓${c.reset} Removed SessionStart/SessionEnd hooks`);
       } catch (e) {
         // Fail silently
       }

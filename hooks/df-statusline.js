@@ -53,13 +53,13 @@ function buildStatusLine(data) {
   parts.push(`${colors.cyan}${project}${colors.reset}`);
 
   // Context window meter (Claude Code format: data.context_window)
-  const contextMeter = buildContextMeter(data.context_window || {});
+  const contextMeter = buildContextMeter(data.context_window || {}, data);
   parts.push(contextMeter);
 
   return parts.join(` ${colors.dim}│${colors.reset} `);
 }
 
-function buildContextMeter(contextWindow) {
+function buildContextMeter(contextWindow, data) {
   // Use pre-calculated percentage if available
   let percentage = contextWindow.used_percentage || 0;
 
@@ -76,6 +76,9 @@ function buildContextMeter(contextWindow) {
 
   // Write context usage to file for deepflow commands
   writeContextUsage(percentage);
+
+  // Write token history for instrumentation
+  writeTokenHistory(contextWindow, data);
 
   // Build 10-segment bar
   const segments = 10;
@@ -120,6 +123,38 @@ function writeContextUsage(percentage) {
       percentage,
       timestamp: Date.now()
     }));
+  } catch (e) {
+    // Fail silently
+  }
+}
+
+function writeTokenHistory(contextWindow, data) {
+  try {
+    const deepflowDir = path.join(process.cwd(), '.deepflow');
+    if (!fs.existsSync(deepflowDir)) {
+      fs.mkdirSync(deepflowDir, { recursive: true });
+    }
+
+    const usage = contextWindow.current_usage || {};
+    const timestamp = new Date().toISOString();
+    const model = data.model?.id || data.model?.display_name || 'unknown';
+    const sessionId = data.session_id || 'unknown';
+    const contextWindowSize = contextWindow.context_window_size || 0;
+    const usedPercentage = contextWindow.used_percentage || 0;
+
+    const record = {
+      timestamp,
+      input_tokens: usage.input_tokens || 0,
+      cache_creation_input_tokens: usage.cache_creation_input_tokens || 0,
+      cache_read_input_tokens: usage.cache_read_input_tokens || 0,
+      context_window_size: contextWindowSize,
+      used_percentage: usedPercentage,
+      model,
+      session_id: sessionId
+    };
+
+    const tokenHistoryPath = path.join(deepflowDir, 'token-history.jsonl');
+    fs.appendFileSync(tokenHistoryPath, JSON.stringify(record) + '\n');
   } catch (e) {
     // Fail silently
   }

@@ -123,6 +123,13 @@ Context ≥50%: checkpoint and exit.
 
 Before spawning: `TaskUpdate(taskId: native_id, status: "in_progress")` — activates UI spinner.
 
+**Token tracking — record start:**
+```
+start_percentage = !`cat .deepflow/context.json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('percentage',''))" 2>/dev/null || echo ''`
+start_timestamp  = !`date -u +%Y-%m-%dT%H:%M:%SZ`
+```
+Store both values in memory (keyed by task_id) for use after ratchet completes. Omit if context.json unavailable.
+
 **NEVER use `isolation: "worktree"` on Task calls.** Deepflow manages a shared worktree so wave 2 sees wave 1 commits.
 
 **Spawn ALL ready tasks in ONE message** — EXCEPT file conflicts (see below).
@@ -180,6 +187,57 @@ After ratchet checks complete, truncate command output for context efficiency:
 - **Build failure:** Include last 15 lines of build error only
 - **Test failure:** Include failed test name(s) + last 20 lines of test output
 - **Typecheck/lint failure:** Include error count + first 5 errors only
+
+**Token tracking — write result (on ratchet pass):**
+
+After all checks pass, compute and write the token block to `.deepflow/results/T{N}.yaml`:
+
+```
+end_percentage = !`cat .deepflow/context.json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('percentage',''))" 2>/dev/null || echo ''`
+```
+
+Parse `.deepflow/token-history.jsonl` to sum token fields for lines whose `timestamp` falls between `start_timestamp` and `end_timestamp` (ISO 8601 compare):
+```bash
+python3 - <<'EOF'
+import json, sys
+from datetime import datetime, timezone
+
+start = "REPLACE_start_timestamp"
+end   = "REPLACE_end_timestamp"   # current time: date -u +%Y-%m-%dT%H:%M:%SZ
+
+totals = {"input_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+try:
+    with open(".deepflow/token-history.jsonl") as f:
+        for line in f:
+            entry = json.loads(line)
+            ts = entry.get("timestamp", "")
+            if start <= ts <= end:
+                for k in totals:
+                    totals[k] += entry.get(k, 0)
+except FileNotFoundError:
+    sys.exit(0)
+
+print(json.dumps(totals))
+EOF
+```
+
+Append (or create) `.deepflow/results/T{N}.yaml` with the following block. Use shell injection to read the existing file first:
+```
+!`cat .deepflow/results/T{N}.yaml 2>/dev/null || echo ''`
+```
+
+Write the `tokens` block:
+```yaml
+tokens:
+  start_percentage: {start_percentage}
+  end_percentage: {end_percentage}
+  delta_percentage: {end_percentage - start_percentage}
+  input_tokens: {sum from jsonl}
+  cache_creation_input_tokens: {sum from jsonl}
+  cache_read_input_tokens: {sum from jsonl}
+```
+
+**Omit entirely if:** context.json was unavailable at start OR end, OR token-history.jsonl is missing, OR python3 is unavailable. Never fail the ratchet due to token tracking errors.
 
 **Evaluate:** All pass + no violations → commit stands. Any failure → attempt partial salvage before reverting:
 
