@@ -58,3 +58,4 @@ Complex reasoning tasks requiring deep analysis.
 - Show reasoning, not just conclusions
 - Cite evidence (file:line)
 - Be decisive - recommend, don't waffle
+- Max response: 500 words
