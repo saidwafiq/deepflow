@@ -142,6 +142,17 @@ Spawn `Task(subagent_type="reasoner", model="opus")`. Map each requirement to DO
 
 Priority: Dependencies → Impact → Risk
 
+#### Metric AC Detection
+
+While comparing requirements, scan each spec AC for the pattern `{metric} {operator} {number}[unit]`:
+
+- **Pattern examples**: `coverage > 85%`, `latency < 200ms`, `p99_latency <= 150ms`, `bundle_size < 500kb`
+- **Operators**: `>`, `<`, `>=`, `<=`, `==`
+- **Number**: float or integer, optional unit suffix (%, ms, kb, mb, s, etc.)
+- **On match**: flag the AC as a **metric AC** and generate an `Optimize:` task (see section 6.5)
+- **Non-match**: treat as standard functional AC → standard implementation task
+- **Ambiguous ACs** (qualitative terms like "fast", "small", "improved"): flag as spec gap, request numeric threshold before planning
+
 ### 5.5. CLASSIFY MODEL + EFFORT PER TASK
 
 For each task, assign `Model:` and `Effort:` based on the routing matrix:
@@ -157,6 +168,7 @@ For each task, assign `Model:` and `Effort:` based on the routing matrix:
 | Bug fix (clear repro) | `sonnet` | `medium` | Diagnosis done, just apply fix |
 | Bug fix (unclear cause) | `sonnet` | `high` | Needs reasoning to find root cause |
 | Spike / validation | `sonnet` | `high` | Scoped but needs reasoning to validate hypothesis |
+| Optimize (metric AC) | `opus` | `high` | Multi-cycle, ambiguous — best strategy changes per iteration |
 | Feature work (well-specced) | `sonnet` | `medium` | Clear ACs reduce thinking overhead |
 | Feature work (ambiguous ACs) | `opus` | `medium` | Needs intelligence but effort can be moderate with good specs |
 | Refactor (>5 files, many callers) | `opus` | `medium` | Blast radius needs intelligence, patterns are repetitive |
@@ -233,6 +245,40 @@ Before output, verify: ≥2 opposing probes, ≥1 naive, all independent.
   - Success criteria: DB queries drop ≥80% with zero cache infrastructure
 ```
 
+### 6.5. GENERATE OPTIMIZE TASKS (FROM METRIC ACs)
+
+For each metric AC detected in section 5, generate an `Optimize:` task using this format:
+
+**Optimize Task Format:**
+```markdown
+- [ ] **T{n}** [OPTIMIZE]: Improve {metric_name} to {target}
+  - Type: optimize
+  - Files: {primary files likely to affect the metric}
+  - Optimize:
+      metric: "{shell command that outputs a single number}"
+      target: {number}
+      direction: higher|lower
+      max_cycles: {number, default 20}
+      secondary_metrics:
+        - metric: "{shell command}"
+          name: "{label}"
+          regression_threshold: 5%
+  - Model: opus
+  - Effort: high
+  - Blocked by: {spike T{n} if applicable, else none}
+```
+
+**Field rules:**
+- `metric`: a shell command returning a single scalar float/integer (e.g., `npx jest --coverage --json | jq '.coverageMap | .. | .pct? | numbers' | awk '{sum+=$1;n++} END{print sum/n}'`). Must be deterministic and side-effect free.
+- `target`: the numeric threshold extracted from the AC (strip unit suffix for the value; note unit in task description)
+- `direction`: `higher` if operator is `>` or `>=`; `lower` if `<` or `<=`; `higher` by convention for `==`
+- `max_cycles`: from spec if stated; default 20
+- `secondary_metrics`: other metrics from the same spec that could regress (e.g., build time, bundle size, test count). Omit if none.
+
+**Model/Effort**: always `opus` / `high` (see routing matrix).
+
+**Blocking**: if a spike exists for the same area, block the optimize task on the spike passing.
+
 ### 7. VALIDATE HYPOTHESES
 
 Unfamiliar APIs or performance-critical → prototype in scratchpad. Fails → write `--failed.md`. Skip for known patterns.
@@ -288,4 +334,26 @@ Always use `Task` tool with explicit `subagent_type` and `model`.
   - Files: src/services/storage.ts
   - Model: opus
   - Blocked by: T1, T2
+```
+
+**Optimize task example** (from spec AC: `coverage > 85%`):
+
+```markdown
+### doing-quality
+
+- [ ] **T1** [OPTIMIZE]: Improve test coverage to >85%
+  - Type: optimize
+  - Files: src/
+  - Optimize:
+      metric: "npx jest --coverage --json 2>/dev/null | jq '[.. | .pct? | numbers] | add / length'"
+      target: 85
+      direction: higher
+      max_cycles: 20
+      secondary_metrics:
+        - metric: "npx jest --json 2>/dev/null | jq '.testResults | length'"
+          name: test_count
+          regression_threshold: 5%
+  - Model: opus
+  - Effort: high
+  - Blocked by: none
 ```
