@@ -67,20 +67,7 @@ Full implementation tasks BLOCKED until spike validates. See `templates/experime
 
 Identify code style, patterns (error handling, API structure), integration points. Include in task descriptions.
 
-### 4. ANALYZE CODEBASE
-
-Follow `templates/explore-agent.md` for spawn rules and scope.
-
-| File Count | Agents |
-|------------|--------|
-| <20 | 3-5 |
-| 20-100 | 10-15 |
-| 100-500 | 25-40 |
-| 500+ | 50-100 (cap) |
-
-Use `code-completeness` skill to search for: implementations matching spec requirements, TODOs/FIXMEs/HACKs, stubs, skipped tests.
-
-### 4.5. IMPACT ANALYSIS (per planned file)
+### 4. IMPACT ANALYSIS (per planned file)
 
 For each file in a task's "Files:" list, find the full blast radius.
 
@@ -107,6 +94,16 @@ For each file in a task's "Files:" list, find the full blast radius.
 
 Files outside original "Files:" → add with `(impact — verify/update)`.
 Skip for spike tasks.
+
+### 4.5. TARGETED EXPLORATION
+
+Follow `templates/explore-agent.md` for spawn rules and scope. Explore agents cover **what LSP did not reveal**: conventions, dead code, implicit patterns.
+
+| Finding Type | Agents |
+|--------------|--------|
+| Post-LSP gaps | 3-5 |
+
+Use `code-completeness` skill to search for: implementations matching spec requirements, TODOs/FIXMEs/HACKs, stubs, skipped tests.
 
 ### 4.6. CROSS-TASK FILE CONFLICT DETECTION
 
@@ -305,7 +302,7 @@ Report: `✓ Plan generated — {n} specs, {n} tasks. Run /df:execute`
 
 | Agent | Model | Base | Scale |
 |-------|-------|------|-------|
-| Explore | haiku | 10 | +1 per 20 files |
+| Explore | haiku | 3-5 | none |
 | Reasoner | opus | 5 | +1 per 2 specs |
 
 Always use `Task` tool with explicit `subagent_type` and `model`.
