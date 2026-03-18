@@ -95,3 +95,10 @@ quality:
 
   # Timeout in seconds to wait for the dev server to become ready (default: 30)
   browser_timeout: 30
+
+# Recommended .gitignore entries
+# Add these entries to your .gitignore to exclude instrumentation artifacts
+gitignore_entries:
+  - "# Deepflow instrumentation artifacts"
+  - ".deepflow/token-history.jsonl   # Token usage history from autonomous mode"
+  - ".deepflow/report.json           # Instrumentation metrics summary"
