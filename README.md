@@ -148,6 +148,7 @@ $ git log --oneline
 | `/df:consolidate` | Deduplicate and clean up decisions.md |
 | `/df:resume` | Session continuity briefing |
 | `/df:update` | Update deepflow to latest |
+| `/df:report` | Generate session cost report (tokens, cache, quota) |
 | `/df:auto` | Autonomous mode (plan → loop → verify, no human needed) |
 
 ## File Structure
@@ -163,6 +164,9 @@ your-project/
     +-- decisions.md           # auto-extracted + ad-hoc decisions
     +-- auto-report.md         # morning report (autonomous mode)
     +-- auto-memory.yaml       # cross-cycle learning
+    +-- token-history.jsonl    # per-render token usage (auto)
+    +-- report.json            # session cost report (/df:report)
+    +-- report.md              # human-readable report (/df:report)
     +-- experiments/           # spike results (pass/fail)
     +-- worktrees/             # isolated execution
         +-- upload/            # one worktree per spec
