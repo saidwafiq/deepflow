@@ -70,7 +70,7 @@ Check that planned files appear in the worktree diff:
 
 ```bash
 # Get files changed in worktree branch
-CHANGED=$(cd ${WORKTREE_PATH} && git diff main...HEAD --name-only)
+CHANGED=$(git -C ${WORKTREE_PATH} diff main...HEAD --name-only)
 
 # Parse PLAN.md for spec's "Files:" entries
 PLANNED=$(grep -A1 "Files:" PLAN.md | grep -v "Files:" | tr ',' '\n' | xargs)
@@ -102,14 +102,13 @@ done
 **Step 3: Run coverage comparison** (when tool available):
 ```bash
 # Baseline: coverage on main branch (or from ratchet snapshot)
-cd ${WORKTREE_PATH}
-git stash  # Temporarily remove changes
-${COVERAGE_COMMAND}
+git -C ${WORKTREE_PATH} stash  # Temporarily remove changes
+(cd ${WORKTREE_PATH} && ${COVERAGE_COMMAND})
 BASELINE=$(parse_coverage_percentage)  # Extract total line coverage %
-git stash pop
+git -C ${WORKTREE_PATH} stash pop
 
 # Current: coverage with changes applied
-${COVERAGE_COMMAND}
+(cd ${WORKTREE_PATH} && ${COVERAGE_COMMAND})
 CURRENT=$(parse_coverage_percentage)
 
 # Compare

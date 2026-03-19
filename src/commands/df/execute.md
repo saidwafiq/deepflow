@@ -69,9 +69,8 @@ Reuse if exists. `--fresh` deletes first.
 If `worktree.sparse_paths` is non-empty in config, enable sparse checkout:
 ```bash
 git worktree add --no-checkout -b df/{spec} .deepflow/worktrees/{spec}
-cd .deepflow/worktrees/{spec}
-git sparse-checkout set {sparse_paths...}
-git checkout df/{spec}
+git -C .deepflow/worktrees/{spec} sparse-checkout set {sparse_paths...}
+git -C .deepflow/worktrees/{spec} checkout df/{spec}
 ```
 
 ### 1.6. RATCHET SNAPSHOT
@@ -79,8 +78,7 @@ git checkout df/{spec}
 Snapshot pre-existing test files in worktree — only these count for ratchet (agent-created tests excluded):
 
 ```bash
-cd ${WORKTREE_PATH}
-git ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' \
+git -C ${WORKTREE_PATH} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' \
   > .deepflow/auto-snapshot.txt
 ```
 
@@ -170,7 +168,7 @@ File listed but not modified → **advisory warning**: "Impact gap: {file} liste
 
 After ratchet passes, if the current task has an `Optimize:` block, run the metric gate:
 
-1. Run the `metric` shell command in the worktree: `cd ${WORKTREE_PATH} && eval "${metric_command}"`
+1. Run the `metric` shell command in the worktree: `eval "${metric_command}"` (run with cwd set to `${WORKTREE_PATH}` — never use `cd && eval` compounds)
 2. Parse output as float. Non-numeric output → cycle failure (revert, log "metric parse error: {raw output}")
 3. Compare against previous measurement using `direction`:
    - `direction: higher` → new value must be > previous + (previous × min_improvement_threshold)
@@ -338,7 +336,7 @@ Trigger: task has `Optimize:` block in PLAN.md. Runs instead of standard single-
      history: []             # [{cycle, value, delta, kept, commit}]
      failed_hypotheses: []   # ["{description}"]
    ```
-3. **Measure baseline**: `cd ${WORKTREE_PATH} && eval "${metric_command}"` → parse float → store as `baseline` and `current_best`
+3. **Measure baseline**: run `eval "${metric_command}"` with cwd set to `${WORKTREE_PATH}` → parse float → store as `baseline` and `current_best`
 4. Measure each secondary metric → store as `secondary_baselines`
 5. Check if target already met (`direction: higher` → baseline >= target; `lower` → baseline <= target). If met → mark task `[x]`, log "target already met: {baseline}", done.
 
