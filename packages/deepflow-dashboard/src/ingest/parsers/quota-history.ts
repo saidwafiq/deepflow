@@ -1,0 +1,57 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import type { DbHelpers } from '../../db/index.js';
+
+/**
+ * Parses ~/.claude/quota-history.jsonl → quota_snapshots table.
+ * Offset tracks number of lines already processed.
+ */
+export async function parseQuotaHistory(db: DbHelpers, claudeDir: string): Promise<void> {
+  const filePath = resolve(claudeDir, 'quota-history.jsonl');
+  if (!existsSync(filePath)) {
+    console.warn('[ingest:quota-history] File not found, skipping:', filePath);
+    return;
+  }
+
+  const offsetKey = 'ingest_offset:quota-history';
+  const offsetRow = db.get('SELECT value FROM _meta WHERE key = ?', [offsetKey]);
+  const offset = offsetRow ? parseInt(offsetRow.value as string, 10) : 0;
+
+  const lines = readFileSync(filePath, 'utf-8').split('\n');
+  let inserted = 0;
+
+  for (let i = offset; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    let record: Record<string, unknown>;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      console.warn(`[ingest:quota-history] Malformed JSON at line ${i + 1}, skipping`);
+      continue;
+    }
+
+    try {
+      db.run(
+        `INSERT INTO quota_snapshots (user, window_type, used, limit_val, reset_at, captured_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          (record.user as string) ?? 'unknown',
+          (record.window_type as string) ?? (record.windowType as string) ?? 'unknown',
+          (record.used as number) ?? 0,
+          (record.limit ?? record.limit_val ?? null) as number | null,
+          (record.reset_at ?? record.resetAt ?? null) as string | null,
+          (record.captured_at ?? record.capturedAt ?? record.timestamp ?? new Date().toISOString()) as string,
+        ]
+      );
+      inserted++;
+    } catch (err) {
+      console.warn(`[ingest:quota-history] Insert failed at line ${i + 1}:`, err);
+    }
+  }
+
+  // Update offset to total line count (including blanks — stable position)
+  db.run('INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)', [offsetKey, String(lines.length)]);
+  if (inserted > 0) console.log(`[ingest:quota-history] Inserted ${inserted} new records`);
+}

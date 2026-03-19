@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { exec } from 'node:child_process';
 import { initDatabase } from './db/index.js';
 import { fetchPricing } from './pricing.js';
+import { runIngestion } from './ingest/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -34,6 +35,11 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     initDatabase(mode),
     fetchPricing(),
   ]);
+
+  // Run local ingestion on startup (local mode only)
+  if (mode === 'local') {
+    await runIngestion();
+  }
 
   console.log(`[server] Pricing loaded: ${Object.keys(pricing.models).length} models`);
 

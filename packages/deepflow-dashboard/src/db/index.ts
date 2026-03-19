@@ -78,6 +78,13 @@ export function getDb(): Database {
 
 export type Row = Record<string, unknown>;
 
+/** Shared db helper interface passed to ingest parsers */
+export interface DbHelpers {
+  run: (sql: string, params?: SqlValue[]) => void;
+  get: (sql: string, params?: SqlValue[]) => Row | undefined;
+  all: (sql: string, params?: SqlValue[]) => Row[];
+}
+
 /** Execute a statement with optional bind params (no result rows) */
 export function run(sql: string, params: SqlValue[] = []): void {
   getDb().run(sql, params);
