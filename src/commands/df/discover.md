@@ -87,6 +87,7 @@ Example questions:
 - Mix structured questions (AskUserQuestion) with conversational follow-ups
 - Ask follow-up questions based on answers — don't just march through phases mechanically
 - Go deeper on surprising or unclear answers
+- **NEVER re-ask a question the user already answered.** Before composing each `AskUserQuestion` call, review prior answers in the conversation. If a topic was already settled (even via user notes), reference the prior answer and move forward — do not present it as a new question with new options.
 ### Behavioral Rules
 - Keep your responses short between questions — don't lecture
 - Acknowledge answers briefly before asking the next question
