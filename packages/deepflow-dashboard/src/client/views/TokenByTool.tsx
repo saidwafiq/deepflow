@@ -14,7 +14,7 @@ interface ToolRow {
 }
 
 interface ToolsResponse {
-  tools: ToolRow[];
+  data: ToolRow[];
 }
 
 /* ---- Helpers ---- */
@@ -71,7 +71,7 @@ export function TokenByTool() {
     return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading…</p>;
   }
 
-  const tools = data.tools;
+  const tools = data.data;
 
   const sorted = [...tools].sort((a, b) => {
     const av = a[sortKey];

@@ -7,8 +7,8 @@ import { DashboardContext } from '../context/DashboardContext';
 /* ---- Types from GET /api/quota ---- */
 interface QuotaEntry {
   window_type: string;
-  tokens_used: number;
-  tokens_limit: number;
+  used: number;
+  limit_val: number;
   utilization_pct: number;
   reset_at: string | null;
   /** Present in team mode */
@@ -16,7 +16,7 @@ interface QuotaEntry {
 }
 
 interface QuotaResponse {
-  quota: QuotaEntry[];
+  data: QuotaEntry[];
 }
 
 /* ---- Helpers ---- */
@@ -62,7 +62,7 @@ export function QuotaStatus() {
     return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading…</p>;
   }
 
-  const quota = data.quota;
+  const quota = data.data;
 
   // In team mode entries may carry a user field — group by user, then window.
   if (mode === 'team') {

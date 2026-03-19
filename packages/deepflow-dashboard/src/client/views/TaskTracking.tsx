@@ -9,12 +9,12 @@ interface TaskRow {
   task_id: string;
   spec: string | null;
   status: string;
-  cost: number;
+  total_cost: number;
   execution_count: number;
 }
 
 interface TasksResponse {
-  tasks: TaskRow[];
+  data: TaskRow[];
 }
 
 /* ---- Helpers ---- */
@@ -44,7 +44,7 @@ export function TaskTracking() {
   const { refreshInterval, refreshKey } = useContext(DashboardContext);
   const [data, setData] = useState<TasksResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>('cost');
+  const [sortKey, setSortKey] = useState<SortKey>('total_cost');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const load = useCallback(async () => {
@@ -78,8 +78,8 @@ export function TaskTracking() {
     return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading…</p>;
   }
 
-  const tasks = data.tasks;
-  const totalCost = tasks.reduce((s, t) => s + t.cost, 0);
+  const tasks = data.data;
+  const totalCost = tasks.reduce((s, t) => s + t.total_cost, 0);
   const totalExecutions = tasks.reduce((s, t) => s + t.execution_count, 0);
   const doneTasks = tasks.filter((t) => t.status === 'done').length;
 
@@ -97,7 +97,7 @@ export function TaskTracking() {
     { key: 'spec', label: 'Spec' },
     { key: 'status', label: 'Status' },
     { key: 'execution_count', label: 'Executions' },
-    { key: 'cost', label: 'Cost' },
+    { key: 'total_cost', label: 'Cost' },
   ];
 
   return (
@@ -162,7 +162,7 @@ export function TaskTracking() {
                     {t.execution_count}
                   </td>
                   <td className="px-4 py-2 tabular-nums font-medium" style={{ color: 'var(--text)' }}>
-                    {fmtDollars(t.cost)}
+                    {fmtDollars(t.total_cost)}
                   </td>
                 </tr>
               ))}
