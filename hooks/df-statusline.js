@@ -75,7 +75,7 @@ function buildContextMeter(contextWindow, data) {
   percentage = Math.min(100, Math.round(percentage));
 
   // Write context usage to file for deepflow commands
-  writeContextUsage(percentage);
+  writeContextUsage(percentage, data);
 
   // Write token history for instrumentation
   writeTokenHistory(contextWindow, data);
@@ -112,9 +112,10 @@ function checkForUpdate() {
   return null;
 }
 
-function writeContextUsage(percentage) {
+function writeContextUsage(percentage, data) {
   try {
-    const deepflowDir = path.join(process.cwd(), '.deepflow');
+    const baseDir = data?.workspace?.current_dir || process.cwd();
+    const deepflowDir = path.join(baseDir, '.deepflow');
     if (!fs.existsSync(deepflowDir)) {
       fs.mkdirSync(deepflowDir, { recursive: true });
     }
@@ -130,7 +131,8 @@ function writeContextUsage(percentage) {
 
 function writeTokenHistory(contextWindow, data) {
   try {
-    const deepflowDir = path.join(process.cwd(), '.deepflow');
+    const baseDir = data?.workspace?.current_dir || process.cwd();
+    const deepflowDir = path.join(baseDir, '.deepflow');
     if (!fs.existsSync(deepflowDir)) {
       fs.mkdirSync(deepflowDir, { recursive: true });
     }
