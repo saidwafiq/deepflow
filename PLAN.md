@@ -9,8 +9,8 @@ Updated: 2026-03-19
 |--------|-------|
 | Specs analyzed | 2 |
 | Tasks created | 17 |
-| Tasks completed | 13 |
-| Tasks pending | 4 |
+| Tasks completed | 17 |
+| Tasks pending | 0 |
 
 ### done-dashboard
 
@@ -174,7 +174,7 @@ Updated: 2026-03-19
 
 ### doing-dashboard-fixes
 
-- [ ] **T21**: Fix session parser — extract from `event.message.usage/model/content`, compute cost via `resolveModelPricing()`
+- [x] **T21**: Fix session parser — extract from `event.message.usage/model/content`, compute cost via `resolveModelPricing()` — ab031ef
   - Files: packages/deepflow-dashboard/src/ingest/parsers/sessions.ts
   - Model: sonnet
   - Effort: high
@@ -191,7 +191,7 @@ Updated: 2026-03-19
     - Data flow: fixes all downstream views that read from sessions table (cost, tokens, tool_calls, messages, model)
   - Blocked by: none
 
-- [ ] **T22**: Fix view response wrappers + field names (QuotaStatus, TaskTracking, TokenByTool)
+- [x] **T22**: Fix view response wrappers + field names (QuotaStatus, TaskTracking, TokenByTool) — 725d5e8
   - Files: packages/deepflow-dashboard/src/client/views/QuotaStatus.tsx, packages/deepflow-dashboard/src/client/views/TaskTracking.tsx, packages/deepflow-dashboard/src/client/views/TokenByTool.tsx
   - Model: sonnet
   - Effort: medium
@@ -205,7 +205,7 @@ Updated: 2026-03-19
     - Data flow: aligns client types with existing API response shapes
   - Blocked by: none
 
-- [ ] **T23**: Fix costs API — use `resolveModelPricing()` for alias support
+- [x] **T23**: Fix costs API — use `resolveModelPricing()` for alias support — 4c484c4
   - Files: packages/deepflow-dashboard/src/api/costs.ts
   - Model: haiku
   - Effort: low
@@ -218,7 +218,7 @@ Updated: 2026-03-19
     - Data flow: fixes model cost aggregation for all cost views
   - Blocked by: none
 
-- [ ] **T24**: Wipe session offsets + re-ingest + verify all ACs
+- [x] **T24**: Wipe session offsets + re-ingest + verify all ACs — 57a2336
   - Files: packages/deepflow-dashboard/src/ingest/index.ts, packages/deepflow-dashboard/src/server.ts
   - Model: sonnet
   - Effort: medium
