@@ -8,6 +8,7 @@ import { exec } from 'node:child_process';
 import { initDatabase } from './db/index.js';
 import { fetchPricing } from './pricing.js';
 import { runIngestion } from './ingest/index.js';
+import { createApiRouter } from './api/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -49,6 +50,9 @@ export async function startServer(opts: ServerOptions): Promise<void> {
   app.get('/api/health', (c) =>
     c.json({ status: 'ok', mode, ts: new Date().toISOString() })
   );
+
+  // --- Dashboard API routes ---
+  app.route('/api', createApiRouter());
 
   // --- Team mode: ingestion endpoint (REQ-19) ---
   if (mode === 'serve') {
