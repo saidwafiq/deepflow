@@ -37,7 +37,18 @@
 ---
 
 <!--
-Spec Guidelines:
+Spec Layers (onion model):
+Specs don't need to be complete to be useful. The layer is computed
+from which sections exist — /df:plan gates task generation accordingly.
+
+  L0 (Objective only)                    → spikes only
+  L1 (+ Requirements)                    → targeted spikes
+  L2 (+ Acceptance Criteria)             → implementation tasks
+  L3 (+ Constraints, Out of Scope, Tech) → full impact analysis + optimize
+
+Start at L0. Let spikes deepen the spec. Each layer adds knowledge, not guesswork.
+
+Other guidelines:
 - Keep under 100 lines
 - Requirements must be testable
 - Acceptance criteria must be verifiable

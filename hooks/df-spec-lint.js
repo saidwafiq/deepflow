@@ -22,6 +22,62 @@ const REQUIRED_SECTIONS = [
   ['Technical Notes', 'architecture notes', 'architecture', 'tech notes', 'implementation notes'],
 ];
 
+// ── Spec layers (onion model) ───────────────────────────────────────────
+// Each layer defines sections that must ALL be present (cumulative with prior layers).
+// The computed layer is the highest where all cumulative sections exist.
+//
+// L0: Problem defined        → spikes only
+// L1: Requirements known     → targeted spikes
+// L2: Verifiable             → implementation tasks
+// L3: Fully constrained      → full impact analysis + optimize tasks
+const LAYER_DEFINITIONS = [
+  { layer: 0, sections: ['Objective'] },
+  { layer: 1, sections: ['Requirements'] },
+  { layer: 2, sections: ['Acceptance Criteria'] },
+  { layer: 3, sections: ['Constraints', 'Out of Scope', 'Technical Notes'] },
+];
+
+/**
+ * Compute the spec layer from its content.
+ * Returns the highest layer (0–3) where ALL cumulative required sections are present.
+ * Returns -1 if not even L0 (no Objective).
+ */
+function computeLayer(content) {
+  const headersFound = [];
+  for (const line of content.split('\n')) {
+    const m = line.match(/^##\s+(.+)/i);
+    if (m) {
+      const raw = m[1].trim().replace(/^\d+\.\s*/, '');
+      headersFound.push(raw.toLowerCase());
+    }
+  }
+
+  // Inline *AC: lines satisfy the Acceptance Criteria requirement
+  const hasInlineAC = /\*AC[:.]/.test(content);
+
+  let currentLayer = -1;
+  for (const { layer, sections } of LAYER_DEFINITIONS) {
+    const allPresent = sections.every((section) => {
+      // Find the REQUIRED_SECTIONS entry for aliases
+      const entry = REQUIRED_SECTIONS.find(
+        ([canonical]) => canonical.toLowerCase() === section.toLowerCase()
+      );
+      const allNames = entry
+        ? [entry[0], ...entry.slice(1)].map((n) => n.toLowerCase())
+        : [section.toLowerCase()];
+
+      if (section === 'Acceptance Criteria' && hasInlineAC) return true;
+      return headersFound.some((h) => allNames.includes(h));
+    });
+    if (allPresent) {
+      currentLayer = layer;
+    } else {
+      break; // layers are cumulative — can't skip
+    }
+  }
+  return currentLayer;
+}
+
 /**
  * Validate a spec's content against hard invariants and advisory checks.
  *
@@ -34,7 +90,11 @@ function validateSpec(content, { mode = 'interactive', specsDir = null } = {}) {
   const hard = [];
   const advisory = [];
 
-  // ── (a) Required sections ────────────────────────────────────────────
+  const layer = computeLayer(content);
+
+  // ── (a) Required sections (layer-aware) ──────────────────────────────
+  // Hard-fail only for sections required by the CURRENT layer.
+  // Missing sections beyond the current layer are advisory (hints to deepen).
   const headersFound = [];
   for (const line of content.split('\n')) {
     const m = line.match(/^##\s+(.+)/i);
@@ -45,13 +105,25 @@ function validateSpec(content, { mode = 'interactive', specsDir = null } = {}) {
     }
   }
 
+  // Collect all sections required up to the current layer
+  const layerRequiredSections = new Set();
+  for (const { layer: l, sections } of LAYER_DEFINITIONS) {
+    if (l <= layer) {
+      for (const s of sections) layerRequiredSections.add(s.toLowerCase());
+    }
+  }
+
   for (const [canonical, ...aliases] of REQUIRED_SECTIONS) {
     const allNames = [canonical, ...aliases].map((n) => n.toLowerCase());
     const found = headersFound.some((h) => allNames.includes(h.toLowerCase()));
     if (!found) {
       // Inline *AC: lines satisfy the Acceptance Criteria requirement
       if (canonical === 'Acceptance Criteria' && /\*AC[:.]/.test(content)) continue;
-      hard.push(`Missing required section: "## ${canonical}"`);
+      if (layerRequiredSections.has(canonical.toLowerCase())) {
+        hard.push(`Missing required section: "## ${canonical}"`);
+      } else {
+        advisory.push(`Missing section for deeper layer: "## ${canonical}"`);
+      }
     }
   }
 
@@ -161,7 +233,7 @@ function validateSpec(content, { mode = 'interactive', specsDir = null } = {}) {
     hard.push(...advisory.splice(0, advisory.length));
   }
 
-  return { hard, advisory };
+  return { layer, hard, advisory };
 }
 
 /**
@@ -230,7 +302,9 @@ if (require.main === module) {
     console.log('All checks passed.');
   }
 
+  console.log(`Spec layer: L${result.layer} (${['problem defined', 'requirements known', 'verifiable', 'fully constrained'][result.layer] || 'incomplete'})`);
+
   process.exit(result.hard.length > 0 ? 1 : 0);
 }
 
-module.exports = { validateSpec, extractSection };
+module.exports = { validateSpec, extractSection, computeLayer };

@@ -48,16 +48,17 @@ Find: related implementations, code patterns/conventions, integration points, ex
 | 20-100 | 5-8 |
 | 100+ | 10-15 |
 
-### 2. GAP CHECK
-Use the `gap-discovery` skill to analyze conversation + agent findings.
+### 2. GAP CHECK (layer-aware)
 
-**Required clarity:**
-- [ ] Core objective clear
-- [ ] Scope boundaries defined (what's in/out)
-- [ ] Key constraints identified
-- [ ] Success criteria stated
+Use the `gap-discovery` skill to analyze conversation + agent findings. Gaps determine the spec's layer — they do NOT block spec creation.
 
-**If gaps exist**, use the `AskUserQuestion` tool to ask structured questions:
+**Clarity checklist (maps to layers):**
+- [ ] Core objective clear → L0
+- [ ] Requirements enumerated → L1
+- [ ] Success criteria stated (testable ACs) → L2
+- [ ] Scope boundaries + constraints + technical context → L3
+
+**If gaps exist for L0–L1** (no objective or no requirements), use the `AskUserQuestion` tool to ask structured questions — these are essential:
 
 ```json
 {
@@ -76,6 +77,8 @@ Use the `gap-discovery` skill to analyze conversation + agent findings.
 ```
 
 Max 4 questions per tool call. Wait for answers before proceeding.
+
+**If gaps exist for L2–L3** (no ACs, no constraints, no technical notes), do NOT block. Write the spec at whatever layer the available information supports. Spikes will discover what's missing.
 
 ### 3. SYNTHESIZE FINDINGS
 
@@ -96,9 +99,10 @@ The reasoner will:
 
 ### 4. GENERATE SPEC
 
-Once gaps covered and context gathered, run `validateSpec` on the generated content **before** writing the file.
+Once essential gaps covered (L0–L1 minimum) and context gathered, run `validateSpec` on the generated content **before** writing the file.
 - **Hard failure:** Do NOT write the file. Show errors to the user with actionable fix suggestions and re-synthesize.
 - **Advisory warnings:** Write the file but display the warnings to the user after confirmation.
+- **Layer < 2:** This is expected when information is incomplete. Write the spec — spikes will deepen it.
 
 Create `specs/{name}.md`:
 
@@ -133,7 +137,7 @@ Create `specs/{name}.md`:
 
 After writing:
 ```
-✓ Created specs/{name}.md
+✓ Created specs/{name}.md — Layer {N} ({label})
 
 Requirements: {count}
 Acceptance criteria: {count}
@@ -141,12 +145,21 @@ Acceptance criteria: {count}
 Next: Run /df:plan to generate tasks
 ```
 
+**Layer labels:** L0 = "problem defined", L1 = "requirements known", L2 = "verifiable", L3 = "fully constrained"
+
+If layer < 2, add:
+```
+ℹ Spec is at L{N} — /df:plan will generate spikes to discover what's missing.
+  To deepen: add {missing sections for next layer}.
+```
+
 ## Rules
 - **Orchestrator never searches** — Spawn agents for all codebase exploration
-- Do NOT generate spec if critical gaps remain
+- Do NOT generate spec if L0 gaps remain (no clear objective)
+- L2+ gaps do NOT block spec creation — write at current layer, spikes will deepen
 - Ask maximum 4 questions per tool call (not overwhelming)
-- Requirements must be testable
-- Acceptance criteria must be verifiable
+- Requirements must be testable (when present)
+- Acceptance criteria must be verifiable (when present)
 - Include agent-discovered context in Technical Notes
 - Keep specs concise (<100 lines)
 

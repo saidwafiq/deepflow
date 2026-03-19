@@ -42,7 +42,26 @@ Shell injection (use output directly — no manual file reads needed):
 - `` !`cat PLAN.md 2>/dev/null || echo 'NOT_FOUND'` ``
 
 Run `validateSpec` on each spec. Hard failures → skip + error. Advisory → include in output.
+**Record each spec's computed layer** (returned by `validateSpec`). The layer gates what tasks can be generated (see section 1.5).
 No new specs → report counts, suggest `/df:execute`.
+
+### 1.5. LAYER-GATED TASK GENERATION
+
+Each spec has a computed layer based on which sections are present. The layer determines what `/df:plan` can generate for that spec:
+
+| Layer | Sections present | Allowed task types |
+|-------|------------------|--------------------|
+| L0 | Objective | Spikes only |
+| L1 | + Requirements | Spikes only (better targeted) |
+| L2 | + Acceptance Criteria | Spikes + Implementation |
+| L3 | + Constraints, Out of Scope, Technical Notes | Spikes + Implementation + Impact analysis + Optimize |
+
+**Rules:**
+- L0–L1 specs: generate ONLY spike tasks. Implementation tasks are blocked until the spec deepens to L2+.
+- L2 specs: generate spikes + implementation tasks, but skip impact analysis (no Technical Notes to inform it).
+- L3 specs: full planning — spikes, implementation, impact analysis, optimize tasks.
+- **Spike results deepen specs**: When spike tasks pass, their findings (constraints discovered, approaches validated) should be incorporated back into the spec by the user or `/df:spec`, raising its layer.
+- Report the layer in the plan output: `"Spec {name}: L{N} ({label}) — {task_types_generated}"`
 
 ### 2. CHECK PAST EXPERIMENTS (SPIKE-FIRST)
 
@@ -67,7 +86,9 @@ Full implementation tasks BLOCKED until spike validates. See `templates/experime
 
 Identify code style, patterns (error handling, API structure), integration points. Include in task descriptions.
 
-### 4. IMPACT ANALYSIS (per planned file)
+### 4. IMPACT ANALYSIS (per planned file — L3 specs only)
+
+**Skip this section entirely for L0–L2 specs.** Impact analysis requires Technical Notes and Constraints to be meaningful.
 
 For each file in a task's "Files:" list, find the full blast radius.
 
@@ -288,9 +309,23 @@ Prune stale sections: remove `done-*` sections and orphaned headers. Recalculate
 
 Append tasks grouped by `### doing-{spec-name}`. Rename `specs/feature.md` → `specs/doing-feature.md`.
 
-Report: `✓ Plan generated — {n} specs, {n} tasks. Run /df:execute`
+Report:
+```
+✓ Plan generated — {n} specs, {n} tasks. Run /df:execute
+
+Spec layers:
+  {name}: L{N} ({label}) — {n} spikes{, {n} impl tasks if L2+}
+  ...
+```
+
+If any spec is L0–L1, add:
+```
+ℹ L0–L1 specs generate spikes only. After spikes pass, deepen the spec
+  with /df:spec {name} to unlock implementation tasks.
+```
 
 ## Rules
+- **Layer-gated** — L0–L1 specs produce spikes only; L2+ unlocks implementation; L3 unlocks full planning
 - **Spike-first** — No `--passed.md` → spike before implementation
 - **Block on spike** — Implementation tasks blocked until spike validates
 - **Learn from failures** — Extract next hypothesis, never repeat approach

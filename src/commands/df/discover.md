@@ -135,14 +135,21 @@ Rules:
 ### When the User Wants to Move On
 When the user signals they want to advance (e.g., "I think that's enough", "let's move on", "ready for next step"):
 
+Assess which spec layer the conversation has reached:
+- **Objective clear?** → L0
+- **Requirements enumerated?** → L1
+- **Testable ACs defined?** → L2
+- **Constraints + scope + tech context?** → L3
+
 ```
-Great, we've covered a lot of ground. To analyze this from multiple perspectives, run:
+Great, we've covered enough for an L{N} spec ({label}).
 
-/df:debate {name}
+/df:spec {name}   — generate spec at current layer
+/df:debate {name}  — analyze from multiple perspectives first
 
-Or if you want to go straight to a spec:
-
-/df:spec {name}
+{If L0–L1:}
+ℹ At L{N}, /df:plan will generate spikes to discover what's missing.
+  You can deepen the spec later with /df:spec {name} after spikes run.
 ```
 
 ## Example
