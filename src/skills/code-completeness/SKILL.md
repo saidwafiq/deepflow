@@ -4,9 +4,7 @@ description: Finds incomplete code in codebase. Use when analyzing for TODOs, st
 allowed-tools: [Read, Grep, Glob]
 ---
 
-# Code Completeness
-
-Find incomplete work in codebase.
+# Code Completeness — Find Incomplete Work
 
 ## Explicit Markers
 
@@ -30,8 +28,7 @@ Find incomplete work in codebase.
 
 | Pattern | Language |
 |---------|----------|
-| `it.skip`, `test.skip` | JavaScript |
-| `describe.skip` | JavaScript |
+| `it.skip`, `test.skip`, `describe.skip` | JavaScript |
 | `@pytest.mark.skip` | Python |
 | `t.Skip()` | Go |
 
@@ -51,10 +48,6 @@ REQ-1: {requirement}
 Status: PARTIAL
 Found: src/api/upload.ts:45 — `// TODO: validation`
 Action: Complete validation
-
-REQ-2: {requirement}
-Status: MISSING
-Action: Create src/services/storage.ts
 ```
 
 ## Rules

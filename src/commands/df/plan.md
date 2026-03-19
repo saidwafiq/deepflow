@@ -5,7 +5,6 @@ description: Compare specs against codebase and past experiments, generate prior
 
 # /df:plan — Generate Task Plan from Specs
 
-## Purpose
 Compare specs against codebase and past experiments. Generate prioritized tasks.
 
 **NEVER:** use EnterPlanMode, use ExitPlanMode — this command IS the planning phase
@@ -37,17 +36,15 @@ Load: specs/*.md (exclude doing-*/done-*), PLAN.md (if exists), .deepflow/config
 Determine source_dir from config or default to src/
 ```
 
-Shell injection (use output directly — no manual file reads needed):
+Shell injection:
 - `` !`ls specs/*.md 2>/dev/null || echo 'NOT_FOUND'` ``
 - `` !`cat PLAN.md 2>/dev/null || echo 'NOT_FOUND'` ``
 
-Run `validateSpec` on each spec. Hard failures → skip + error. Advisory → include in output.
-**Record each spec's computed layer** (returned by `validateSpec`). The layer gates what tasks can be generated (see section 1.5).
+Run `validateSpec` on each spec. Hard failures → skip + error. Advisory → include.
+Record each spec's computed layer (gates task generation per §1.5).
 No new specs → report counts, suggest `/df:execute`.
 
 ### 1.5. LAYER-GATED TASK GENERATION
-
-Each spec has a computed layer based on which sections are present. The layer determines what `/df:plan` can generate for that spec:
 
 | Layer | Sections present | Allowed task types |
 |-------|------------------|--------------------|
@@ -57,21 +54,17 @@ Each spec has a computed layer based on which sections are present. The layer de
 | L3 | + Constraints, Out of Scope, Technical Notes | Spikes + Implementation + Impact analysis + Optimize |
 
 **Rules:**
-- L0–L1 specs: generate ONLY spike tasks. Implementation tasks are blocked until the spec deepens to L2+.
-- L2 specs: generate spikes + implementation tasks, but skip impact analysis (no Technical Notes to inform it).
-- L3 specs: full planning — spikes, implementation, impact analysis, optimize tasks.
-- **Spike results deepen specs**: When spike tasks pass, their findings (constraints discovered, approaches validated) should be incorporated back into the spec by the user or `/df:spec`, raising its layer.
-- Report the layer in the plan output: `"Spec {name}: L{N} ({label}) — {task_types_generated}"`
+- L0–L1: ONLY spike tasks. Implementation blocked until spec deepens to L2+.
+- L2: spikes + implementation, skip impact analysis.
+- L3: full planning — spikes, implementation, impact analysis, optimize.
+- Spike results deepen specs: findings incorporated back via user or `/df:spec`, raising layer.
+- Report layer: `"Spec {name}: L{N} ({label}) — {task_types_generated}"`
 
 ### 2. CHECK PAST EXPERIMENTS (SPIKE-FIRST)
 
-**CRITICAL**: Check experiments BEFORE generating any tasks.
+**CRITICAL**: Check experiments BEFORE generating tasks.
 
-```
-Glob .deepflow/experiments/{topic}--*
-```
-
-File naming: `{topic}--{hypothesis}--{status}.md` (active/passed/failed)
+Glob `.deepflow/experiments/{topic}--*`. File naming: `{topic}--{hypothesis}--{status}.md`
 
 | Result | Action |
 |--------|--------|
@@ -80,142 +73,79 @@ File naming: `{topic}--{hypothesis}--{status}.md` (active/passed/failed)
 | `--active.md` | Wait for completion |
 | No matches | New topic, generate initial spike |
 
-Full implementation tasks BLOCKED until spike validates. See `templates/experiment-template.md`.
+Implementation tasks BLOCKED until spike validates.
 
 ### 3. DETECT PROJECT CONTEXT
 
 Identify code style, patterns (error handling, API structure), integration points. Include in task descriptions.
 
-### 4. IMPACT ANALYSIS (per planned file — L3 specs only)
+### 4. IMPACT ANALYSIS (L3 specs only)
 
-**Skip this section entirely for L0–L2 specs.** Impact analysis requires Technical Notes and Constraints to be meaningful.
+Skip for L0–L2 specs. For each file in a task's `Files:` list, find blast radius.
 
-For each file in a task's "Files:" list, find the full blast radius.
+**Search (prefer LSP, fallback grep):**
+1. **Callers:** LSP `findReferences`/`incomingCalls` on exports being changed. Annotate WHY impacted. Fallback: grep.
+2. **Duplicates:** Similar logic files. Classify: `[active]` → consolidate, `[dead]` → DELETE.
+3. **Data flow:** LSP `outgoingCalls` to trace consumers.
 
-**Search for (prefer LSP, fallback to grep):**
-
-1. **Callers:** Use LSP `findReferences` / `incomingCalls` on each exported function/type being changed. Annotate each caller with WHY it's impacted (e.g. "imports validateToken which this task changes"). Fallback: `grep -r "{exported_function}" --include="*.{ext}" -l`
-2. **Duplicates:** Files with similar logic (same function name, same transformation). Classify:
-   - `[active]` — used in production → must consolidate
-   - `[dead]` — bypassed/unreachable → must delete
-3. **Data flow:** If file produces/transforms data, use LSP `outgoingCalls` to trace consumers. Fallback: grep across languages
-
-**Embed as `Impact:` block in each task:**
-```markdown
-- [ ] **T2**: Add new features to YAML export
-  - Files: src/utils/buildConfigData.ts
-  - Impact:
-    - Callers: src/routes/index.ts:12, src/api/handler.ts:45
-    - Duplicates:
-      - src/components/YamlViewer.tsx:19 (own generateYAML) [active — consolidate]
-      - backend/yaml_gen.go (generateYAMLFromConfig) [dead — DELETE]
-    - Data flow: buildConfigData → YamlViewer, SimControls, RoleplayPage
-  - Blocked by: T1
-```
-
-Files outside original "Files:" → add with `(impact — verify/update)`.
-Skip for spike tasks.
+Embed as `Impact:` block in each task. Files outside original `Files:` → add with `(impact — verify/update)`. Skip for spikes.
 
 ### 4.5. TARGETED EXPLORATION
 
-Follow `templates/explore-agent.md` for spawn rules and scope. Explore agents cover **what LSP did not reveal**: conventions, dead code, implicit patterns.
+Follow `templates/explore-agent.md` for spawn rules. 3-5 agents cover post-LSP gaps: conventions, dead code, implicit patterns.
 
-| Finding Type | Agents |
-|--------------|--------|
-| Post-LSP gaps | 3-5 |
-
-Use `code-completeness` skill to search for: implementations matching spec requirements, TODOs/FIXMEs/HACKs, stubs, skipped tests.
+Use `code-completeness` skill: implementations matching spec, TODOs/FIXMEs/HACKs, stubs, skipped tests.
 
 ### 4.6. CROSS-TASK FILE CONFLICT DETECTION
 
-After all tasks have their `Files:` lists, detect overlaps that require sequential execution.
+After all tasks have `Files:` lists, detect overlaps requiring sequential execution.
 
-**Algorithm:**
-1. Build a map: `file → [task IDs that list it]`
-2. For each file with >1 task: add `Blocked by` edge from later task → earlier task (by task number)
-3. If a dependency already exists (direct or transitive), skip (no redundant edges)
+1. Build map: `file → [task IDs]`
+2. For files with >1 task: add `Blocked by` from later → earlier task
+3. Skip if dependency already exists (direct or transitive)
 
-**Example:**
-```
-T1: Files: config.go, feature.go  — Blocked by: none
-T3: Files: config.go              — Blocked by: none
-T5: Files: config.go              — Blocked by: none
-```
-After conflict detection:
-```
-T1: Blocked by: none
-T3: Blocked by: T1 (file conflict: config.go)
-T5: Blocked by: T3 (file conflict: config.go)
-```
-
-**Rules:**
-- Only add the minimum edges needed (chain, not full mesh — T5 blocks on T3, not T1+T3)
-- Append `(file conflict: {filename})` to the Blocked by reason for traceability
-- If a logical dependency already covers the ordering, don't add a redundant conflict edge
-- Cross-spec conflicts: tasks from different specs sharing files get the same treatment
+**Rules:** Chain only (T5→T3, not T5→T1+T3). Append `(file conflict: {filename})`. Logical deps override conflict edges. Cross-spec conflicts get same treatment.
 
 ### 5. COMPARE & PRIORITIZE
 
-Spawn `Task(subagent_type="reasoner", model="opus")`. Map each requirement to DONE / PARTIAL / MISSING / CONFLICT. Check REQ-AC alignment. Flag spec gaps.
+Spawn `Task(subagent_type="reasoner", model="opus")`. Map each requirement to DONE/PARTIAL/MISSING/CONFLICT. Check REQ-AC alignment. Flag spec gaps.
 
 Priority: Dependencies → Impact → Risk
 
 #### Metric AC Detection
 
-While comparing requirements, scan each spec AC for the pattern `{metric} {operator} {number}[unit]`:
+Scan ACs for pattern `{metric} {operator} {number}[unit]` (e.g., `coverage > 85%`, `latency < 200ms`). Operators: `>`, `<`, `>=`, `<=`, `==`.
 
-- **Pattern examples**: `coverage > 85%`, `latency < 200ms`, `p99_latency <= 150ms`, `bundle_size < 500kb`
-- **Operators**: `>`, `<`, `>=`, `<=`, `==`
-- **Number**: float or integer, optional unit suffix (%, ms, kb, mb, s, etc.)
-- **On match**: flag the AC as a **metric AC** and generate an `Optimize:` task (see section 6.5)
-- **Non-match**: treat as standard functional AC → standard implementation task
-- **Ambiguous ACs** (qualitative terms like "fast", "small", "improved"): flag as spec gap, request numeric threshold before planning
+- **Match:** flag as metric AC → generate `Optimize:` task (§6.5)
+- **Non-match:** standard implementation task
+- **Ambiguous** ("fast", "small"): flag as spec gap, request numeric threshold
 
 ### 5.5. CLASSIFY MODEL + EFFORT PER TASK
 
-For each task, assign `Model:` and `Effort:` based on the routing matrix:
-
 #### Routing matrix
 
-| Task type | Model | Effort | Rationale |
-|-----------|-------|--------|-----------|
-| Bootstrap (scaffold, config, rename) | `haiku` | `low` | Mechanical, pattern-following, zero ambiguity |
-| browse-fetch (doc retrieval) | `haiku` | `low` | Just fetching and extracting, no reasoning |
-| Single-file simple addition | `haiku` | `high` | Small scope but needs to get it right |
-| Multi-file with clear specs | `sonnet` | `medium` | Standard work, specs remove need for deep thinking |
-| Bug fix (clear repro) | `sonnet` | `medium` | Diagnosis done, just apply fix |
-| Bug fix (unclear cause) | `sonnet` | `high` | Needs reasoning to find root cause |
-| Spike / validation | `sonnet` | `high` | Scoped but needs reasoning to validate hypothesis |
-| Optimize (metric AC) | `opus` | `high` | Multi-cycle, ambiguous — best strategy changes per iteration |
-| Feature work (well-specced) | `sonnet` | `medium` | Clear ACs reduce thinking overhead |
-| Feature work (ambiguous ACs) | `opus` | `medium` | Needs intelligence but effort can be moderate with good specs |
-| Refactor (>5 files, many callers) | `opus` | `medium` | Blast radius needs intelligence, patterns are repetitive |
-| Architecture change | `opus` | `high` | High complexity + high ambiguity |
-| Unfamiliar API integration | `opus` | `high` | Needs deep reasoning about unknown patterns |
-| Retried after revert | _(raise one level)_ | `high` | Prior failure means harder than expected |
+| Task type | Model | Effort |
+|-----------|-------|--------|
+| Bootstrap (scaffold, config, rename) | `haiku` | `low` |
+| browse-fetch (doc retrieval) | `haiku` | `low` |
+| Single-file simple addition | `haiku` | `high` |
+| Multi-file with clear specs | `sonnet` | `medium` |
+| Bug fix (clear repro) | `sonnet` | `medium` |
+| Bug fix (unclear cause) | `sonnet` | `high` |
+| Spike / validation | `sonnet` | `high` |
+| Optimize (metric AC) | `opus` | `high` |
+| Feature work (well-specced) | `sonnet` | `medium` |
+| Feature work (ambiguous ACs) | `opus` | `medium` |
+| Refactor (>5 files, many callers) | `opus` | `medium` |
+| Architecture change | `opus` | `high` |
+| Unfamiliar API integration | `opus` | `high` |
+| Retried after revert | _(raise one level)_ | `high` |
 
-#### Decision inputs
-
-1. **File count** — 1 file → haiku/sonnet, 2-5 → sonnet, >5 → sonnet/opus
-2. **Impact blast radius** — many callers/duplicates → raise model
-3. **Spec clarity** — clear ACs → lower effort, ambiguous → raise effort
-4. **Type** — spikes → `sonnet high`, bootstrap → `haiku low`
-5. **Has prior failures** — raise model one level AND set effort to `high`
-6. **Repetitiveness** — repetitive pattern across files → lower effort even at higher model
-
-#### Effort economics
-
-Effort controls ALL token spend (text, tool calls, thinking). Lower effort = fewer tool calls, less preamble, shorter reasoning.
-
-- `low` → ~60-70% token reduction vs high. Use when task is mechanical.
-- `medium` → ~30-40% token reduction. Use when specs are clear.
-- `high` → full spend (default). Use when ambiguity or risk is high.
-
-Add `Model: haiku|sonnet|opus` and `Effort: low|medium|high` to each task block. Defaults: `Model: sonnet`, `Effort: medium`.
+Add `Model:` and `Effort:` to each task. Defaults: `sonnet` / `medium`.
 
 ### 6. GENERATE SPIKE TASKS (IF NEEDED)
 
-**Spike Task Format:**
+**Format:**
 ```markdown
 - [ ] **T1** [SPIKE]: Validate {hypothesis}
   - Type: spike
@@ -227,11 +157,9 @@ Add `Model: haiku|sonnet|opus` and `Effort: low|medium|high` to each task block.
   - Blocked by: none
 ```
 
-All implementation tasks MUST `Blocked by: T{spike}`. Spike fails → `--failed.md`, no implementation tasks.
+All implementation tasks MUST `Blocked by: T{spike}`. Spike fails → `--failed.md`, no implementation.
 
 #### Probe Diversity
-
-When generating multiple spikes for the same problem:
 
 | Requirement | Rule |
 |-------------|------|
@@ -242,38 +170,15 @@ When generating multiple spikes for the same problem:
 
 Before output, verify: ≥2 opposing probes, ≥1 naive, all independent.
 
-**Example — caching problem, 3 diverse probes:**
-```markdown
-- [ ] **T1** [SPIKE]: Validate in-memory LRU cache
-  - Role: Contradictory-A (in-process)
-  - Hypothesis: In-memory LRU reduces DB queries by ≥80%
-  - Method: LRU with 1000-item cap, load test
-  - Success criteria: DB queries drop ≥80% under 100 concurrent users
-
-- [ ] **T2** [SPIKE]: Validate Redis distributed cache
-  - Role: Contradictory-B (external, opposing T1)
-  - Hypothesis: Redis scales across multiple instances
-  - Method: Redis client, cache top 10 queries, same load test
-  - Success criteria: DB queries drop ≥80%, works across 2 instances
-
-- [ ] **T3** [SPIKE]: Validate query optimization without cache
-  - Role: Naive (no prior justification — tests if caching is even necessary)
-  - Hypothesis: Indexes + query batching alone may suffice
-  - Method: Add indexes, batch N+1 queries, same load test — no cache
-  - Success criteria: DB queries drop ≥80% with zero cache infrastructure
-```
-
 ### 6.5. GENERATE OPTIMIZE TASKS (FROM METRIC ACs)
 
-For each metric AC detected in section 5, generate an `Optimize:` task using this format:
-
-**Optimize Task Format:**
+**Format:**
 ```markdown
 - [ ] **T{n}** [OPTIMIZE]: Improve {metric_name} to {target}
   - Type: optimize
-  - Files: {primary files likely to affect the metric}
+  - Files: {primary files affecting metric}
   - Optimize:
-      metric: "{shell command that outputs a single number}"
+      metric: "{shell command outputting single number}"
       target: {number}
       direction: higher|lower
       max_cycles: {number, default 20}
@@ -283,27 +188,18 @@ For each metric AC detected in section 5, generate an `Optimize:` task using thi
           regression_threshold: 5%
   - Model: opus
   - Effort: high
-  - Blocked by: {spike T{n} if applicable, else none}
+  - Blocked by: {spike if applicable, else none}
 ```
 
-**Field rules:**
-- `metric`: a shell command returning a single scalar float/integer (e.g., `npx jest --coverage --json | jq '.coverageMap | .. | .pct? | numbers' | awk '{sum+=$1;n++} END{print sum/n}'`). Must be deterministic and side-effect free.
-- `target`: the numeric threshold extracted from the AC (strip unit suffix for the value; note unit in task description)
-- `direction`: `higher` if operator is `>` or `>=`; `lower` if `<` or `<=`; `higher` by convention for `==`
-- `max_cycles`: from spec if stated; default 20
-- `secondary_metrics`: other metrics from the same spec that could regress (e.g., build time, bundle size, test count). Omit if none.
-
-**Model/Effort**: always `opus` / `high` (see routing matrix).
-
-**Blocking**: if a spike exists for the same area, block the optimize task on the spike passing.
+**Field rules:** `metric` must be deterministic, side-effect free, return single scalar. `direction`: higher for `>`/`>=`, lower for `<`/`<=`, higher for `==`. `max_cycles`: from spec or default 20. Always `opus`/`high`. Block on spike if one exists.
 
 ### 7. VALIDATE HYPOTHESES
 
-Unfamiliar APIs or performance-critical → prototype in scratchpad. Fails → write `--failed.md`. Skip for known patterns.
+Unfamiliar APIs or performance-critical → prototype in scratchpad. Fails → `--failed.md`. Skip for known patterns.
 
 ### 8. CLEANUP PLAN.md
 
-Prune stale sections: remove `done-*` sections and orphaned headers. Recalculate Summary table. Empty → recreate fresh.
+Prune stale `done-*` sections and orphaned headers. Recalculate Summary. Empty → recreate fresh.
 
 ### 9. OUTPUT & RENAME
 
@@ -315,77 +211,16 @@ Report:
 
 Spec layers:
   {name}: L{N} ({label}) — {n} spikes{, {n} impl tasks if L2+}
-  ...
 ```
 
-If any spec is L0–L1, add:
-```
-ℹ L0–L1 specs generate spikes only. After spikes pass, deepen the spec
-  with /df:spec {name} to unlock implementation tasks.
-```
+If any L0–L1 spec: `ℹ L0–L1 specs generate spikes only. Deepen with /df:spec {name} to unlock implementation.`
 
 ## Rules
-- **Layer-gated** — L0–L1 specs produce spikes only; L2+ unlocks implementation; L3 unlocks full planning
+- **Layer-gated** — L0–L1 → spikes only; L2+ → implementation; L3 → full planning
 - **Spike-first** — No `--passed.md` → spike before implementation
-- **Block on spike** — Implementation tasks blocked until spike validates
+- **Block on spike** — Implementation blocked until spike validates
 - **Learn from failures** — Extract next hypothesis, never repeat approach
 - **Plan only** — Do NOT implement (except quick validation prototypes)
 - **One task = one logical unit** — Atomic, committable
 - Prefer existing utilities over new code; flag spec gaps
-
-## Agent Scaling
-
-| Agent | Model | Base | Scale |
-|-------|-------|------|-------|
-| Explore | haiku | 3-5 | none |
-| Reasoner | opus | 5 | +1 per 2 specs |
-
-Always use `Task` tool with explicit `subagent_type` and `model`.
-
-## Example
-
-```markdown
-### doing-upload
-
-- [ ] **T1** [SPIKE]: Validate streaming upload approach
-  - Type: spike
-  - Hypothesis: Streaming uploads handle >1GB without memory issues
-  - Success criteria: Memory <500MB during 2GB upload
-  - Files: .deepflow/experiments/upload--streaming--active.md
-  - Blocked by: none
-
-- [ ] **T2**: Create upload endpoint
-  - Files: src/api/upload.ts
-  - Model: sonnet
-  - Impact:
-    - Callers: src/routes/index.ts:5
-    - Duplicates: backend/legacy-upload.go [dead — DELETE]
-  - Blocked by: T1
-
-- [ ] **T3**: Add S3 service with streaming
-  - Files: src/services/storage.ts
-  - Model: opus
-  - Blocked by: T1, T2
-```
-
-**Optimize task example** (from spec AC: `coverage > 85%`):
-
-```markdown
-### doing-quality
-
-- [ ] **T1** [OPTIMIZE]: Improve test coverage to >85%
-  - Type: optimize
-  - Files: src/
-  - Optimize:
-      metric: "npx jest --coverage --json 2>/dev/null | jq '[.. | .pct? | numbers] | add / length'"
-      target: 85
-      direction: higher
-      max_cycles: 20
-      secondary_metrics:
-        - metric: "npx jest --json 2>/dev/null | jq '.testResults | length'"
-          name: test_count
-          regression_threshold: 5%
-  - Model: opus
-  - Effort: high
-  - Blocked by: none
-```
+- Always use `Task` tool with explicit `subagent_type` and `model`

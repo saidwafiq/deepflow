@@ -8,54 +8,35 @@ allowed-tools: [Read, Grep, Glob, Agent]
 
 ## Orchestrator Role
 
-You coordinate reasoner agents to debate a problem from multiple perspectives, then synthesize their arguments into a structured document.
+Coordinate reasoner agents to debate a problem from multiple perspectives, then synthesize into a structured document.
 
-**NEVER:** use TaskOutput, use `run_in_background`, use Explore agents, use EnterPlanMode, use ExitPlanMode
+**NEVER:** use TaskOutput, `run_in_background`, Explore agents, EnterPlanMode, ExitPlanMode
 
 **ONLY:** Gather codebase context (Glob/Grep/Read), spawn reasoner agents (non-background), write debate file, respond conversationally
 
----
+## Agents
 
-## Purpose
-Generate a multi-perspective analysis of a problem before formalizing into a spec. Surfaces tensions, trade-offs, and blind spots that a single perspective would miss.
-
-## Usage
-```
-/df:debate <name>
-```
-
-## Skills & Agents
-
-**Use Task tool to spawn agents:**
-| Agent | subagent_type | model | Purpose |
-|-------|---------------|-------|---------|
+| Agent | subagent_type | model | Focus |
+|-------|---------------|-------|-------|
 | User Advocate | `reasoner` | `opus` | UX, simplicity, real user needs |
 | Tech Skeptic | `reasoner` | `opus` | Technical risks, hidden complexity, feasibility |
 | Systems Thinker | `reasoner` | `opus` | Integration, scalability, long-term effects |
 | LLM Efficiency | `reasoner` | `opus` | Token density, minimal scaffolding, navigable structure |
 | Synthesizer | `reasoner` | `opus` | Merge perspectives into consensus + tensions |
 
----
-
 ## Behavior
 
 ### 1. SUMMARIZE
-
-Summarize conversation context in ~200 words: core problem, key requirements, constraints, user priorities. Passed to each perspective agent.
+Summarize conversation context in ~200 words: core problem, requirements, constraints, user priorities. Passed to each perspective agent.
 
 ### 2. GATHER CODEBASE CONTEXT
-
-Ground the debate in what actually exists. Glob/Grep/Read relevant files (up to 5-6, focus on core logic).
-
-Produce a ~300 word codebase summary: what exists, key interfaces/contracts, current limitations, dependencies. Passed to every perspective agent so they argue from facts, not assumptions.
+Glob/Grep/Read relevant files (up to 5-6, focus on core logic). Produce ~300 word codebase summary: what exists, key interfaces, current limitations, dependencies. Passed to every agent.
 
 ### 3. SPAWN PERSPECTIVES
 
-**Spawn ALL 4 perspective agents in ONE message (non-background, parallel):**
+**Spawn ALL 4 perspective agents in ONE message (parallel, non-background).** Each receives the shared preamble + a role-specific lens.
 
-Each agent receives the same preamble + codebase context but a different role lens.
-
-**Shared preamble for all perspectives:**
+**Shared preamble (included in every agent prompt):**
 ```
 ## Context
 {summary}
@@ -71,146 +52,36 @@ Provide:
 Keep response under 400 words.
 ```
 
-**Perspective-specific role lenses (append to preamble):**
+**Role lenses (append one per agent):**
 
-```python
-# All 4 in a single message — parallel, non-background:
-
-Task(subagent_type="reasoner", model="opus", prompt="""
-{shared_preamble}
-
-## Your Role: USER ADVOCATE
-Argue from the perspective of the end user. Focus on:
-- Simplicity and ease of use
-- Real user needs vs assumed needs
-- Friction points and cognitive load
-- Whether the solution matches how users actually think
-""")
-
-Task(subagent_type="reasoner", model="opus", prompt="""
-{shared_preamble}
-
-## Your Role: TECH SKEPTIC
-Challenge technical assumptions and surface hidden complexity. Focus on:
-- What could go wrong technically
-- Hidden dependencies or coupling
-- Complexity that seems simple but isn't
-- Maintenance burden over time
-""")
-
-Task(subagent_type="reasoner", model="opus", prompt="""
-{shared_preamble}
-
-## Your Role: SYSTEMS THINKER
-Analyze how this fits into the broader system. Focus on:
-- Integration with existing components
-- Scalability implications
-- Second-order effects and unintended consequences
-- Long-term evolution and extensibility
-""")
-
-Task(subagent_type="reasoner", model="opus", prompt="""
-{shared_preamble}
-
-## Your Role: LLM EFFICIENCY
-Evaluate from the perspective of LLM consumption and interaction. Focus on:
-- Token density: can the output be consumed efficiently by LLMs?
-- Minimal scaffolding: avoid ceremony that adds tokens without information
-- Navigable structure: can an LLM quickly find what it needs?
-- Attention budget: does the design respect limited context windows?
-""")
-```
+| Role | Focus areas |
+|------|------------|
+| USER ADVOCATE | Simplicity, real vs assumed needs, friction, cognitive load, user mental model |
+| TECH SKEPTIC | What could go wrong, hidden dependencies/coupling, deceptive simplicity, maintenance burden |
+| SYSTEMS THINKER | Integration with existing components, scalability, second-order effects, extensibility |
+| LLM EFFICIENCY | Token density, minimal ceremony, navigable structure, attention budget |
 
 ### 4. SYNTHESIZE
 
-After all 4 perspectives return, spawn 1 additional reasoner to synthesize:
-
-```python
-Task(subagent_type="reasoner", model="opus", prompt="""
-You are the SYNTHESIZER. Four perspectives have debated a design problem.
-
-## Context
-{summary}
-
-## User Advocate's Arguments
-{user_advocate_response}
-
-## Tech Skeptic's Arguments
-{tech_skeptic_response}
-
-## Systems Thinker's Arguments
-{systems_thinker_response}
-
-## LLM Efficiency's Arguments
-{llm_efficiency_response}
-
-## Your Task
-Synthesize these perspectives into:
-
-1. **Consensus** — Points where all or most perspectives agree
+After all 4 return, spawn 1 synthesizer agent. Pass context summary + all 4 responses. Synthesizer produces (under 500 words):
+1. **Consensus** — Points where perspectives agree
 2. **Tensions** — Unresolved disagreements and genuine trade-offs
-3. **Open Decisions** — Questions that need human judgment to resolve
-4. **Recommendation** — Your balanced recommendation considering all perspectives
+3. **Open Decisions** — Questions needing human judgment
+4. **Recommendation** — Balanced recommendation considering all perspectives
 
-Be specific. Name the tensions, don't smooth them over.
-
-Keep response under 500 words.
-""")
-```
+Instruction: "Be specific. Name the tensions, don't smooth them over."
 
 ### 5. WRITE DEBATE FILE
 
-Create `specs/.debate-{name}.md` with sections: Context · Codebase Context · Perspectives (User Advocate / Tech Skeptic / Systems Thinker / LLM Efficiency) · Synthesis (Consensus / Tensions / Open Decisions / Recommendation).
+Create `specs/.debate-{name}.md` with sections: Context, Codebase Context, Perspectives (User Advocate / Tech Skeptic / Systems Thinker / LLM Efficiency), Synthesis (Consensus / Tensions / Open Decisions / Recommendation).
 
 ### 6. CONFIRM
 
 Present key tensions and open decisions, then: `Next: Run /df:spec {name} to formalize into a specification`
 
----
-
 ## Rules
 
-- **All 4 perspective agents MUST be spawned in ONE message** (parallel, non-background)
-- **Codebase context is gathered by the orchestrator** (step 2) and passed to agents via prompt
-- Reasoner agents receive context through their prompt, not by reading files themselves
-- The debate file goes in `specs/` so `/df:spec` can reference it
-- File name MUST be `.debate-{name}.md` (dot prefix = auxiliary file)
-- Keep each perspective under 400 words, synthesis under 500 words
-
-## Example
-
-```
-USER: /df:debate auth
-
-CLAUDE: Let me summarize what we've discussed and understand the current
-codebase before getting multiple perspectives on the authentication design.
-
-[Summarizes: ~200 words about auth requirements from conversation]
-
-[Globs/Greps/Reads relevant auth files — middleware, routes, config]
-
-[Produces ~300 word codebase summary of what exists]
-
-[Spawns 4 reasoner agents in parallel — each receives both summaries]
-
-[All 4 return their arguments]
-
-[Spawns synthesizer agent with all 4 perspectives]
-
-[Synthesizer returns consensus, tensions, open decisions, recommendation]
-
-[Writes specs/.debate-auth.md]
-
-✓ Created specs/.debate-auth.md
-
-Key tensions:
-- OAuth complexity vs simpler API key approach
-- User convenience (social login) vs privacy concerns
-- Centralized auth service vs per-route middleware
-
-Open decisions:
-- Session storage strategy (JWT vs server-side)
-- Token expiration policy
-
-Next: Run /df:spec auth to formalize into a specification
-```
+- ALL 4 perspective agents MUST be spawned in ONE message (parallel, non-background)
+- Orchestrator gathers codebase context (step 2), passes to agents via prompt — agents never read files
+- File name MUST be `.debate-{name}.md` (dot prefix = auxiliary file, lives in `specs/`)
+- Word limits: each perspective <400 words, synthesis <500 words
