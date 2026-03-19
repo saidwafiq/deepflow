@@ -89,11 +89,37 @@ async function aggregateAndComputeCosts(): Promise<void> {
  *
  * @param deepflowDir  Absolute path to the .deepflow directory (defaults to cwd/.deepflow)
  */
+/**
+ * One-time migration: wipe sessions + session ingest offsets so the fixed
+ * parser re-processes all JSONL files from scratch.
+ * Idempotent — tracked via _meta key 'migration:session_reparse_v1'.
+ */
+function runMigrationSessionReparseV1(): void {
+  const already = get("SELECT value FROM _meta WHERE key = 'migration:session_reparse_v1'");
+  if (already) return;
+
+  console.log('[ingest:migration] Running session_reparse_v1 — wiping stale sessions + offsets…');
+
+  // Delete all session rows
+  run('DELETE FROM sessions');
+
+  // Delete session ingest offsets so parsers re-read from byte 0
+  run("DELETE FROM _meta WHERE key LIKE 'ingest_offset:session:%'");
+
+  // Mark migration as done
+  run("INSERT INTO _meta (key, value) VALUES ('migration:session_reparse_v1', '1')");
+
+  console.log('[ingest:migration] session_reparse_v1 complete');
+}
+
 export async function runIngestion(deepflowDir?: string): Promise<void> {
   const claudeDir = resolve(homedir(), '.claude');
   const dfDir = deepflowDir ?? resolve(process.cwd(), '.deepflow');
 
   console.log('[ingest] Starting ingestion…');
+
+  // Run one-time migrations before parsers
+  runMigrationSessionReparseV1();
   console.log(`[ingest]   claudeDir : ${claudeDir}`);
   console.log(`[ingest]   deepflowDir : ${dfDir}`);
 
