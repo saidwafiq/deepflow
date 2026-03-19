@@ -32,22 +32,41 @@ export async function parseQuotaHistory(db: DbHelpers, claudeDir: string): Promi
       continue;
     }
 
-    try {
-      db.run(
-        `INSERT INTO quota_snapshots (user, window_type, used, limit_val, reset_at, captured_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [
-          (record.user as string) ?? 'unknown',
-          (record.window_type as string) ?? (record.windowType as string) ?? 'unknown',
-          (record.used as number) ?? 0,
-          (record.limit ?? record.limit_val ?? null) as number | null,
-          (record.reset_at ?? record.resetAt ?? null) as string | null,
-          (record.captured_at ?? record.capturedAt ?? record.timestamp ?? new Date().toISOString()) as string,
-        ]
-      );
-      inserted++;
-    } catch (err) {
-      console.warn(`[ingest:quota-history] Insert failed at line ${i + 1}:`, err);
+    const ts = (record.captured_at ?? record.capturedAt ?? record.timestamp ?? new Date().toISOString()) as string;
+    const user = (record.user as string) ?? 'unknown';
+
+    // Quota JSONL has nested window objects: five_hour, seven_day, seven_day_sonnet, extra_usage
+    const windows: Array<{ type: string; obj: Record<string, unknown> }> = [];
+    const windowKeys = ['five_hour', 'seven_day', 'seven_day_sonnet', 'extra_usage'] as const;
+    for (const wk of windowKeys) {
+      if (record[wk] && typeof record[wk] === 'object') {
+        windows.push({ type: wk, obj: record[wk] as Record<string, unknown> });
+      }
+    }
+
+    // If no nested windows found, fall back to flat format
+    if (windows.length === 0) {
+      windows.push({
+        type: (record.window_type as string) ?? (record.windowType as string) ?? 'unknown',
+        obj: record,
+      });
+    }
+
+    for (const w of windows) {
+      try {
+        const used = (w.obj.used_credits ?? w.obj.used ?? w.obj.utilization ?? 0) as number;
+        const limitVal = (w.obj.monthly_limit ?? w.obj.limit ?? w.obj.limit_val ?? null) as number | null;
+        const resetAt = (w.obj.resets_at ?? w.obj.reset_at ?? null) as string | null;
+
+        db.run(
+          `INSERT INTO quota_snapshots (user, window_type, used, limit_val, reset_at, captured_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [user, w.type, used, limitVal, resetAt, ts]
+        );
+        inserted++;
+      } catch (err) {
+        console.warn(`[ingest:quota-history] Insert failed at line ${i + 1} (${w.type}):`, err);
+      }
     }
   }
 

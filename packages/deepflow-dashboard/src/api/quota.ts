@@ -32,7 +32,7 @@ quotaRouter.get('/', (c) => {
     ...r,
     utilization_pct: r.limit_val
       ? Math.round(((r.used as number) / (r.limit_val as number)) * 1000) / 10
-      : null,
+      : (r.used as number) > 0 ? (r.used as number) : null,
   }));
 
   return c.json({ data });

@@ -112,6 +112,26 @@ function runMigrationSessionReparseV1(): void {
   console.log('[ingest:migration] session_reparse_v1 complete');
 }
 
+/**
+ * One-time migration: wipe tool_usage + quota_snapshots + their offsets
+ * so the fixed parsers re-process all JSONL files from scratch.
+ */
+function runMigrationToolQuotaReparseV1(): void {
+  const already = get("SELECT value FROM _meta WHERE key = 'migration:tool_quota_reparse_v1'");
+  if (already) return;
+
+  console.log('[ingest:migration] Running tool_quota_reparse_v1 — wiping stale tool_usage + quota data…');
+
+  run('DELETE FROM tool_usage');
+  run("DELETE FROM _meta WHERE key = 'ingest_offset:tool-usage'");
+
+  run('DELETE FROM quota_snapshots');
+  run("DELETE FROM _meta WHERE key = 'ingest_offset:quota-history'");
+
+  run("INSERT INTO _meta (key, value) VALUES ('migration:tool_quota_reparse_v1', '1')");
+  console.log('[ingest:migration] tool_quota_reparse_v1 complete');
+}
+
 export async function runIngestion(deepflowDir?: string): Promise<void> {
   const claudeDir = resolve(homedir(), '.claude');
   const dfDir = deepflowDir ?? resolve(process.cwd(), '.deepflow');
@@ -120,6 +140,7 @@ export async function runIngestion(deepflowDir?: string): Promise<void> {
 
   // Run one-time migrations before parsers
   runMigrationSessionReparseV1();
+  runMigrationToolQuotaReparseV1();
   console.log(`[ingest]   claudeDir : ${claudeDir}`);
   console.log(`[ingest]   deepflowDir : ${dfDir}`);
 

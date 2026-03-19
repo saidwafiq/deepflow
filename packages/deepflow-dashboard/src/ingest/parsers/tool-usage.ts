@@ -55,7 +55,7 @@ export async function parseToolUsage(db: DbHelpers, claudeDir: string): Promise<
           sessionId,
           (record.tool_name ?? record.toolName ?? record.tool ?? 'unknown') as string,
           (record.call_count ?? record.callCount ?? record.count ?? 1) as number,
-          (record.total_tokens ?? record.totalTokens ?? record.tokens ?? 0) as number,
+          (record.total_tokens ?? record.totalTokens ?? record.tokens ?? record.output_size_est_tokens ?? 0) as number,
           ts,
         ]
       );
