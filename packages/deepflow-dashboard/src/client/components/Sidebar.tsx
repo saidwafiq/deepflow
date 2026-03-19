@@ -6,6 +6,8 @@ const NAV_ITEMS = [
   { to: '/', label: 'Overview', exact: true },
   { to: '/sessions', label: 'Sessions' },
   { to: '/tasks', label: 'Tasks' },
+  { to: '/quota', label: 'Quota' },
+  { to: '/tools', label: 'Tokens by Tool' },
   { to: '/costs', label: 'Costs' },
   { to: '/cache', label: 'Cache' },
   { to: '/activity', label: 'Activity' },
