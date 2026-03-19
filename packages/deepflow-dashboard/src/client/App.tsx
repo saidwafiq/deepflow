@@ -7,6 +7,10 @@ import { useTheme } from './hooks/useTheme';
 import { CostOverview } from './views/CostOverview';
 import { SessionList } from './views/SessionList';
 import { CacheEfficiency } from './views/CacheEfficiency';
+import { ActivityHeatmap } from './views/ActivityHeatmap';
+import { ModelDonut } from './views/ModelDonut';
+import { CostStacked } from './views/CostStacked';
+import { PeakHours } from './views/PeakHours';
 
 /* ---------------------------------------------------------------------------
  * Placeholder for views not yet implemented (T17-T18).
@@ -45,6 +49,10 @@ function Layout() {
             <Route path="/tasks" element={<TasksView />} />
             <Route path="/costs" element={<CostOverview />} />
             <Route path="/cache" element={<CacheEfficiency />} />
+            <Route path="/activity" element={<ActivityHeatmap />} />
+            <Route path="/models" element={<ModelDonut />} />
+            <Route path="/cost-stacked" element={<CostStacked />} />
+            <Route path="/peak-hours" element={<PeakHours />} />
           </Routes>
         </main>
       </div>

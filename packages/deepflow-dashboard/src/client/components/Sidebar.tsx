@@ -7,6 +7,11 @@ const NAV_ITEMS = [
   { to: '/sessions', label: 'Sessions' },
   { to: '/tasks', label: 'Tasks' },
   { to: '/costs', label: 'Costs' },
+  { to: '/cache', label: 'Cache' },
+  { to: '/activity', label: 'Activity' },
+  { to: '/models', label: 'Models' },
+  { to: '/cost-stacked', label: 'Cost by Day' },
+  { to: '/peak-hours', label: 'Peak Hours' },
 ];
 
 export function Sidebar() {
