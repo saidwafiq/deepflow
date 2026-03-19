@@ -239,6 +239,7 @@ async function configureHooks(claudeDir) {
   const consolidationCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-consolidation-check.js')}"`;
   const quotaLoggerCmd = `node "${path.join(claudeDir, 'hooks', 'df-quota-logger.js')}"`;
   const toolUsageCmd = `node "${path.join(claudeDir, 'hooks', 'df-tool-usage.js')}"`;
+  const dashboardPushCmd = `node "${path.join(claudeDir, 'hooks', 'df-dashboard-push.js')}"`;
 
   let settings = {};
 
@@ -324,10 +325,10 @@ async function configureHooks(claudeDir) {
     settings.hooks.SessionEnd = [];
   }
 
-  // Remove any existing quota logger from SessionEnd
+  // Remove any existing quota logger / dashboard push from SessionEnd
   settings.hooks.SessionEnd = settings.hooks.SessionEnd.filter(hook => {
     const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-quota-logger');
+    return !cmd.includes('df-quota-logger') && !cmd.includes('df-dashboard-push');
   });
 
   // Add quota logger to SessionEnd
@@ -337,7 +338,15 @@ async function configureHooks(claudeDir) {
       command: quotaLoggerCmd
     }]
   });
-  log('Quota logger configured');
+
+  // Add dashboard push to SessionEnd (fire-and-forget, skips when dashboard_url unset)
+  settings.hooks.SessionEnd.push({
+    hooks: [{
+      type: 'command',
+      command: dashboardPushCmd
+    }]
+  });
+  log('Quota logger + dashboard push configured (SessionEnd)');
 
   // Configure PostToolUse hook for tool usage instrumentation
   if (!settings.hooks.PostToolUse) {
@@ -539,7 +548,7 @@ async function uninstall() {
   ];
 
   if (level === 'global') {
-    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-consolidation-check.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js');
+    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-consolidation-check.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js', 'hooks/df-dashboard-push.js');
   }
 
   for (const item of toRemove) {
@@ -577,7 +586,7 @@ async function uninstall() {
         if (settings.hooks?.SessionEnd) {
           settings.hooks.SessionEnd = settings.hooks.SessionEnd.filter(hook => {
             const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-quota-logger');
+            return !cmd.includes('df-quota-logger') && !cmd.includes('df-dashboard-push');
           });
           if (settings.hooks.SessionEnd.length === 0) {
             delete settings.hooks.SessionEnd;

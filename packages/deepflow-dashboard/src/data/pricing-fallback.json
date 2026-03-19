@@ -1,0 +1,55 @@
+{
+  "_comment": "Bundled fallback pricing — used when remote fetch fails. Prices in USD per 1M tokens.",
+  "_source": "https://www.anthropic.com/pricing",
+  "_updated": "2025-05-01",
+  "models": {
+    "claude-opus-4-20250514": {
+      "input": 15.0,
+      "output": 75.0,
+      "cache_read": 1.5,
+      "cache_creation": 18.75
+    },
+    "claude-sonnet-4-20250514": {
+      "input": 3.0,
+      "output": 15.0,
+      "cache_read": 0.3,
+      "cache_creation": 3.75
+    },
+    "claude-sonnet-4-5-20250514": {
+      "input": 3.0,
+      "output": 15.0,
+      "cache_read": 0.3,
+      "cache_creation": 3.75
+    },
+    "claude-haiku-3-5-20241022": {
+      "input": 0.8,
+      "output": 4.0,
+      "cache_read": 0.08,
+      "cache_creation": 1.0
+    },
+    "claude-haiku-3-20240307": {
+      "input": 0.25,
+      "output": 1.25,
+      "cache_read": 0.03,
+      "cache_creation": 0.3
+    },
+    "claude-sonnet-3-7-20250219": {
+      "input": 3.0,
+      "output": 15.0,
+      "cache_read": 0.3,
+      "cache_creation": 3.75
+    },
+    "claude-sonnet-3-5-20241022": {
+      "input": 3.0,
+      "output": 15.0,
+      "cache_read": 0.3,
+      "cache_creation": 3.75
+    },
+    "claude-opus-3-20240229": {
+      "input": 15.0,
+      "output": 75.0,
+      "cache_read": 1.5,
+      "cache_creation": 18.75
+    }
+  }
+}

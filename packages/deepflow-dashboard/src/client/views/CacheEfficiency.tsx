@@ -1,0 +1,153 @@
+import React, { useCallback, useContext, useEffect, useState } from 'react';
+import { MetricCard } from '../components/MetricCard';
+import { StackedAreaChart } from '../components/charts/StackedAreaChart';
+import { useApi } from '../hooks/useApi';
+import { usePolling } from '../hooks/usePolling';
+import { DashboardContext } from '../context/DashboardContext';
+
+/* ---- Types from GET /api/cache ---- */
+interface CacheSummary {
+  total_input: number;
+  total_output: number;
+  total_cache_read: number;
+  total_cache_creation: number;
+  hit_ratio: number; // percentage, 2 decimal places
+}
+
+interface CacheDaily {
+  day: string;
+  input_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+}
+
+interface CacheResponse {
+  summary: CacheSummary;
+  daily: CacheDaily[];
+}
+
+/* ---- Helpers ---- */
+function fmtTokens(n: number) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+const AREA_KEYS = [
+  { dataKey: 'cache_read_tokens', name: 'Cache Read', color: '#10b981' },
+  { dataKey: 'cache_creation_tokens', name: 'Cache Creation', color: '#f59e0b' },
+  { dataKey: 'input_tokens', name: 'Regular Input', color: 'var(--accent)' },
+];
+
+/* ---- Component ---- */
+export function CacheEfficiency() {
+  const apiFetch = useApi();
+  const { refreshInterval, refreshKey } = useContext(DashboardContext);
+  const [data, setData] = useState<CacheResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/cache');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as CacheResponse;
+      setData(json);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [apiFetch]);
+
+  useEffect(() => { void load(); }, [load, refreshKey]);
+  usePolling(load, refreshInterval);
+
+  if (error) {
+    return <p className="text-sm" style={{ color: '#ef4444' }}>Failed to load cache data: {error}</p>;
+  }
+
+  if (!data) {
+    return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading…</p>;
+  }
+
+  const { summary, daily } = data;
+  const totalTokens = summary.total_input + summary.total_output + summary.total_cache_read + summary.total_cache_creation;
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Cache Efficiency</h1>
+
+      {/* Metric cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <MetricCard
+          label="Hit Ratio"
+          value={`${summary.hit_ratio.toFixed(2)}%`}
+          sub="cache_read / (input + cache_read)"
+          trend={summary.hit_ratio > 0 ? 1 : 0}
+        />
+        <MetricCard
+          label="Cache Read"
+          value={fmtTokens(summary.total_cache_read)}
+          sub="tokens served from cache"
+        />
+        <MetricCard
+          label="Cache Creation"
+          value={fmtTokens(summary.total_cache_creation)}
+          sub="tokens written to cache"
+        />
+        <MetricCard
+          label="Total Tokens"
+          value={fmtTokens(totalTokens)}
+          sub={`${fmtTokens(summary.total_input)} input / ${fmtTokens(summary.total_output)} output`}
+        />
+      </div>
+
+      {/* Daily trend — stacked area of input / cache_read / cache_creation */}
+      {daily.length > 0 && (
+        <div
+          className="rounded-xl p-4"
+          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+        >
+          <p className="mb-3 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+            Daily token breakdown (30 days)
+          </p>
+          <StackedAreaChart
+            data={daily as unknown as Record<string, unknown>[]}
+            areas={AREA_KEYS}
+            xKey="day"
+            xTickFormatter={(v) => (v as string).slice(5)} /* MM-DD */
+            yTickFormatter={(v) => fmtTokens(v as number)}
+            tooltipFormatter={(value, name) => [fmtTokens(value as number), name]}
+          />
+        </div>
+      )}
+
+      {/* Cache read vs creation ratio bar */}
+      {(summary.total_cache_read > 0 || summary.total_cache_creation > 0) && (() => {
+        const total = summary.total_cache_read + summary.total_cache_creation;
+        const readPct = total > 0 ? (summary.total_cache_read / total) * 100 : 0;
+        return (
+          <div
+            className="rounded-xl p-4 space-y-2"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+          >
+            <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+              Cache read vs creation split
+            </p>
+            <div className="flex h-4 overflow-hidden rounded-full" style={{ background: 'var(--bg-secondary)' }}>
+              <div
+                style={{ width: `${readPct}%`, background: '#10b981', transition: 'width 0.4s ease' }}
+              />
+              <div
+                style={{ width: `${100 - readPct}%`, background: '#f59e0b', transition: 'width 0.4s ease' }}
+              />
+            </div>
+            <div className="flex justify-between text-xs" style={{ color: 'var(--text-secondary)' }}>
+              <span style={{ color: '#10b981' }}>Read {readPct.toFixed(1)}%</span>
+              <span style={{ color: '#f59e0b' }}>Creation {(100 - readPct).toFixed(1)}%</span>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
