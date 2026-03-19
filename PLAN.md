@@ -7,12 +7,12 @@ Updated: 2026-03-19
 
 | Metric | Count |
 |--------|-------|
-| Specs analyzed | 1 |
-| Tasks created | 13 |
-| Tasks completed | 4 |
-| Tasks pending | 9 |
+| Specs analyzed | 2 |
+| Tasks created | 17 |
+| Tasks completed | 13 |
+| Tasks pending | 4 |
 
-### doing-dashboard
+### done-dashboard
 
 #### Spike Decisions
 
@@ -27,7 +27,7 @@ Updated: 2026-03-19
 
 ---
 
-- [ ] **T12**: Package scaffold + CLI entry point + sql.js database layer
+- [x] **T12**: Package scaffold + CLI entry point + sql.js database layer — f9910b0
   - Files: packages/deepflow-dashboard/package.json, packages/deepflow-dashboard/bin/cli.js, packages/deepflow-dashboard/src/server.ts, packages/deepflow-dashboard/src/db/schema.sql, packages/deepflow-dashboard/src/db/index.ts, packages/deepflow-dashboard/src/pricing.ts, packages/deepflow-dashboard/src/data/pricing-fallback.json, packages/deepflow-dashboard/tsconfig.json, packages/deepflow-dashboard/vite.config.ts, packages/deepflow-dashboard/tailwind.config.js, packages/deepflow-dashboard/postcss.config.js
   - Model: sonnet
   - Effort: high
@@ -44,7 +44,7 @@ Updated: 2026-03-19
     - Data flow: foundation for all other dashboard tasks
   - Blocked by: none
 
-- [ ] **T13**: Local ingestion pipeline (8 file sources + incremental offset)
+- [x] **T13**: Local ingestion pipeline (8 file sources + incremental offset) — 6996766
   - Files: packages/deepflow-dashboard/src/ingest/index.ts, packages/deepflow-dashboard/src/ingest/parsers/quota-history.ts, packages/deepflow-dashboard/src/ingest/parsers/history.ts, packages/deepflow-dashboard/src/ingest/parsers/token-history.ts, packages/deepflow-dashboard/src/ingest/parsers/sessions.ts, packages/deepflow-dashboard/src/ingest/parsers/cache-history.ts, packages/deepflow-dashboard/src/ingest/parsers/tool-usage.ts, packages/deepflow-dashboard/src/ingest/parsers/task-results.ts, packages/deepflow-dashboard/src/ingest/parsers/stats-cache.ts
   - Model: sonnet
   - Effort: high
@@ -59,7 +59,7 @@ Updated: 2026-03-19
     - Data flow: ~/.claude/* + .deepflow/* → SQLite tables
   - Blocked by: T12
 
-- [ ] **T14**: API routes (GET endpoints for all views)
+- [x] **T14**: API routes (GET endpoints for all views) — df3a5dc
   - Files: packages/deepflow-dashboard/src/api/sessions.ts, packages/deepflow-dashboard/src/api/costs.ts, packages/deepflow-dashboard/src/api/quota.ts, packages/deepflow-dashboard/src/api/tasks.ts, packages/deepflow-dashboard/src/api/activity.ts, packages/deepflow-dashboard/src/api/cache.ts, packages/deepflow-dashboard/src/api/tools.ts, packages/deepflow-dashboard/src/api/index.ts, packages/deepflow-dashboard/src/server.ts
   - Model: sonnet
   - Effort: medium
@@ -78,7 +78,7 @@ Updated: 2026-03-19
     - Data flow: SQLite queries → JSON responses
   - Blocked by: T12, T13 (file conflict: server.ts with T12)
 
-- [ ] **T15**: React SPA shell + theme + auto-refresh + navigation
+- [x] **T15**: React SPA shell + theme + auto-refresh + navigation — 34ddf43
   - Files: packages/deepflow-dashboard/src/client/index.html, packages/deepflow-dashboard/src/client/main.tsx, packages/deepflow-dashboard/src/client/App.tsx, packages/deepflow-dashboard/src/client/hooks/usePolling.ts, packages/deepflow-dashboard/src/client/hooks/useTheme.ts, packages/deepflow-dashboard/src/client/hooks/useApi.ts, packages/deepflow-dashboard/src/client/context/DashboardContext.tsx, packages/deepflow-dashboard/src/client/components/UserFilter.tsx, packages/deepflow-dashboard/src/client/components/Sidebar.tsx, packages/deepflow-dashboard/src/client/globals.css, packages/deepflow-dashboard/src/client/lib/utils.ts
   - Model: sonnet
   - Effort: medium
@@ -95,7 +95,7 @@ Updated: 2026-03-19
     - Data flow: fetches from API routes, renders views
   - Blocked by: T12
 
-- [ ] **T16**: Dashboard views — Cost Overview + Session List + Cache Efficiency
+- [x] **T16**: Dashboard views — Cost Overview + Session List + Cache Efficiency — fdf1b09
   - Files: packages/deepflow-dashboard/src/client/views/CostOverview.tsx, packages/deepflow-dashboard/src/client/views/SessionList.tsx, packages/deepflow-dashboard/src/client/views/CacheEfficiency.tsx, packages/deepflow-dashboard/src/client/components/charts/StackedAreaChart.tsx, packages/deepflow-dashboard/src/client/components/MetricCard.tsx, packages/deepflow-dashboard/src/client/App.tsx
   - Model: sonnet
   - Effort: high
@@ -110,7 +110,7 @@ Updated: 2026-03-19
     - Callers: API routes /api/costs, /api/sessions, /api/cache
   - Blocked by: T14, T15 (file conflict: App.tsx with T15)
 
-- [ ] **T17**: Dashboard views — Activity Heatmap + Model Donut + Cost Stacked + Peak Hours
+- [x] **T17**: Dashboard views — Activity Heatmap + Model Donut + Cost Stacked + Peak Hours — aae6854
   - Files: packages/deepflow-dashboard/src/client/views/ActivityHeatmap.tsx, packages/deepflow-dashboard/src/client/views/ModelDonut.tsx, packages/deepflow-dashboard/src/client/views/CostStacked.tsx, packages/deepflow-dashboard/src/client/views/PeakHours.tsx, packages/deepflow-dashboard/src/client/components/charts/HeatmapGrid.tsx, packages/deepflow-dashboard/src/client/components/charts/DonutChart.tsx, packages/deepflow-dashboard/src/client/App.tsx
   - Model: sonnet
   - Effort: medium
@@ -126,7 +126,7 @@ Updated: 2026-03-19
     - Callers: API routes /api/activity, /api/costs
   - Blocked by: T14, T15 (file conflict: App.tsx with T16)
 
-- [ ] **T18**: Dashboard views — Task Tracking + Quota Status + Token by Tool
+- [x] **T18**: Dashboard views — Task Tracking + Quota Status + Token by Tool — 3da6838
   - Files: packages/deepflow-dashboard/src/client/views/TaskTracking.tsx, packages/deepflow-dashboard/src/client/views/QuotaStatus.tsx, packages/deepflow-dashboard/src/client/views/TokenByTool.tsx, packages/deepflow-dashboard/src/client/components/charts/BarChart.tsx, packages/deepflow-dashboard/src/client/components/QuotaGauge.tsx, packages/deepflow-dashboard/src/client/App.tsx
   - Model: sonnet
   - Effort: medium
@@ -141,7 +141,7 @@ Updated: 2026-03-19
     - Callers: API routes /api/tasks, /api/quota, /api/tools
   - Blocked by: T14, T15 (file conflict: App.tsx with T17)
 
-- [ ] **T19**: Team mode — POST /api/ingest + SessionEnd hook + backfill CLI
+- [x] **T19**: Team mode — POST /api/ingest + SessionEnd hook + backfill CLI — 89fb68e
   - Files: packages/deepflow-dashboard/src/api/ingest.ts, packages/deepflow-dashboard/src/backfill.ts, hooks/df-dashboard-push.js, packages/deepflow-dashboard/src/api/index.ts, packages/deepflow-dashboard/src/server.ts, packages/deepflow-dashboard/bin/cli.js, templates/config-template.yaml, bin/install.js
   - Model: sonnet
   - Effort: high
@@ -159,7 +159,7 @@ Updated: 2026-03-19
     - Data flow: dev machines → SessionEnd hook → team server → SQLite
   - Blocked by: T13, T14 (file conflict: server.ts, api/index.ts, bin/cli.js)
 
-- [ ] **T20**: /df:dashboard command + /df:report deprecation
+- [x] **T20**: /df:dashboard command + /df:report deprecation — 4090b5e
   - Files: src/commands/df/dashboard.md, src/commands/df/report.md
   - Model: haiku
   - Effort: low
@@ -171,6 +171,90 @@ Updated: 2026-03-19
     - Callers: none (user-invoked commands)
     - Duplicates: report.md [active — redirect to dashboard]
   - Blocked by: T12
+
+### doing-dashboard-fixes
+
+- [ ] **T21**: Fix session parser — extract from `event.message.usage/model/content`, compute cost via `resolveModelPricing()`
+  - Files: packages/deepflow-dashboard/src/ingest/parsers/sessions.ts
+  - Model: sonnet
+  - Effort: high
+  - REQs: REQ-1, REQ-2
+  - Changes:
+    1. Model extraction: `event.message.model` first, fallback `event.model` (line 118)
+    2. Usage extraction: `event.message.usage` first, fallback `event.usage` (line 130)
+    3. Cost computation: import `fetchPricing`/`computeCost` from `../../pricing.js`, compute from accumulated tokens + model after event loop instead of `event.cost` (line 137)
+    4. Message counting: count `event.type === 'assistant'` and `event.type === 'human'` (lines 125-126)
+    5. Tool call counting: iterate `event.message?.content[]` for blocks with `type === 'tool_use'` (line 127)
+    6. Handle both formats gracefully per spec constraint (`event.message?.usage` first, fall back to `event.usage`)
+  - Impact:
+    - Callers: `ingest/index.ts` calls `parseSessions()` — no signature change
+    - Data flow: fixes all downstream views that read from sessions table (cost, tokens, tool_calls, messages, model)
+  - Blocked by: none
+
+- [ ] **T22**: Fix view response wrappers + field names (QuotaStatus, TaskTracking, TokenByTool)
+  - Files: packages/deepflow-dashboard/src/client/views/QuotaStatus.tsx, packages/deepflow-dashboard/src/client/views/TaskTracking.tsx, packages/deepflow-dashboard/src/client/views/TokenByTool.tsx
+  - Model: sonnet
+  - Effort: medium
+  - REQs: REQ-3, REQ-4, REQ-5
+  - Changes:
+    1. QuotaStatus.tsx: change interface `quota` → `data`, access `data.data`; rename `tokens_used`→`used`, `tokens_limit`→`limit_val` (lines 10-11, 19, 65)
+    2. TaskTracking.tsx: change interface `tasks` → `data`, access `data.data`; rename `cost`→`total_cost` (lines 13, 17, 81, 82, 165)
+    3. TokenByTool.tsx: change interface `tools` → `data`, access `data.data` (lines 17, 74)
+  - Impact:
+    - Callers: none (leaf view components)
+    - Data flow: aligns client types with existing API response shapes
+  - Blocked by: none
+
+- [ ] **T23**: Fix costs API — use `resolveModelPricing()` for alias support
+  - Files: packages/deepflow-dashboard/src/api/costs.ts
+  - Model: haiku
+  - Effort: low
+  - REQs: REQ-6
+  - Changes:
+    1. Import `resolveModelPricing` from `../pricing.js`
+    2. Replace `pricing.models[model]` with `resolveModelPricing(pricing, model)` (line 39)
+  - Impact:
+    - Callers: CostOverview, CostStacked views — will now show costs for aliased models like `claude-opus-4-6`
+    - Data flow: fixes model cost aggregation for all cost views
+  - Blocked by: none
+
+- [ ] **T24**: Wipe session offsets + re-ingest + verify all ACs
+  - Files: packages/deepflow-dashboard/src/ingest/index.ts, packages/deepflow-dashboard/src/server.ts
+  - Model: sonnet
+  - Effort: medium
+  - REQs: all (verification)
+  - Changes:
+    1. Add one-time migration: `DELETE FROM sessions; DELETE FROM _meta WHERE key LIKE 'ingest_offset:session:%'` — triggered by a schema version bump or flag in `_meta`
+    2. Re-run ingestion to populate sessions with correct data
+    3. Verify: `SELECT SUM(tokens_in), SUM(tokens_out) FROM sessions` returns non-zero
+    4. Verify: `SELECT model FROM sessions WHERE model != 'unknown' LIMIT 1` returns real model
+    5. Verify: `SELECT SUM(cost) FROM sessions` returns non-zero
+    6. Verify: `SELECT SUM(tool_calls) FROM sessions` returns non-zero
+    7. Verify: `npm run build` exits 0
+  - Impact:
+    - Callers: server.ts startup calls ingest
+    - Data flow: one-time wipe of derived session data, fully reconstructed from source JSONLs
+  - Blocked by: T21 (parser must be fixed before re-ingestion)
+
+## Dependency Graph (dashboard-fixes)
+
+```
+T21 (fix session parser)
+ └→ T24 (wipe + re-ingest + verify) ← needs fixed parser
+T22 (fix view wrappers) ← parallel with T21
+T23 (fix costs API) ← parallel with T21
+```
+
+## Parallelism Opportunities (dashboard-fixes)
+
+- **Wave 1**: T21 (session parser) + T22 (view fixes) + T23 (costs API) — all parallel, no shared files
+- **Wave 2**: T24 (re-ingest + verify) — needs T21
+
+## File Conflict Matrix (dashboard-fixes)
+
+No file conflicts — all tasks touch distinct files except T24 which modifies `ingest/index.ts` and `server.ts` (not touched by T21-T23).
+
+---
 
 ## Dependency Graph
 

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let SQL: SqlJsStatic | null = null;
 let _db: Database | null = null;
+let _dbPath: string | null = null;
 
 /** Resolve database file path based on mode */
 function resolveDatabasePath(mode: 'local' | 'serve'): string {
@@ -28,11 +29,10 @@ function loadDbBuffer(dbPath: string): Buffer {
 }
 
 /** Persist in-memory DB to disk */
-export function persistDatabase(dbPath: string): void {
-  if (!_db) return;
+export function persistDatabase(): void {
+  if (!_db || !_dbPath) return;
   const data = _db.export();
-  const { writeFileSync } = require('node:fs');
-  writeFileSync(dbPath, data);
+  writeFileSync(_dbPath, Buffer.from(data));
 }
 
 /** Initialize sql.js and open (or create) the database, running schema migrations */
@@ -50,8 +50,8 @@ export async function initDatabase(mode: 'local' | 'serve' = 'local'): Promise<D
     wasmBinary: existsSync(wasmPath) ? (readFileSync(wasmPath).buffer as ArrayBuffer) : undefined,
   });
 
-  const dbPath = resolveDatabasePath(mode);
-  const buf = loadDbBuffer(dbPath);
+  _dbPath = resolveDatabasePath(mode);
+  const buf = loadDbBuffer(_dbPath);
   _db = buf.length > 0 ? new SQL.Database(buf) : new SQL.Database();
 
   // Run schema migrations
@@ -60,11 +60,9 @@ export async function initDatabase(mode: 'local' | 'serve' = 'local'): Promise<D
   _db.run(schema);
 
   // Persist after schema init
-  const data = _db.export();
-  const { writeFileSync } = await import('node:fs');
-  writeFileSync(dbPath, data);
+  persistDatabase();
 
-  console.log(`[db] Opened database at ${dbPath}`);
+  console.log(`[db] Opened database at ${_dbPath}`);
   return _db;
 }
 

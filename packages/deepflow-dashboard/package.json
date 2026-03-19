@@ -7,7 +7,7 @@
     "deepflow-dashboard": "./bin/cli.js"
   },
   "scripts": {
-    "build": "vite build && tsc --project tsconfig.json",
+    "build": "vite build && tsc --project tsconfig.json && cp src/db/schema.sql dist/db/schema.sql && cp src/data/pricing-fallback.json dist/data/pricing-fallback.json",
     "dev": "vite",
     "typecheck": "tsc --noEmit"
   },

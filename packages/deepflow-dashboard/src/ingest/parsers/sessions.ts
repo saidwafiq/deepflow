@@ -1,11 +1,39 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, basename } from 'node:path';
 import type { DbHelpers } from '../../db/index.js';
 
 /**
- * Parses per-session JSONL files in ~/.claude/projects/*\/sessions/ → sessions table.
+ * Decode Claude Code project dir name to a human-readable project name.
+ * e.g. "-Users-saidsalles-apps-bingo-go" → "bingo-go"
+ * Worktree dirs like "...--deepflow-worktrees-spike" → "deepflow (spike)"
+ */
+function projectNameFromDir(dirName: string): string {
+  // Split on worktree separator
+  const [mainPath, worktreePart] = dirName.split('--', 2);
+  // Take last meaningful segment from the path
+  const segments = mainPath.replace(/^-+/, '').split('-').filter(Boolean);
+  // Walk from end to find the project name (skip user/apps prefix)
+  // Pattern: Users-user-apps-projectName or Users-user-apps-org-projectName
+  const appsIdx = segments.lastIndexOf('apps');
+  const name = appsIdx >= 0 && appsIdx < segments.length - 1
+    ? segments.slice(appsIdx + 1).join('-')
+    : segments.slice(-1)[0] ?? dirName;
+
+  if (worktreePart) {
+    const wtSegments = worktreePart.split('-').filter(Boolean);
+    // Remove "deepflow-worktrees" or "claude-worktrees" prefix
+    const wtIdx = wtSegments.findIndex(s => s === 'worktrees');
+    const suffix = wtIdx >= 0 ? wtSegments.slice(wtIdx + 1).join('-') : wtSegments.join('-');
+    return suffix ? `${name} (${suffix})` : name;
+  }
+
+  return name;
+}
+
+/**
+ * Parses per-session JSONL files in ~/.claude/projects/{project}/ → sessions table.
+ * Session files are UUID-named .jsonl files directly in each project directory.
  * Each file is a stream of events; we materialise a session row from the aggregate.
- * Offset per file tracks lines processed, keyed by relative path.
  */
 export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<void> {
   const projectsDir = resolve(claudeDir, 'projects');
@@ -14,11 +42,14 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
     return;
   }
 
-  let projectDirs: string[];
+  let projectDirs: Array<{ path: string; name: string }>;
   try {
     projectDirs = readdirSync(projectsDir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
-      .map((d) => join(projectsDir, d.name));
+      .map((d) => ({
+        path: join(projectsDir, d.name),
+        name: projectNameFromDir(d.name),
+      }));
   } catch (err) {
     console.warn('[ingest:sessions] Cannot read projects dir:', err);
     return;
@@ -27,15 +58,13 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
   let totalInserted = 0;
   let totalUpdated = 0;
 
-  for (const projectDir of projectDirs) {
-    const sessionsDir = join(projectDir, 'sessions');
-    if (!existsSync(sessionsDir)) continue;
-
+  for (const projectEntry of projectDirs) {
+    // Session JSONL files are directly in the project dir (UUID.jsonl)
     let sessionFiles: string[];
     try {
-      sessionFiles = readdirSync(sessionsDir)
+      sessionFiles = readdirSync(projectEntry.path)
         .filter((f) => f.endsWith('.jsonl'))
-        .map((f) => join(sessionsDir, f));
+        .map((f) => join(projectEntry.path, f));
     } catch {
       continue;
     }
@@ -53,12 +82,19 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         continue;
       }
 
-      // Accumulate session stats from new lines
-      let sessionId: string | null = null;
+      // Skip if no new lines
+      if (lines.length <= offset) continue;
+
+      // Derive session ID from filename (UUID.jsonl)
+      const fileSessionId = basename(filePath, '.jsonl');
+
+      let sessionId: string = fileSessionId;
       let tokensIn = 0, tokensOut = 0, cacheRead = 0, cacheCreation = 0;
       let messages = 0, toolCalls = 0, cost = 0;
-      let model = 'unknown', user = 'unknown', project: string | null = null;
+      let model = 'unknown', user = 'unknown';
+      const project = projectEntry.name;
       let startedAt: string | null = null, endedAt: string | null = null;
+      let durationMs = 0;
       let hasNewData = false;
 
       for (let i = offset; i < lines.length; i++) {
@@ -69,61 +105,76 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         try {
           event = JSON.parse(line);
         } catch {
-          console.warn(`[ingest:sessions] Malformed JSON in ${filePath} at line ${i + 1}, skipping`);
-          continue;
+          continue; // skip malformed lines silently
         }
 
         hasNewData = true;
 
-        // Extract session identity from first available event
-        if (!sessionId) sessionId = (event.session_id ?? event.sessionId ?? event.id) as string | null;
-        if (!startedAt) startedAt = (event.timestamp ?? event.ts ?? event.started_at ?? null) as string | null;
-        endedAt = (event.timestamp ?? event.ts ?? null) as string | null;
+        // Extract session identity
+        if (event.sessionId) sessionId = event.sessionId as string;
+        if (!startedAt && event.timestamp) startedAt = event.timestamp as string;
+        if (event.timestamp) endedAt = event.timestamp as string;
 
         if (event.model && event.model !== 'unknown') model = event.model as string;
         if (event.user) user = event.user as string;
-        if (event.project) project = event.project as string;
 
-        // Accumulate token/cost fields from usage objects or flat fields
+        // Count messages and tool calls by event type
+        const eventType = event.type as string | undefined;
+        const dataType = (event.data as Record<string, unknown>)?.type as string | undefined;
+
+        if (eventType === 'assistant' || event.role === 'assistant') messages++;
+        if (eventType === 'human' || event.role === 'human' || event.role === 'user') messages++;
+        if (dataType === 'tool_use' || eventType === 'tool_use' || event.tool_name) toolCalls++;
+
+        // Accumulate tokens from usage objects or flat fields
         const usage = event.usage as Record<string, number> | undefined;
-        tokensIn += (usage?.input_tokens ?? (event.input_tokens as number) ?? 0);
-        tokensOut += (usage?.output_tokens ?? (event.output_tokens as number) ?? 0);
-        cacheRead += (usage?.cache_read_tokens ?? (event.cache_read_tokens as number) ?? 0);
-        cacheCreation += (usage?.cache_creation_tokens ?? (event.cache_creation_tokens as number) ?? 0);
-        cost += (event.cost as number) ?? 0;
+        if (usage) {
+          tokensIn += usage.input_tokens ?? 0;
+          tokensOut += usage.output_tokens ?? 0;
+          cacheRead += usage.cache_read_tokens ?? usage.cache_read_input_tokens ?? 0;
+          cacheCreation += usage.cache_creation_tokens ?? usage.cache_creation_input_tokens ?? 0;
+        }
+        if (typeof event.cost === 'number') cost += event.cost;
+      }
 
-        if (event.type === 'message' || event.role) messages++;
-        if (event.type === 'tool_use' || event.tool_name) toolCalls++;
+      // Calculate duration from timestamps
+      if (startedAt && endedAt) {
+        const start = new Date(startedAt).getTime();
+        const end = new Date(endedAt).getTime();
+        if (!isNaN(start) && !isNaN(end)) durationMs = end - start;
       }
 
       if (hasNewData && sessionId) {
-        const existing = db.get('SELECT id, tokens_in, tokens_out FROM sessions WHERE id = ?', [sessionId]);
+        const existing = db.get('SELECT id FROM sessions WHERE id = ?', [sessionId]);
         if (existing) {
-          // Add incremental deltas to existing row
           try {
             db.run(
               `UPDATE sessions SET tokens_in = tokens_in + ?, tokens_out = tokens_out + ?,
                cache_read = cache_read + ?, cache_creation = cache_creation + ?,
                messages = messages + ?, tool_calls = tool_calls + ?,
-               cost = cost + ?, ended_at = COALESCE(?, ended_at), model = COALESCE(NULLIF(?, 'unknown'), model)
+               cost = cost + ?, duration_ms = ?, ended_at = COALESCE(?, ended_at),
+               model = COALESCE(NULLIF(?, 'unknown'), model),
+               project = COALESCE(?, project)
                WHERE id = ?`,
-              [tokensIn, tokensOut, cacheRead, cacheCreation, messages, toolCalls, cost, endedAt, model, sessionId]
+              [tokensIn, tokensOut, cacheRead, cacheCreation, messages, toolCalls, cost,
+               durationMs, endedAt, model, project, sessionId]
             );
             totalUpdated++;
           } catch (err) {
-            console.warn(`[ingest:sessions] Update failed for session ${sessionId}:`, err);
+            console.warn(`[ingest:sessions] Update failed for ${sessionId}:`, err);
           }
         } else {
           try {
             db.run(
-              `INSERT INTO sessions (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation, messages, tool_calls, cost, started_at, ended_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-              [sessionId, user, project, model, tokensIn, tokensOut, cacheRead, cacheCreation, messages, toolCalls, cost,
+              `INSERT INTO sessions (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation, duration_ms, messages, tool_calls, cost, started_at, ended_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [sessionId, user, project, model, tokensIn, tokensOut, cacheRead, cacheCreation,
+               durationMs, messages, toolCalls, cost,
                startedAt ?? new Date().toISOString(), endedAt]
             );
             totalInserted++;
           } catch (err) {
-            console.warn(`[ingest:sessions] Insert failed for session ${sessionId}:`, err);
+            console.warn(`[ingest:sessions] Insert failed for ${sessionId}:`, err);
           }
         }
       }

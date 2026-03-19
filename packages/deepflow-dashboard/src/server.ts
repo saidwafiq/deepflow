@@ -5,7 +5,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import { exec } from 'node:child_process';
-import { initDatabase } from './db/index.js';
+import { initDatabase, persistDatabase } from './db/index.js';
 import { fetchPricing } from './pricing.js';
 import { runIngestion } from './ingest/index.js';
 import { createApiRouter } from './api/index.js';
@@ -40,6 +40,8 @@ export async function startServer(opts: ServerOptions): Promise<void> {
   // Run local ingestion on startup (local mode only)
   if (mode === 'local') {
     await runIngestion();
+    persistDatabase();
+    console.log('[server] Database persisted to disk after ingestion');
   }
 
   console.log(`[server] Pricing loaded: ${Object.keys(pricing.models).length} models`);

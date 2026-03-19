@@ -63,13 +63,34 @@ export async function fetchPricing(): Promise<PricingData> {
   return cached;
 }
 
+/** Model alias map: Claude Code model IDs → pricing model IDs */
+const MODEL_ALIASES: Record<string, string> = {
+  'claude-opus-4-6[1m]': 'claude-opus-4-20250514',
+  'claude-opus-4-6': 'claude-opus-4-20250514',
+  'claude-sonnet-4-6[1m]': 'claude-sonnet-4-20250514',
+  'claude-sonnet-4-6': 'claude-sonnet-4-20250514',
+  'claude-sonnet-4-5': 'claude-sonnet-4-5-20250514',
+  'claude-haiku-4-5': 'claude-haiku-3-5-20241022',
+};
+
+/** Resolve a model string to its pricing entry */
+export function resolveModelPricing(pricing: PricingData, model: string): ModelPricing | undefined {
+  // Direct match
+  if (pricing.models[model]) return pricing.models[model];
+  // Alias match
+  const alias = MODEL_ALIASES[model];
+  if (alias && pricing.models[alias]) return pricing.models[alias];
+  // Fuzzy: strip version suffix and context window markers
+  const base = model.replace(/\[\d+[km]\]$/i, '').replace(/-\d{8}$/, '');
+  for (const [key, val] of Object.entries(pricing.models)) {
+    const keyBase = key.replace(/-\d{8}$/, '');
+    if (keyBase === base) return val;
+  }
+  return undefined;
+}
+
 /**
  * Compute cost in USD for a token event.
- * @param model  Model ID string
- * @param inputTokens  Raw input tokens
- * @param outputTokens  Raw output tokens
- * @param cacheReadTokens  Tokens served from cache (cheaper)
- * @param cacheCreationTokens  Tokens written to cache (slightly more expensive)
  */
 export function computeCost(
   pricing: PricingData,
@@ -79,7 +100,7 @@ export function computeCost(
   cacheReadTokens = 0,
   cacheCreationTokens = 0
 ): number {
-  const p = pricing.models[model];
+  const p = resolveModelPricing(pricing, model);
   if (!p) return 0;
 
   const M = 1_000_000;

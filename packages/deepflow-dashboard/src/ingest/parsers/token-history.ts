@@ -1,77 +1,134 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { resolve, basename } from 'node:path';
 import type { DbHelpers } from '../../db/index.js';
 
 /**
- * Parses .deepflow/token-history.jsonl → token_events table.
- * Requires a valid session_id in each record; skips records without one.
+ * Discover all .deepflow/token-history.jsonl files across projects.
+ * Scans common project locations and the Claude projects dir to map back.
  */
-export async function parseTokenHistory(db: DbHelpers, deepflowDir: string): Promise<void> {
-  const filePath = resolve(deepflowDir, 'token-history.jsonl');
-  if (!existsSync(filePath)) {
-    console.warn('[ingest:token-history] File not found, skipping:', filePath);
+function discoverTokenHistoryFiles(claudeDir: string): Array<{ path: string; project: string }> {
+  const results: Array<{ path: string; project: string }> = [];
+  const projectsDir = resolve(claudeDir, 'projects');
+
+  if (!existsSync(projectsDir)) return results;
+
+  try {
+    const projectDirs = readdirSync(projectsDir, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name);
+
+    for (const dirName of projectDirs) {
+      // Skip worktree dirs for token-history (they share the parent's)
+      if (dirName.includes('--')) continue;
+
+      // Decode dir name to real path: "-Users-saidsalles-apps-foo" → "/Users/saidsalles/apps/foo"
+      const realPath = '/' + dirName.replace(/^-/, '').replace(/-/g, '/');
+      const tokenFile = resolve(realPath, '.deepflow', 'token-history.jsonl');
+
+      if (existsSync(tokenFile)) {
+        // Extract project name from path
+        const segments = realPath.split('/');
+        const appsIdx = segments.lastIndexOf('apps');
+        const project = appsIdx >= 0 && appsIdx < segments.length - 1
+          ? segments.slice(appsIdx + 1).join('-')
+          : basename(realPath);
+
+        results.push({ path: tokenFile, project });
+      }
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  return results;
+}
+
+/**
+ * Parses token-history.jsonl files from ALL projects → token_events table.
+ * Discovers .deepflow/ dirs across all known projects for cross-project coverage.
+ */
+export async function parseTokenHistory(db: DbHelpers, claudeDir: string): Promise<void> {
+  const files = discoverTokenHistoryFiles(claudeDir);
+
+  if (files.length === 0) {
+    console.warn('[ingest:token-history] No token-history.jsonl files found');
     return;
   }
 
-  const offsetKey = 'ingest_offset:token-history';
-  const offsetRow = db.get('SELECT value FROM _meta WHERE key = ?', [offsetKey]);
-  const offset = offsetRow ? parseInt(offsetRow.value as string, 10) : 0;
+  let totalInserted = 0;
 
-  const lines = readFileSync(filePath, 'utf-8').split('\n');
-  let inserted = 0;
+  for (const { path: filePath, project } of files) {
+    const offsetKey = `ingest_offset:token-history:${filePath}`;
+    const offsetRow = db.get('SELECT value FROM _meta WHERE key = ?', [offsetKey]);
+    const offset = offsetRow ? parseInt(offsetRow.value as string, 10) : 0;
 
-  for (let i = offset; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-
-    let record: Record<string, unknown>;
+    let lines: string[];
     try {
-      record = JSON.parse(line);
-    } catch {
-      console.warn(`[ingest:token-history] Malformed JSON at line ${i + 1}, skipping`);
+      lines = readFileSync(filePath, 'utf-8').split('\n');
+    } catch (err) {
+      console.warn(`[ingest:token-history] Cannot read ${filePath}:`, err);
       continue;
     }
 
-    const sessionId = (record.session_id ?? record.sessionId) as string | undefined;
-    if (!sessionId) {
-      console.warn(`[ingest:token-history] Missing session_id at line ${i + 1}, skipping`);
-      continue;
-    }
+    if (lines.length <= offset) continue;
 
-    // Ensure session row exists (placeholder if not)
-    const existing = db.get('SELECT id FROM sessions WHERE id = ?', [sessionId]);
-    if (!existing) {
+    let inserted = 0;
+    for (let i = offset; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      let record: Record<string, unknown>;
+      try {
+        record = JSON.parse(line);
+      } catch {
+        continue;
+      }
+
+      const sessionId = (record.session_id ?? record.sessionId) as string | undefined;
+      if (!sessionId) continue;
+
+      // Ensure session row exists with project info
+      const existing = db.get('SELECT id FROM sessions WHERE id = ?', [sessionId]);
+      if (!existing) {
+        try {
+          db.run(
+            `INSERT OR IGNORE INTO sessions (id, user, project, tokens_in, tokens_out, cache_read, cache_creation, messages, tool_calls, cost, started_at)
+             VALUES (?, 'unknown', ?, 0, 0, 0, 0, 0, 0, 0, ?)`,
+            [sessionId, project, (record.timestamp ?? new Date().toISOString()) as string]
+          );
+        } catch {
+          // non-fatal
+        }
+      }
+
       try {
         db.run(
-          `INSERT OR IGNORE INTO sessions (id, user, tokens_in, tokens_out, cache_read, cache_creation, messages, tool_calls, cost, started_at)
-           VALUES (?, 'unknown', 0, 0, 0, 0, 0, 0, 0, ?)`,
-          [sessionId, (record.timestamp ?? new Date().toISOString()) as string]
+          `INSERT INTO token_events (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            sessionId,
+            (record.model as string) ?? 'unknown',
+            (record.input_tokens ?? record.inputTokens ?? 0) as number,
+            (record.output_tokens ?? record.outputTokens ?? 0) as number,
+            (record.cache_read_input_tokens ?? record.cache_read_tokens ?? record.cacheReadTokens ?? 0) as number,
+            (record.cache_creation_input_tokens ?? record.cache_creation_tokens ?? record.cacheCreationTokens ?? 0) as number,
+            (record.timestamp ?? new Date().toISOString()) as string,
+          ]
         );
-      } catch {
-        // session insert failure is non-fatal; FK may fail on token_events insert below
+        inserted++;
+      } catch (err) {
+        console.warn(`[ingest:token-history] Insert failed:`, err);
       }
     }
 
-    try {
-      db.run(
-        `INSERT INTO token_events (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, timestamp)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [
-          sessionId,
-          (record.model as string) ?? 'unknown',
-          (record.input_tokens ?? record.inputTokens ?? 0) as number,
-          (record.output_tokens ?? record.outputTokens ?? 0) as number,
-          (record.cache_read_tokens ?? record.cacheReadTokens ?? 0) as number,
-          (record.cache_creation_tokens ?? record.cacheCreationTokens ?? 0) as number,
-          (record.timestamp ?? new Date().toISOString()) as string,
-        ]
-      );
-      inserted++;
-    } catch (err) {
-      console.warn(`[ingest:token-history] Insert failed at line ${i + 1}:`, err);
+    db.run('INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)', [offsetKey, String(lines.length)]);
+    if (inserted > 0) {
+      console.log(`[ingest:token-history] ${project}: inserted ${inserted} records`);
+      totalInserted += inserted;
     }
   }
 
-  db.run('INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)', [offsetKey, String(lines.length)]);
-  if (inserted > 0) console.log(`[ingest:token-history] Inserted ${inserted} new records`);
+  if (totalInserted > 0) {
+    console.log(`[ingest:token-history] Total: ${totalInserted} new records across ${files.length} projects`);
+  }
 }
