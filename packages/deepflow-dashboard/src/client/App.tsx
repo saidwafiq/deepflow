@@ -4,9 +4,12 @@ import { Sidebar } from './components/Sidebar';
 import { UserFilter } from './components/UserFilter';
 import { DashboardProvider, type DashboardMode } from './context/DashboardContext';
 import { useTheme } from './hooks/useTheme';
+import { CostOverview } from './views/CostOverview';
+import { SessionList } from './views/SessionList';
+import { CacheEfficiency } from './views/CacheEfficiency';
 
 /* ---------------------------------------------------------------------------
- * Placeholder views — will be replaced by T16-T18 components.
+ * Placeholder for views not yet implemented (T17-T18).
  * --------------------------------------------------------------------------- */
 function PlaceholderView({ name }: { name: string }) {
   return (
@@ -17,9 +20,7 @@ function PlaceholderView({ name }: { name: string }) {
 }
 
 const OverviewView = () => <PlaceholderView name="Overview" />;
-const SessionsView = () => <PlaceholderView name="Sessions" />;
 const TasksView = () => <PlaceholderView name="Tasks" />;
-const CostsView = () => <PlaceholderView name="Costs" />;
 
 /* ---------------------------------------------------------------------------
  * Layout — sidebar + header + main content
@@ -40,9 +41,10 @@ function Layout() {
         <main className="flex-1 overflow-auto p-6">
           <Routes>
             <Route path="/" element={<OverviewView />} />
-            <Route path="/sessions" element={<SessionsView />} />
+            <Route path="/sessions" element={<SessionList />} />
             <Route path="/tasks" element={<TasksView />} />
-            <Route path="/costs" element={<CostsView />} />
+            <Route path="/costs" element={<CostOverview />} />
+            <Route path="/cache" element={<CacheEfficiency />} />
           </Routes>
         </main>
       </div>
