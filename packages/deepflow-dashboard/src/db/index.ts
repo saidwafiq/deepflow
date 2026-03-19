@@ -2,7 +2,7 @@ import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import initSqlJs, { type Database, type SqlJsStatic } from 'sql.js';
+import initSqlJs, { type Database, type SqlJsStatic, type SqlValue } from 'sql.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -47,7 +47,7 @@ export async function initDatabase(mode: 'local' | 'serve' = 'local'): Promise<D
 
   SQL = await initSqlJs({
     // Provide WASM binary directly to avoid CDN fetch in Node
-    wasmBinary: existsSync(wasmPath) ? readFileSync(wasmPath) : undefined,
+    wasmBinary: existsSync(wasmPath) ? (readFileSync(wasmPath).buffer as ArrayBuffer) : undefined,
   });
 
   const dbPath = resolveDatabasePath(mode);
@@ -79,12 +79,12 @@ export function getDb(): Database {
 export type Row = Record<string, unknown>;
 
 /** Execute a statement with optional bind params (no result rows) */
-export function run(sql: string, params: unknown[] = []): void {
+export function run(sql: string, params: SqlValue[] = []): void {
   getDb().run(sql, params);
 }
 
 /** Return first matching row or undefined */
-export function get(sql: string, params: unknown[] = []): Row | undefined {
+export function get(sql: string, params: SqlValue[] = []): Row | undefined {
   const stmt = getDb().prepare(sql);
   stmt.bind(params);
   const row = stmt.step() ? stmt.getAsObject() : undefined;
@@ -93,7 +93,7 @@ export function get(sql: string, params: unknown[] = []): Row | undefined {
 }
 
 /** Return all matching rows */
-export function all(sql: string, params: unknown[] = []): Row[] {
+export function all(sql: string, params: SqlValue[] = []): Row[] {
   const stmt = getDb().prepare(sql);
   stmt.bind(params);
   const rows: Row[] = [];

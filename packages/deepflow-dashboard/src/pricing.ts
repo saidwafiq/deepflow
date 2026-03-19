@@ -1,12 +1,4 @@
 import { createRequire } from 'node:module';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// Remote URL for the canonical pricing file (raw GitHub)
-const REMOTE_PRICING_URL =
-  'https://raw.githubusercontent.com/anthropics/anthropic-sdk-python/main/src/anthropic/_client.py';
 
 // We maintain our own canonical pricing JSON; fall back to bundled copy.
 const PRICING_REMOTE_URL =
