@@ -75,10 +75,13 @@ function buildContextMeter(contextWindow, data) {
   percentage = Math.min(100, Math.round(percentage));
 
   // Write context usage to file for deepflow commands
-  writeContextUsage(percentage);
+  writeContextUsage(percentage, data);
 
   // Write token history for instrumentation
   writeTokenHistory(contextWindow, data);
+
+  // Write cache history for cross-session persistence
+  writeCacheHistory(contextWindow, data);
 
   // Build 10-segment bar
   const segments = 10;
@@ -112,9 +115,10 @@ function checkForUpdate() {
   return null;
 }
 
-function writeContextUsage(percentage) {
+function writeContextUsage(percentage, data) {
   try {
-    const deepflowDir = path.join(process.cwd(), '.deepflow');
+    const baseDir = data?.workspace?.current_dir || process.cwd();
+    const deepflowDir = path.join(baseDir, '.deepflow');
     if (!fs.existsSync(deepflowDir)) {
       fs.mkdirSync(deepflowDir, { recursive: true });
     }
@@ -130,7 +134,8 @@ function writeContextUsage(percentage) {
 
 function writeTokenHistory(contextWindow, data) {
   try {
-    const deepflowDir = path.join(process.cwd(), '.deepflow');
+    const baseDir = data?.workspace?.current_dir || process.cwd();
+    const deepflowDir = path.join(baseDir, '.deepflow');
     if (!fs.existsSync(deepflowDir)) {
       fs.mkdirSync(deepflowDir, { recursive: true });
     }
@@ -142,6 +147,9 @@ function writeTokenHistory(contextWindow, data) {
     const contextWindowSize = contextWindow.context_window_size || 0;
     const usedPercentage = contextWindow.used_percentage || 0;
 
+    const agentRole = process.env.DEEPFLOW_AGENT_ROLE || 'orchestrator';
+    const taskId = process.env.DEEPFLOW_TASK_ID || null;
+
     const record = {
       timestamp,
       input_tokens: usage.input_tokens || 0,
@@ -150,11 +158,75 @@ function writeTokenHistory(contextWindow, data) {
       context_window_size: contextWindowSize,
       used_percentage: usedPercentage,
       model,
-      session_id: sessionId
+      session_id: sessionId,
+      agent_role: agentRole,
+      task_id: taskId
     };
 
     const tokenHistoryPath = path.join(deepflowDir, 'token-history.jsonl');
     fs.appendFileSync(tokenHistoryPath, JSON.stringify(record) + '\n');
+  } catch (e) {
+    // Fail silently
+  }
+}
+
+function writeCacheHistory(contextWindow, data) {
+  try {
+    const usage = contextWindow.current_usage || {};
+    const sessionId = data.session_id || 'unknown';
+
+    const inputTokens = usage.input_tokens || 0;
+    const cacheCreationTokens = usage.cache_creation_input_tokens || 0;
+    const cacheReadTokens = usage.cache_read_input_tokens || 0;
+    const totalTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
+
+    // Compute cache hit ratio: cache_read / total
+    const cacheHitRatio = totalTokens > 0 ? cacheReadTokens / totalTokens : 0;
+
+    const model = data.model?.id || data.model?.display_name || 'unknown';
+    const agentRole = process.env.DEEPFLOW_AGENT_ROLE || 'orchestrator';
+    const taskId = process.env.DEEPFLOW_TASK_ID || null;
+
+    const cacheHistoryPath = path.join(os.homedir(), '.claude', 'cache-history.jsonl');
+
+    // Dedup: only write if session_id differs from last written record
+    let lastSessionId = null;
+    if (fs.existsSync(cacheHistoryPath)) {
+      const content = fs.readFileSync(cacheHistoryPath, 'utf8');
+      const lines = content.trimEnd().split('\n');
+      if (lines.length > 0) {
+        try {
+          const lastRecord = JSON.parse(lines[lines.length - 1]);
+          lastSessionId = lastRecord.session_id;
+        } catch (e) {
+          // Ignore parse errors on last line
+        }
+      }
+    }
+
+    if (sessionId === lastSessionId) {
+      return;
+    }
+
+    const record = {
+      timestamp: new Date().toISOString(),
+      session_id: sessionId,
+      cache_hit_ratio: Math.round(cacheHitRatio * 10000) / 10000,
+      total_tokens: totalTokens,
+      agent_breakdown: {
+        agent_role: agentRole,
+        task_id: taskId,
+        model
+      }
+    };
+
+    // Ensure ~/.claude directory exists
+    const claudeDir = path.join(os.homedir(), '.claude');
+    if (!fs.existsSync(claudeDir)) {
+      fs.mkdirSync(claudeDir, { recursive: true });
+    }
+
+    fs.appendFileSync(cacheHistoryPath, JSON.stringify(record) + '\n');
   } catch (e) {
     // Fail silently
   }
