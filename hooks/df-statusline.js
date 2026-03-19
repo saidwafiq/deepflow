@@ -144,6 +144,9 @@ function writeTokenHistory(contextWindow, data) {
     const contextWindowSize = contextWindow.context_window_size || 0;
     const usedPercentage = contextWindow.used_percentage || 0;
 
+    const agentRole = process.env.DEEPFLOW_AGENT_ROLE || 'orchestrator';
+    const taskId = process.env.DEEPFLOW_TASK_ID || null;
+
     const record = {
       timestamp,
       input_tokens: usage.input_tokens || 0,
@@ -152,7 +155,9 @@ function writeTokenHistory(contextWindow, data) {
       context_window_size: contextWindowSize,
       used_percentage: usedPercentage,
       model,
-      session_id: sessionId
+      session_id: sessionId,
+      agent_role: agentRole,
+      task_id: taskId
     };
 
     const tokenHistoryPath = path.join(deepflowDir, 'token-history.jsonl');
