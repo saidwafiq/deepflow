@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
 import type { DbHelpers } from '../../db/index.js';
+import { fetchPricing, computeCost } from '../../pricing.js';
 
 /**
  * Decode Claude Code project dir name to a human-readable project name.
@@ -34,6 +35,12 @@ function projectNameFromDir(dirName: string): string {
  * Parses per-session JSONL files in ~/.claude/projects/{project}/ → sessions table.
  * Session files are UUID-named .jsonl files directly in each project directory.
  * Each file is a stream of events; we materialise a session row from the aggregate.
+ *
+ * Event structure (Claude Code JSONL format):
+ *   - event.type: 'user' | 'assistant' | 'system' | 'summary'
+ *   - event.message: { role, model, usage: { input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens }, content: [...] }
+ *   - event.message.content[]: blocks with type 'tool_use' | 'tool_result' | 'text'
+ *   - event.model / event.usage: fallback fields (older format)
  */
 export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<void> {
   const projectsDir = resolve(claudeDir, 'projects');
@@ -54,6 +61,9 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
     console.warn('[ingest:sessions] Cannot read projects dir:', err);
     return;
   }
+
+  // Load pricing once for cost computation
+  const pricing = await fetchPricing();
 
   let totalInserted = 0;
   let totalUpdated = 0;
@@ -90,7 +100,7 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
 
       let sessionId: string = fileSessionId;
       let tokensIn = 0, tokensOut = 0, cacheRead = 0, cacheCreation = 0;
-      let messages = 0, toolCalls = 0, cost = 0;
+      let messages = 0, toolCalls = 0;
       let model = 'unknown', user = 'unknown';
       const project = projectEntry.name;
       let startedAt: string | null = null, endedAt: string | null = null;
@@ -115,27 +125,43 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         if (!startedAt && event.timestamp) startedAt = event.timestamp as string;
         if (event.timestamp) endedAt = event.timestamp as string;
 
-        if (event.model && event.model !== 'unknown') model = event.model as string;
         if (event.user) user = event.user as string;
 
-        // Count messages and tool calls by event type
+        // Model: prefer event.message.model, fall back to event.model
+        const msg = event.message as Record<string, unknown> | undefined;
+        const msgModel = msg?.model as string | undefined;
+        const evtModel = event.model as string | undefined;
+        const resolvedModel = msgModel ?? evtModel;
+        if (resolvedModel && resolvedModel !== 'unknown') model = resolvedModel;
+
+        // Count messages by event type
         const eventType = event.type as string | undefined;
-        const dataType = (event.data as Record<string, unknown>)?.type as string | undefined;
-
         if (eventType === 'assistant' || event.role === 'assistant') messages++;
-        if (eventType === 'human' || event.role === 'human' || event.role === 'user') messages++;
-        if (dataType === 'tool_use' || eventType === 'tool_use' || event.tool_name) toolCalls++;
+        if (eventType === 'user' || eventType === 'human' || event.role === 'human' || event.role === 'user') messages++;
 
-        // Accumulate tokens from usage objects or flat fields
-        const usage = event.usage as Record<string, number> | undefined;
+        // Count tool_use blocks in message.content
+        const content = msg?.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            const b = block as Record<string, unknown>;
+            if (b.type === 'tool_use') toolCalls++;
+          }
+        }
+
+        // Accumulate tokens: prefer event.message.usage, fall back to event.usage
+        const msgUsage = msg?.usage as Record<string, number> | undefined;
+        const evtUsage = event.usage as Record<string, number> | undefined;
+        const usage = msgUsage ?? evtUsage;
         if (usage) {
           tokensIn += usage.input_tokens ?? 0;
           tokensOut += usage.output_tokens ?? 0;
           cacheRead += usage.cache_read_tokens ?? usage.cache_read_input_tokens ?? 0;
           cacheCreation += usage.cache_creation_tokens ?? usage.cache_creation_input_tokens ?? 0;
         }
-        if (typeof event.cost === 'number') cost += event.cost;
       }
+
+      // Compute cost after loop using accumulated tokens + resolved model
+      const cost = computeCost(pricing, model, tokensIn, tokensOut, cacheRead, cacheCreation);
 
       // Calculate duration from timestamps
       if (startedAt && endedAt) {
