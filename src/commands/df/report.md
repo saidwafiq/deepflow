@@ -6,6 +6,8 @@ allowed-tools: [Read, Write, Bash]
 
 # /df:report — Session Cost Report
 
+> **DEPRECATED:** Use `/df:dashboard` instead to view deepflow metrics and status.
+
 ## Orchestrator Role
 
 Aggregate token usage data and produce a structured report.
