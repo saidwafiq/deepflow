@@ -51,19 +51,8 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     c.json({ status: 'ok', mode, ts: new Date().toISOString() })
   );
 
-  // --- Dashboard API routes ---
-  app.route('/api', createApiRouter());
-
-  // --- Team mode: ingestion endpoint (REQ-19) ---
-  if (mode === 'serve') {
-    app.post('/api/ingest', async (c) => {
-      // Placeholder — ingestion logic lives in a later task
-      const body = await c.req.json().catch(() => null);
-      if (!body) return c.json({ error: 'invalid JSON' }, 400);
-      console.log('[ingest] Received payload, processing TBD');
-      return c.json({ status: 'queued' });
-    });
-  }
+  // --- Dashboard API routes (ingest route enabled in serve mode) ---
+  app.route('/api', createApiRouter({ mode }));
 
   // --- SPA static serving ---
   const distPath = resolve(__dirname, '../dist/client');

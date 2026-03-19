@@ -70,7 +70,11 @@ Options:
       console.error('backfill requires --url <server>');
       process.exit(1);
     }
-    console.log(`[deepflow-dashboard] backfill → ${url}  (not yet implemented)`);
+    const { runBackfill } = await import('../dist/backfill.js').catch(async () => {
+      const { runBackfill } = await import('../src/backfill.ts');
+      return { runBackfill };
+    });
+    await runBackfill({ url });
     process.exit(0);
   }
 

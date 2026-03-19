@@ -6,9 +6,14 @@ import { tasksRouter } from './tasks.js';
 import { activityRouter } from './activity.js';
 import { cacheRouter } from './cache.js';
 import { toolsRouter } from './tools.js';
+import { createIngestRouter } from './ingest.js';
+
+export interface ApiRouterOptions {
+  mode: 'local' | 'serve';
+}
 
 /** Mount all dashboard API routes under /api */
-export function createApiRouter(): Hono {
+export function createApiRouter(opts: ApiRouterOptions = { mode: 'local' }): Hono {
   const api = new Hono();
 
   api.route('/sessions', sessionsRouter);
@@ -18,6 +23,11 @@ export function createApiRouter(): Hono {
   api.route('/activity', activityRouter);
   api.route('/cache', cacheRouter);
   api.route('/tools', toolsRouter);
+
+  // Team mode only: ingestion endpoint
+  if (opts.mode === 'serve') {
+    api.route('/ingest', createIngestRouter());
+  }
 
   return api;
 }
