@@ -9,6 +9,8 @@ context: fork
 ## Purpose
 Check that implemented code satisfies spec requirements and acceptance criteria. All checks are machine-verifiable — no LLM agents are used.
 
+**OUTPUT:** Terse. No narration. No reasoning. Only the compact report (section 3). One line per level, issues block if any, next step.
+
 **NEVER:** use EnterPlanMode, use ExitPlanMode
 
 ## Usage
@@ -636,6 +638,7 @@ Files: ...
 - All checks machine-verifiable — no LLM judgment
 - Don't auto-fix — add fix tasks to PLAN.md, then `/df:execute --continue`
 - Capture learnings — Write experiments for significant approaches
+- **Terse output** — Do NOT narrate your reasoning. Do NOT explain what you're checking or why. Output ONLY the compact report format (section 3). The user can read the diff.
 
 ## Post-Verification: Worktree Merge & Cleanup
 
