@@ -238,6 +238,7 @@ async function configureHooks(claudeDir) {
   const updateCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-check-update.js')}"`;
   const consolidationCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-consolidation-check.js')}"`;
   const quotaLoggerCmd = `node "${path.join(claudeDir, 'hooks', 'df-quota-logger.js')}"`;
+  const toolUsageCmd = `node "${path.join(claudeDir, 'hooks', 'df-tool-usage.js')}"`;
 
   let settings = {};
 
@@ -337,6 +338,26 @@ async function configureHooks(claudeDir) {
     }]
   });
   log('Quota logger configured');
+
+  // Configure PostToolUse hook for tool usage instrumentation
+  if (!settings.hooks.PostToolUse) {
+    settings.hooks.PostToolUse = [];
+  }
+
+  // Remove any existing deepflow tool usage hooks from PostToolUse
+  settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(hook => {
+    const cmd = hook.hooks?.[0]?.command || '';
+    return !cmd.includes('df-tool-usage');
+  });
+
+  // Add tool usage hook
+  settings.hooks.PostToolUse.push({
+    hooks: [{
+      type: 'command',
+      command: toolUsageCmd
+    }]
+  });
+  log('PostToolUse hook configured');
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 }
@@ -518,7 +539,7 @@ async function uninstall() {
   ];
 
   if (level === 'global') {
-    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-consolidation-check.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js');
+    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-consolidation-check.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js');
   }
 
   for (const item of toRemove) {
@@ -562,11 +583,20 @@ async function uninstall() {
             delete settings.hooks.SessionEnd;
           }
         }
+        if (settings.hooks?.PostToolUse) {
+          settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(hook => {
+            const cmd = hook.hooks?.[0]?.command || '';
+            return !cmd.includes('df-tool-usage');
+          });
+          if (settings.hooks.PostToolUse.length === 0) {
+            delete settings.hooks.PostToolUse;
+          }
+        }
         if (settings.hooks && Object.keys(settings.hooks).length === 0) {
           delete settings.hooks;
         }
         fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-        console.log(`  ${c.green}✓${c.reset} Removed SessionStart/SessionEnd hooks`);
+        console.log(`  ${c.green}✓${c.reset} Removed SessionStart/SessionEnd/PostToolUse hooks`);
       } catch (e) {
         // Fail silently
       }
