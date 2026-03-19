@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { all } from '../db/index.js';
-import { fetchPricing } from '../pricing.js';
+import { fetchPricing, resolveModelPricing } from '../pricing.js';
 
 export const costsRouter = new Hono();
 
@@ -36,7 +36,7 @@ costsRouter.get('/', async (c) => {
   const M = 1_000_000;
   const modelCosts = modelTotals.map((r) => {
     const model = r.model as string;
-    const p = pricing.models[model];
+    const p = resolveModelPricing(pricing, model);
     const inp = (r.input_tokens as number) ?? 0;
     const out = (r.output_tokens as number) ?? 0;
     const cacheRead = (r.cache_read_tokens as number) ?? 0;
