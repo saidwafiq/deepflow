@@ -53,7 +53,26 @@ git -C ${WORKTREE_PATH} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.
 
 ### 1.7. NO-TESTS BOOTSTRAP
 
-Zero test files → spawn ONE bootstrap agent (§6 Bootstrap). Pass → re-snapshot, end cycle. Fail → revert, halt "Bootstrap failed — manual intervention required". Subsequent cycles use bootstrapped tests as baseline.
+<!-- AC-1: zero test files triggers bootstrap before wave 1 -->
+<!-- AC-2: bootstrap success re-snapshots auto-snapshot.txt; subsequent tasks use updated snapshot -->
+<!-- AC-3: bootstrap failure with default model retries with Opus; double failure halts with specific message -->
+
+**Gate:** After §1.6 snapshot, check `auto-snapshot.txt`:
+```bash
+SNAPSHOT_COUNT=$(wc -l < .deepflow/auto-snapshot.txt | tr -d ' ')
+```
+If `SNAPSHOT_COUNT` is `0` (zero test files found), MUST spawn bootstrap agent before wave 1. No implementation tasks may start until bootstrap completes successfully.
+
+**Bootstrap flow:**
+1. Spawn `Agent(model="{default_model}", ...)` with Bootstrap prompt (§6). End turn, wait for notification.
+2. **On success (TASK_STATUS:pass):** Re-snapshot immediately:
+   ```bash
+   git -C ${WORKTREE_PATH} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' > .deepflow/auto-snapshot.txt
+   ```
+   All subsequent tasks use this updated snapshot as their ratchet baseline. Proceed to wave 1.
+3. **On failure (TASK_STATUS:fail) with default model:** Retry ONCE with `Agent(model="opus", ...)` using the same Bootstrap prompt.
+   - Opus success → re-snapshot (same command above) → proceed to wave 1.
+   - Opus failure → halt with message: `"Bootstrap failed with both default and Opus — manual intervention required"`. Do not proceed.
 
 ### 2. LOAD PLAN
 
