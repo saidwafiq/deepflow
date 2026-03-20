@@ -7,10 +7,10 @@ Updated: 2026-03-20
 
 | Metric | Count |
 |--------|-------|
-| Specs analyzed | 3 |
-| Tasks created | 14 |
-| Tasks completed | 8 |
-| Tasks pending | 6 |
+| Specs analyzed | 2 |
+| Tasks created | 10 |
+| Tasks completed | 10 |
+| Tasks pending | 0 |
 
 ### doing-command-cleanup
 
@@ -175,115 +175,6 @@ No file conflicts — each task touches distinct files. `bin/install.js` only mo
 
 ---
 
-### doing-auto-verify
-
-#### Spec Layer
-
-Spec auto-verify: L3 (full) — 0 spikes, 4 impl tasks
-
-#### REQ Status
-
-| REQ | Status | Notes |
-|-----|--------|-------|
-| REQ-1 | PARTIAL | `verify.md:74` has three-state logic but auto-detect only checks frontend framework, not `browser_assertions:` in PLAN.md |
-| REQ-2 | MISSING | No `--diagnostic` mode in verify.md; execute.md STOPs on Final Test fail instead of running diagnostic verify |
-| REQ-3 | MISSING | Verify only invoked on Final Test pass (execute.md:379); fail path stops entirely (execute.md:376) |
-| REQ-4 | PARTIAL | verify.md three-state exists; config template has `browser_verify: false` (should be absent/commented) |
-
-#### Tasks
-
-- [ ] **T45**: Add `browser_assertions:` gate to L5 auto-detect in verify.md
-  - Files: src/commands/df/verify.md
-  - Model: sonnet
-  - Effort: medium
-  - REQs: REQ-1, REQ-4
-  - Changes:
-    1. Step 1 (line 74): When `browser_verify` absent, auto-detect requires BOTH conditions: (a) frontend framework found in package.json AND (b) `browser_assertions:` block exists in PLAN.md for current spec
-    2. Frontend found but no `browser_assertions:` → skip L5 with reason: `"L5 — (no browser_assertions in PLAN.md)"`
-    3. No frontend found → existing behavior: `"L5 — (no frontend)"`
-    4. Both present → proceed to L5 Steps 2-6
-  - Impact:
-    - Callers: `/df:execute` step 8.2 invokes verify — no signature change
-    - Data flow: L5 auto-detect now reads PLAN.md in addition to package.json
-  - Blocked by: none
-
-- [ ] **T46**: Add `--diagnostic` flag to verify.md — L0-L4 only, no merge/fix/rename
-  - Files: src/commands/df/verify.md
-  - Model: sonnet
-  - Effort: medium
-  - REQs: REQ-2
-  - Changes:
-    1. Add `--diagnostic` to Usage section: `/df:verify --diagnostic doing-upload`
-    2. When `--diagnostic`: run L0-L4 checks only (skip L5), write results to `.deepflow/results/final-test-{spec}.yaml` under `diagnostics:` key with per-level pass/fail
-    3. When `--diagnostic`: skip Post-Verification merge (§4), skip fix task creation, skip spec rename, skip decision extraction
-    4. Diagnostic report format: same compact format but prefixed with `[DIAGNOSTIC]`
-    5. Constraint: diagnostic does NOT count as revert for circuit breaker, does NOT modify auto-snapshot.txt
-  - Impact:
-    - Callers: `/df:execute` step 8.1 will invoke with `--diagnostic` on Final Test failure (T47)
-    - Data flow: writes diagnostic results to `.deepflow/results/final-test-{spec}.yaml`
-  - Blocked by: T45 (file conflict: verify.md)
-
-- [ ] **T47**: Update execute.md — fallthrough from Final Test failure to diagnostic verify
-  - Files: src/commands/df/execute.md
-  - Model: sonnet
-  - Effort: medium
-  - REQs: REQ-2, REQ-3
-  - Changes:
-    1. Step 8.1c (line 365): On Final Test failure, instead of STOP, invoke `skill: "df:verify", args: "--diagnostic doing-{name}"`
-    2. Write failure yaml with `diagnostics:` key containing L0-L4 results from verify output
-    3. Step 8.1 restructure: guarantee verify runs in ALL cases when all tasks `[x]` — full verify on pass (existing 8.2), diagnostic verify on fail (new)
-    4. Constraint: diagnostic verify does NOT block or retry; it's informational
-    5. Report: `"✗ Final tests failed for {spec} — diagnostic verify: L0 ✓ | L1 ✓ | L2 ⚠ | L4 ✗ — merge blocked"`
-  - Impact:
-    - Callers: auto-cycle skill triggers execute → triggers verify; no interface change
-    - Data flow: Final Test fail → diagnostic verify → results yaml → human review
-  - Blocked by: T46 (needs --diagnostic mode), T40 (file conflict: execute.md), T50 (file conflict: execute.md)
-
-- [ ] **T48**: Update config template — comment out `browser_verify` for three-state default
-  - Files: templates/config-template.yaml
-  - Model: haiku
-  - Effort: low
-  - REQs: REQ-4
-  - Changes:
-    1. Line 87: change `browser_verify: false` to `# browser_verify:` with comment: `# Three-state: true (force L5), false (skip L5), absent/commented (auto-detect from package.json + browser_assertions)`
-    2. Remove existing comment on line 85-86 about "default: false", replace with three-state explanation
-  - Impact:
-    - Callers: `npx deepflow` scaffolds config from this template — new projects get auto-detect by default
-    - Data flow: no runtime change for existing configs (already have `browser_verify: false`)
-  - Blocked by: none
-
-## Dependency Graph (auto-verify)
-
-```
-T45 (browser_assertions gate in verify.md)
- └→ T46 (--diagnostic flag in verify.md) [verify.md conflict]
-     └→ T47 (execute.md fallthrough) ← also blocked by T40 (command-cleanup) + T50 (plan-cleanup)
-
-T48 (config template) ← parallel with all
-```
-
-## Parallelism Opportunities (auto-verify)
-
-- **Wave 1**: T45 (browser_assertions gate) + T48 (config template) — parallel, no shared files
-- **Wave 2**: T46 (--diagnostic flag) — blocked by T45
-- **Wave 3**: T47 (execute.md fallthrough) — blocked by T46 + T40 (cross-spec) + T50 (cross-spec)
-
-## File Conflict Matrix (auto-verify)
-
-| File | Tasks | Resolution |
-|------|-------|------------|
-| verify.md | T45 (modify), T46 (modify), T49 (plan-cleanup, modify) | T45 ∥ T49 → T46 |
-| execute.md | T40 (command-cleanup), T50 (plan-cleanup), T47 (auto-verify) | T40 → T50 → T47 |
-
-## Cross-Spec Dependencies
-
-| Task | Blocked by | Reason |
-|------|------------|--------|
-| T47 (auto-verify) | T40 (command-cleanup), T50 (plan-cleanup) | All modify `src/commands/df/execute.md` |
-| T49 (plan-cleanup) | — | Touches verify.md post-verification (different section from T45/T46 gates) |
-
----
-
 ### doing-plan-cleanup
 
 #### Spec Layer
@@ -301,7 +192,7 @@ Spec plan-cleanup: L3 (full) — 0 spikes, 2 impl tasks
 
 #### Tasks
 
-- [ ] **T49**: Add PLAN.md cleanup step to verify.md post-verification
+- [x] **T49**: Add PLAN.md cleanup step to verify.md post-verification (f2ecfaf)
   - Files: src/commands/df/verify.md
   - Model: haiku
   - Effort: low
@@ -314,7 +205,7 @@ Spec plan-cleanup: L3 (full) — 0 spikes, 2 impl tasks
     - Data flow: verify.md post-verification now removes done spec section from PLAN.md
   - Blocked by: none
 
-- [ ] **T50**: Reword execute.md step 8.2 — defer PLAN.md cleanup to verify
+- [x] **T50**: Reword execute.md step 8.2 — defer PLAN.md cleanup to verify (cdece5a)
   - Files: src/commands/df/execute.md
   - Model: haiku
   - Effort: low
