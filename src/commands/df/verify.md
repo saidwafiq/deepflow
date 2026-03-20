@@ -71,7 +71,9 @@ No tool → pass with warning. When available: stash changes → run coverage on
 
 Algorithm: detect frontend → resolve dev command/port → start server → poll readiness → read assertions from PLAN.md → auto-install Playwright Chromium → evaluate via `locator.ariaSnapshot()` → screenshot → retry once on failure → report.
 
-**Step 1: Detect frontend.** Config `quality.browser_verify` overrides: `false` → always skip (`L5 — (no frontend)`), `true` → always run, absent → auto-detect from package.json (both deps and devDeps):
+**Step 1: Detect frontend.** Config `quality.browser_verify` overrides: `false` → always skip (`L5 — (no frontend)`), `true` → always run, absent → auto-detect using BOTH conditions:
+
+1. Frontend framework found in package.json (deps or devDeps):
 
 | Package(s) | Framework |
 |------------|-----------|
@@ -82,7 +84,12 @@ Algorithm: detect frontend → resolve dev command/port → start server → pol
 | `@sveltejs/kit` | SvelteKit |
 | `svelte`, `@sveltejs/*` | Svelte |
 
-No frontend detected and no config override → `L5 — (no frontend)`, skip remaining L5 steps.
+2. A `browser_assertions:` block exists in PLAN.md scoped to the current spec.
+
+**Auto-detect outcomes (no config override):**
+- No frontend detected → `L5 — (no frontend)`, skip remaining L5 steps.
+- Frontend detected but no `browser_assertions:` block in PLAN.md for current spec → `L5 — (no browser_assertions in PLAN.md)`, skip remaining L5 steps.
+- Both conditions met → proceed to Steps 2–6.
 
 **Step 2: Dev server lifecycle.**
 1. **Resolve dev command:** Config `quality.dev_command` wins → fallback to `npm run dev` if `scripts.dev` exists → none found → skip L5 with warning.
@@ -113,7 +120,7 @@ No frontend detected and no config override → `L5 — (no frontend)`, skip rem
 | Fail | Fail — same selectors | L5 ✗ — genuine failure |
 | Fail | Fail — different selectors | L5 ✗ (flaky) |
 
-All L5 outcomes: `✓` pass | `⚠` passed on retry | `✗` both failed (same) | `✗ (flaky)` both failed (different) | `— (no frontend)` | `— (no assertions)` | `✗ (install failed)`
+All L5 outcomes: `✓` pass | `⚠` passed on retry | `✗` both failed (same) | `✗ (flaky)` both failed (different) | `— (no frontend)` | `— (no browser_assertions in PLAN.md)` | `— (no assertions)` | `✗ (install failed)`
 
 **Fix task on L5 failure:** Append to PLAN.md under spec section with next T{n} ID. Include: failing assertions (selector + detail), first 40 lines of `locator('body').ariaSnapshot()` DOM excerpt, screenshot path, flakiness note if assertion sets differed.
 
