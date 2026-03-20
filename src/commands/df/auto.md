@@ -42,4 +42,4 @@ Each invocation gets fresh context — zero LLM tokens on loop management.
 | Plan once | Only runs `/df:plan` if PLAN.md absent |
 | Snapshot before loop | Ratchet baseline set before any agents run |
 | No lead agent | `/loop` is native Claude Code — no custom orchestrator |
-| Cycle logic in `/df:auto-cycle` | This command is setup only |
+| Cycle logic in `src/skills/auto-cycle/SKILL.md` | This command is setup only; `/df:auto-cycle` is a shim that delegates to the skill |

@@ -185,7 +185,7 @@ Trigger: ≥2 [SPIKE] tasks with same blocker or identical hypothesis.
 4. Per notification: ratchet (§5.5). Record: ratchet_passed, regressions, coverage_delta, files_changed, commit.
 5. **Winner selection** (no LLM judge): disqualify regressions. Standard: fewer regressions > coverage > fewer files > first complete. Optimize: best metric delta > fewer regressions > fewer files. No passes → reset pending for debugger.
 6. Preserve all worktrees. Losers: branch + `-failed`. Record in checkpoint.json.
-7. Log all outcomes to `.deepflow/auto-memory.yaml` under `spike_insights`+`probe_learnings` (schema in auto-cycle.md). Both winners and losers.
+7. Log all outcomes to `.deepflow/auto-memory.yaml` under `spike_insights`+`probe_learnings` (schema in src/skills/auto-cycle/SKILL.md). Both winners and losers.
 8. Cherry-pick winner into shared worktree. Winner → `[x] [PROBE_WINNER]`, losers → `[~] [PROBE_FAILED]`.
 
 #### 5.7.1. PROBE DIVERSITY (Optimize Probes)
