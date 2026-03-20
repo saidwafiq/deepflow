@@ -172,7 +172,7 @@ your-project/
 - **LLM judging LLM** — We started with adversarial selection (AI evaluating AI). We discovered gaming. We replaced it with objective metrics. Deepflow's own evolution proved the principle.
 - **Agents role-playing job titles** — Flat orchestrator + model routing. No PM agent, no QA agent, no Scrum Master agent.
 - **Automated research before understanding** — Conversation with you first. AI research comes after you've defined the problem.
-- **Ceremony** — 6 commands, one flow. Markdown, not schemas. No sprint planning, no story points, no retrospectives.
+- **Ceremony** — 8 commands, one flow. Markdown, not schemas. No sprint planning, no story points, no retrospectives.
 
 ## Principles
 
