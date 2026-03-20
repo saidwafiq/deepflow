@@ -205,13 +205,19 @@ REPEAT:
 --- START ---
 {task_id}: {description}  Files: {files}  Spec: {spec}
 {If reverted: DO NOT repeat: - Cycle {N}: "{reason}"}
+{If spike insights exist:
+spike_results:
+  hypothesis: {hypothesis from spike_insights}
+  outcome: {outcome}
+  edge_cases: {edge_cases}
+  insight: {insight from probe_learnings}
+}
 Success criteria: {ACs from spec relevant to this task}
 --- MIDDLE (omit for low effort; omit deps for medium) ---
 Impact: Callers: {file} ({why}) | Duplicates: [active→consolidate] [dead→DELETE] | Data flow: {consumers}
 Prior tasks: {dep_id}: {summary}
 Steps: 1. chub search/get for APIs 2. LSP findReferences, add unlisted callers 3. Read all Impact files 4. Implement 5. Commit
 --- END ---
-Spike results: {winner learnings}
 Duplicates: [active]→consolidate [dead]→DELETE. ONLY job: code+commit. No merge/rename/checkout.
 Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed) or TASK_STATUS:revert (if reverted)
 ```
