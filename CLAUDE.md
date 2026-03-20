@@ -32,7 +32,7 @@ There is no build step, no compiled output, no test suite. The framework is mark
 Commands (src/commands/df/)     User-facing slash commands with YAML frontmatter
 Skills (src/skills/)            Reusable capabilities (browse-fetch, browse-verify, atomic-commits, etc.)
 Agents (src/agents/)            Specialized agent definitions (reasoner = Opus-based)
-Hooks (hooks/)                  Event-driven checks (invariant, spec-lint, consolidation, statusline)
+Hooks (hooks/)                  Event-driven checks (invariant, spec-lint, worktree-guard, statusline)
 Templates (templates/)          Scaffolds for specs, plans, experiments, config
 ```
 
