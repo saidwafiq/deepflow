@@ -1020,6 +1020,130 @@ function checkInvariants(diff, specContent, opts = {}) {
   return { hard, advisory };
 }
 
+// ── Hook entry point (REQ-5 AC-7) ────────────────────────────────────────────
+//
+// When called as a PostToolUse hook, Claude Code pipes a JSON payload on stdin:
+//   { tool_name, tool_input, tool_response, cwd, ... }
+//
+// We fire after any Bash call that looks like a git commit, extract the diff
+// from HEAD~1, load the active spec from .deepflow/, and exit(1) on hard failures.
+//
+// Detection: if stdin is not a TTY we treat it as hook mode and attempt JSON parse.
+// If the payload is not a git-commit Bash call we exit(0) silently.
+
+function loadActiveSpec(cwd) {
+  const deepflowDir = path.join(cwd, '.deepflow');
+  let specContent = null;
+
+  try {
+    // Look for doing-*.md specs first (in-progress)
+    const entries = fs.readdirSync(deepflowDir);
+    const doingSpec = entries.find((e) => e.startsWith('doing-') && e.endsWith('.md'));
+    if (doingSpec) {
+      specContent = fs.readFileSync(path.join(deepflowDir, doingSpec), 'utf8');
+      return specContent;
+    }
+
+    // Fall back to specs/ subdirectory
+    const specsDir = path.join(cwd, 'specs');
+    if (fs.existsSync(specsDir)) {
+      const specEntries = fs.readdirSync(specsDir);
+      const doingInSpecs = specEntries.find((e) => e.startsWith('doing-') && e.endsWith('.md'));
+      if (doingInSpecs) {
+        specContent = fs.readFileSync(path.join(specsDir, doingInSpecs), 'utf8');
+        return specContent;
+      }
+    }
+  } catch (_) {
+    // Cannot read .deepflow or specs dir — return null
+  }
+
+  return null;
+}
+
+function extractDiffFromLastCommit(cwd) {
+  try {
+    return execSync('git diff HEAD~1 HEAD', {
+      encoding: 'utf8',
+      cwd,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
+function isGitCommitBash(toolName, toolInput) {
+  if (toolName !== 'Bash') return false;
+  const cmd = (toolInput && (toolInput.command || toolInput.cmd || '')) || '';
+  return /git\s+commit\b/.test(cmd);
+}
+
+// Run hook mode when stdin is not a TTY (i.e., piped payload from Claude Code)
+if (!process.stdin.isTTY) {
+  let raw = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk) => { raw += chunk; });
+  process.stdin.on('end', () => {
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (_) {
+      // Not valid JSON — not a hook payload, exit silently
+      process.exit(0);
+    }
+
+    try {
+      const toolName = data.tool_name || '';
+      const toolInput = data.tool_input || {};
+
+      // Only run after a git commit bash call
+      if (!isGitCommitBash(toolName, toolInput)) {
+        process.exit(0);
+      }
+
+      const cwd = data.cwd || process.cwd();
+
+      const diff = extractDiffFromLastCommit(cwd);
+      if (!diff) {
+        // No diff available (e.g. initial commit) — pass through
+        process.exit(0);
+      }
+
+      const specContent = loadActiveSpec(cwd);
+      if (!specContent) {
+        // No active spec found — not a deepflow project or no spec in progress
+        process.exit(0);
+      }
+
+      const results = checkInvariants(diff, specContent, { mode: 'auto', taskType: 'implementation', projectRoot: cwd });
+
+      if (results.hard.length > 0) {
+        console.error('[df-invariant-check] Hard invariant failures detected:');
+        const outputLines = formatOutput(results);
+        for (const line of outputLines) {
+          if (results.hard.some((v) => formatViolation(v) === line)) {
+            console.error(`  ${line}`);
+          }
+        }
+        process.exit(1);
+      }
+
+      if (results.advisory.length > 0) {
+        console.warn('[df-invariant-check] Advisory warnings:');
+        for (const v of results.advisory) {
+          console.warn(`  ${formatViolation(v)}`);
+        }
+      }
+
+      process.exit(0);
+    } catch (_err) {
+      // Unexpected error — fail open so we never break non-deepflow projects
+      process.exit(0);
+    }
+  });
+} else {
+
 // ── CLI entry point (REQ-6) ───────────────────────────────────────────────────
 if (require.main === module) {
   const args = process.argv.slice(2);
@@ -1090,6 +1214,8 @@ if (require.main === module) {
 
   process.exit(results.hard.length > 0 ? 1 : 0);
 }
+
+} // end else (TTY / CLI mode)
 
 module.exports = {
   checkInvariants,

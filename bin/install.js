@@ -242,6 +242,7 @@ async function configureHooks(claudeDir) {
   const dashboardPushCmd = `node "${path.join(claudeDir, 'hooks', 'df-dashboard-push.js')}"`;
   const executionHistoryCmd = `node "${path.join(claudeDir, 'hooks', 'df-execution-history.js')}"`;
   const worktreeGuardCmd = `node "${path.join(claudeDir, 'hooks', 'df-worktree-guard.js')}"`;
+  const invariantCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-invariant-check.js')}"`;
 
   let settings = {};
 
@@ -355,10 +356,10 @@ async function configureHooks(claudeDir) {
     settings.hooks.PostToolUse = [];
   }
 
-  // Remove any existing deepflow tool usage / execution history / worktree guard hooks from PostToolUse
+  // Remove any existing deepflow tool usage / execution history / worktree guard / invariant check hooks from PostToolUse
   settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(hook => {
     const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard');
+    return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard') && !cmd.includes('df-invariant-check');
   });
 
   // Add tool usage hook
@@ -382,6 +383,14 @@ async function configureHooks(claudeDir) {
     hooks: [{
       type: 'command',
       command: worktreeGuardCmd
+    }]
+  });
+
+  // Add invariant check hook (exits 1 on hard failures after git commit)
+  settings.hooks.PostToolUse.push({
+    hooks: [{
+      type: 'command',
+      command: invariantCheckCmd
     }]
   });
   log('PostToolUse hook configured');
@@ -613,7 +622,7 @@ async function uninstall() {
         if (settings.hooks?.PostToolUse) {
           settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(hook => {
             const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard');
+            return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard') && !cmd.includes('df-invariant-check');
           });
           if (settings.hooks.PostToolUse.length === 0) {
             delete settings.hooks.PostToolUse;
