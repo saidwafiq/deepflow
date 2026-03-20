@@ -8,7 +8,7 @@ import { parseTokenHistory } from './parsers/token-history.js';
 import { parseSessions } from './parsers/sessions.js';
 import { parseCacheHistory } from './parsers/cache-history.js';
 import { parseToolUsage } from './parsers/tool-usage.js';
-import { parseTaskResults } from './parsers/task-results.js';
+import { parseExecutionHistory } from './parsers/execution-history.js';
 import { parseStatsCache } from './parsers/stats-cache.js';
 
 /** Shared db helper bundle passed to every parser */
@@ -151,7 +151,7 @@ export async function runIngestion(deepflowDir?: string): Promise<void> {
     { name: 'sessions',       fn: () => parseSessions(dbHelpers, claudeDir) },
     { name: 'cache-history',  fn: () => parseCacheHistory(dbHelpers, claudeDir) },
     { name: 'tool-usage',     fn: () => parseToolUsage(dbHelpers, claudeDir) },
-    { name: 'task-results',   fn: () => parseTaskResults(dbHelpers, dfDir) },
+    { name: 'execution-history', fn: () => parseExecutionHistory(dbHelpers, claudeDir) },
     { name: 'stats-cache',    fn: () => parseStatsCache(dbHelpers, claudeDir) },
   ];
 
