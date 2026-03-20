@@ -317,9 +317,65 @@ ONE atomic change. Commit. STOP.
 Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail or TASK_STATUS:revert
 ```
 
+**Final Test** (`Agent(model="opus")`):
+```
+--- START ---
+You are an independent QA engineer. You have ONLY the spec and exported interfaces below.
+You cannot read implementation files — you must treat the system as a black box.
+Write integration tests that verify EACH acceptance criterion from the spec.
+
+Spec:
+{SPEC_CONTENT}
+
+Exported interfaces:
+{EXPORTED_INTERFACES}
+
+--- END ---
+Write integration tests covering every AC in the spec.
+Test through public interfaces only — no internal imports, no implementation details.
+If an AC cannot be tested through exports alone, write a test stub with a TODO comment explaining why.
+Commit as: test({spec}): integration tests
+Do NOT read or modify implementation files. ONLY add/edit test files.
+Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail
+```
+
 ### 8. COMPLETE SPECS
 
+<!-- AC-10: After all waves, Opus black-box test agent spawns with spec + exports only (no implementation) -->
+<!-- AC-11: Final integration tests must all pass before merge proceeds; failure blocks merge -->
+
 All tasks done for `doing-*` spec:
+
+**8.1. Final Test Agent (black-box integration tests):**
+
+Before merge, spawn an independent Opus QA agent that sees ONLY the spec and exported interfaces — never implementation source.
+
+1. Extract exported interfaces from the worktree (public API surface):
+   ```bash
+   # Collect exported symbols — adapt pattern to language
+   git -C ${WORKTREE_PATH} diff main --name-only | xargs grep -h '^\(export\|pub \|func \|def \)' 2>/dev/null | head -100
+   ```
+   Store result as `EXPORTED_INTERFACES`. Also load spec content: `cat specs/doing-{name}.md` → `SPEC_CONTENT`.
+
+2. Spawn `Agent(model="opus")` with Final Test prompt (§6). `run_in_background=true`. End turn, wait.
+
+3. On notification:
+   a. Run ratchet check (§5.5) — all integration tests must pass.
+   b. **Tests pass** → commit stands. Proceed to step 8.2 (merge).
+   c. **Tests fail** → **merge is blocked**. Do NOT retry. Report:
+      `"✗ Final integration tests failed for {spec} — merge blocked, requires human review"`
+      Leave worktree intact. Set all spec tasks back to `TaskUpdate(status: "pending")`.
+      Write failure details to `.deepflow/results/final-test-{spec}.yaml`:
+      ```yaml
+      spec: {spec}
+      status: blocked
+      reason: "Final integration tests failed"
+      output: |
+        {truncated test output — last 30 lines}
+      ```
+      STOP. Do not proceed to merge.
+
+**8.2. Merge and cleanup:**
 1. `skill: "df:verify", args: "doing-{name}"` — runs L0-L4 gates, merges, cleans worktree, renames doing→done, extracts decisions. Fail (fix tasks added) → stop; `--continue` picks them up.
 2. Remove spec's ENTIRE section from PLAN.md. Recalculate Summary table.
 
@@ -372,4 +428,5 @@ Reverted task: `TaskUpdate(status: "pending")`, dependents stay blocked. Repeate
 | Plateau → probes | 3 cycles <1% triggers probes |
 | Circuit breaker = 3 reverts | Halts, needs human |
 | Wave test after ratchet | Opus writes tests; 3 attempts then revert |
+| Final test before merge | Opus black-box integration tests; failure blocks merge, no retry |
 | Probe diversity | ≥1 contraditoria + ≥1 ingenua |
