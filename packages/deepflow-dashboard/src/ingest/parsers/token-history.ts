@@ -107,9 +107,9 @@ export async function parseTokenHistory(db: DbHelpers, claudeDir: string): Promi
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
             sessionId,
-            (record.model as string) ?? 'unknown',
+            ((record.model as string) ?? 'unknown').replace(/\[\d+[km]\]$/i, ''),
             (record.input_tokens ?? record.inputTokens ?? 0) as number,
-            (record.output_tokens ?? record.outputTokens ?? 0) as number,
+            (record.output_tokens ?? record.outputTokens ?? record.output_tokens ?? 0) as number,
             (record.cache_read_input_tokens ?? record.cache_read_tokens ?? record.cacheReadTokens ?? 0) as number,
             (record.cache_creation_input_tokens ?? record.cache_creation_tokens ?? record.cacheCreationTokens ?? 0) as number,
             (record.timestamp ?? new Date().toISOString()) as string,

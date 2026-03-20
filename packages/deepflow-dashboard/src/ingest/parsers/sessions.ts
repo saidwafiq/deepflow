@@ -132,7 +132,7 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         const msgModel = msg?.model as string | undefined;
         const evtModel = event.model as string | undefined;
         const resolvedModel = msgModel ?? evtModel;
-        if (resolvedModel && resolvedModel !== 'unknown') model = resolvedModel;
+        if (resolvedModel && resolvedModel !== 'unknown') model = resolvedModel.replace(/\[\d+[km]\]$/i, '');
 
         // Count messages by event type
         const eventType = event.type as string | undefined;
@@ -157,6 +157,7 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
           tokensOut += usage.output_tokens ?? 0;
           cacheRead += usage.cache_read_tokens ?? usage.cache_read_input_tokens ?? 0;
           cacheCreation += usage.cache_creation_tokens ?? usage.cache_creation_input_tokens ?? 0;
+
         }
       }
 
