@@ -82,9 +82,8 @@ quality:
   # Retry flaky tests once before failing (default: true)
   test_retry_on_fail: true
 
-  # Enable L5 browser verification after tests pass (default: false)
-  # When true, deepflow will start the dev server and run visual checks
-  browser_verify: false
+  # Three-state: true (force L5), false (skip L5), absent/commented (auto-detect from package.json + browser_assertions)
+  # browser_verify:
 
   # Override the dev server start command for browser verification
   # If empty, deepflow will attempt to auto-detect (e.g., "npm run dev", "yarn dev")
