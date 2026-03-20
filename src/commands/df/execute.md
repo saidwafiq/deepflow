@@ -21,7 +21,7 @@ Each task = one background agent. **NEVER use TaskOutput** (100KB+ transcripts e
 2. STOP. End turn. Do NOT poll.
 3. On EACH notification:
    a. Ratchet check (§5.5)
-   b. Passed → wave test agent (§5.6). Tests pass → TaskUpdate(status: "completed"), update PLAN.md [x] + commit hash
+   b. Passed → wave test agent (§5.6). Tests pass → re-snapshot (§5.6) → TaskUpdate(status: "completed"), update PLAN.md [x] + commit hash
    c. Failed → partial salvage (§5.5). Salvaged → wave test agent (§5.6). Not → git revert, TaskUpdate(status: "pending")
    d. Wave test agent failed after max attempts → revert ALL task commits, TaskUpdate(status: "pending")
    e. Report ONE line: "✓ T1: ratchet+tests passed (abc123)" or "⚕ T1: salvaged+tested (abc124)" or "✗ T1: reverted" or "✗ T1: test agent failed, reverted"
@@ -139,6 +139,7 @@ Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for
 
 <!-- AC-8: After wave ratchet passes, Opus test agent spawns and writes unit tests -->
 <!-- AC-9: Test failures trigger implementer re-spawn with failure feedback; max 3 attempts then revert -->
+<!-- AC-12: auto-snapshot.txt re-generated after wave test agent commits; wave N+1 ratchet includes wave N tests -->
 
 **Trigger:** After ratchet check passes (or after successful salvage) for a task.
 
@@ -149,7 +150,11 @@ Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for
 2. Spawn `Agent(model="opus")` with Wave Test prompt (§6). `run_in_background=true`. End turn, wait.
 3. On notification:
    a. Run ratchet check (§5.5) — all new + pre-existing tests must pass.
-   b. **Tests pass** → commit stands. Task complete. Report: `"✓ T{n}: ratchet+tests passed ({hash})"`.
+   b. **Tests pass** → commit stands. **Re-snapshot** immediately so wave N+1 ratchet includes wave N tests:
+      ```bash
+      git -C ${WORKTREE_PATH} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' > .deepflow/auto-snapshot.txt
+      ```
+      Task complete. Report: `"✓ T{n}: ratchet+tests passed ({hash})"`.
    c. **Tests fail** →
       - If `attempt_count < 3`:
         - `git revert HEAD --no-edit` (revert test commit)
