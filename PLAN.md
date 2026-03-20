@@ -1,15 +1,15 @@
 # Plan
 
 Generated: 2026-03-18
-Updated: 2026-03-19
+Updated: 2026-03-20
 
 ## Summary
 
 | Metric | Count |
 |--------|-------|
-| Specs analyzed | 2 |
-| Tasks created | 17 |
-| Tasks completed | 17 |
+| Specs analyzed | 4 |
+| Tasks created | 28 |
+| Tasks completed | 28 |
 | Tasks pending | 0 |
 
 ### done-dashboard
@@ -306,9 +306,118 @@ T12 (scaffold + db + CLI + pricing)
 | bin/cli.js | T12 (create), T19 (modify) | T12 → T19 |
 | App.tsx | T15 (create), T16 (modify), T17 (modify), T18 (modify) | T15 → T16 → T17 → T18 |
 
-## Spec Gaps Flagged
+## Spec Gaps Flagged (done-dashboard)
 
 1. **REQ-2 deviation**: Spec says better-sqlite3, spikes chose sql.js — update spec or note in decisions
 2. **REQ-19**: No explicit AC for `--port` CLI flag, `DASHBOARD_PORT` env var, or auto-detect fallback
 3. **/df:dashboard command**: Referenced in Constraints but not listed as a REQ
 4. **/api/ingest payload schema**: REQ-4 lists fields but does not define JSON shape
+
+---
+
+### done-dashboard-model-cost-fixes
+
+- [x] **T26**: Fix `tokens_in` aggregation — remove cache tokens from SUM in `aggregateAndComputeCosts()` — 1eb0c92
+  - Files: packages/deepflow-dashboard/src/ingest/index.ts
+  - Model: haiku
+  - Effort: low
+  - REQs: REQ-2
+  - Blocked by: none
+
+- [x] **T27**: Fix `tokensIn` accumulation in `execution-history.ts` — `input_tokens` only — 8a48539
+  - Files: packages/deepflow-dashboard/src/ingest/parsers/execution-history.ts
+  - Model: haiku
+  - Effort: low
+  - REQs: REQ-3
+  - Blocked by: none
+
+- [x] **T28**: Rewrite costs API per-model query to aggregate from `sessions` table — baaedf4
+  - Files: packages/deepflow-dashboard/src/api/costs.ts
+  - Model: sonnet
+  - Effort: medium
+  - REQs: REQ-1
+  - Blocked by: none
+
+- [x] **T29**: Add `cost_reparse_v1` migration — wipe sessions + task_attempts + offsets for re-ingestion — 8e8dd2d
+  - Files: packages/deepflow-dashboard/src/ingest/index.ts
+  - Model: haiku
+  - Effort: low
+  - REQs: REQ-4
+  - Blocked by: T26, T27, T28
+
+---
+
+### doing-task-tracking
+
+- [x] **T25**: Fix hook/parser field mismatch — hook emits `event` + `started_at`/`ended_at`, parser expects `type` + `timestamp` — 1339377
+  - Files: hooks/df-execution-history.js
+  - Model: sonnet
+  - Effort: low
+  - REQs: REQ-1, REQ-5
+  - Blocked by: none
+
+---
+
+### done-quality-gates
+
+- [x] **T30**: Bootstrap enforcement + Opus retry in `df:execute` — 98af4b6
+  - Files: src/commands/df/execute.md
+  - Model: sonnet
+  - Effort: medium
+  - REQs: REQ-1, REQ-2
+  - Blocked by: none
+
+- [x] **T31**: Worktree guard PostToolUse hook — b65842b
+  - Files: hooks/df-worktree-guard.js, bin/install.js
+  - Model: sonnet
+  - Effort: medium
+  - REQs: REQ-3
+  - Blocked by: none
+
+- [x] **T32**: Spike handoff restructure — move to START zone as structured YAML — 0159161
+  - Files: src/commands/df/execute.md
+  - Model: sonnet
+  - Effort: medium
+  - REQs: REQ-4
+  - Blocked by: T30
+
+- [x] **T33**: Invariant-check hook entry point — `exit(1)` on hard failures — a38ab12
+  - Files: hooks/df-invariant-check.js, bin/install.js
+  - Model: sonnet
+  - Effort: medium
+  - REQs: REQ-5
+  - Blocked by: T31
+
+- [x] **T34**: Wave test agent — Opus white-box unit tests after each wave — 7a8536a
+  - Files: src/commands/df/execute.md
+  - Model: opus
+  - Effort: high
+  - REQs: REQ-6
+  - Blocked by: T32
+
+- [x] **T35**: Two-phase ratchet — re-snapshot after wave test agent commits — 4631215
+  - Files: src/commands/df/execute.md
+  - Model: sonnet
+  - Effort: medium
+  - REQs: REQ-8
+  - Blocked by: T34
+
+- [x] **T36**: Final test agent — Opus black-box integration tests before merge — d3efc55
+  - Files: src/commands/df/execute.md
+  - Model: opus
+  - Effort: high
+  - REQs: REQ-7
+  - Blocked by: T35
+
+## Dependency Graph (quality-gates)
+
+```
+T30 (bootstrap + retry)
+ └→ T32 (spike handoff) [execute.md conflict]
+     └→ T34 (wave test agent) [execute.md conflict]
+         └→ T35 (two-phase ratchet) [execute.md conflict]
+             └→ T36 (final test agent) [execute.md conflict]
+
+T31 (worktree guard hook)
+ └→ T33 (invariant-check hook) [bin/install.js conflict]
+```
