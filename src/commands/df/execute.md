@@ -361,19 +361,27 @@ Before merge, spawn an independent Opus QA agent that sees ONLY the spec and exp
 
 3. On notification:
    a. Run ratchet check (§5.5) — all integration tests must pass.
-   b. **Tests pass** → commit stands. Proceed to step 8.2 (merge).
-   c. **Tests fail** → **merge is blocked**. Do NOT retry. Report:
-      `"✗ Final integration tests failed for {spec} — merge blocked, requires human review"`
-      Leave worktree intact. Set all spec tasks back to `TaskUpdate(status: "pending")`.
-      Write failure details to `.deepflow/results/final-test-{spec}.yaml`:
+   b. **Tests pass** → commit stands. Proceed to step 8.2 (full L0-L5 verify + merge).
+   c. **Tests fail** → **merge is blocked**. Do NOT retry. Run diagnostic verify:
+      ```
+      skill: "df:verify", args: "--diagnostic doing-{name}"
+      ```
+      Capture the L0-L4 results from verify output (pass/fail/warn per level). Write to `.deepflow/results/final-test-{spec}.yaml`:
       ```yaml
       spec: {spec}
       status: blocked
       reason: "Final integration tests failed"
       output: |
         {truncated test output — last 30 lines}
+      diagnostics:
+        L0: {pass|fail}
+        L1: {pass|fail}
+        L2: {pass|warn|fail}
+        L4: {pass|fail}
       ```
-      STOP. Do not proceed to merge.
+      Leave worktree intact. Set all spec tasks back to `TaskUpdate(status: "pending")`.
+      Report: `"✗ Final tests failed for {spec} — diagnostic verify: L0 {✓|✗} | L1 {✓|✗} | L2 {✓|⚠|✗} | L4 {✓|✗} — merge blocked"`
+      STOP. Do not proceed to merge. Diagnostic verify is informational only — no fix agents, no retries.
 
 **8.2. Merge and cleanup:**
 1. `skill: "df:verify", args: "doing-{name}"` — runs L0-L4 gates, merges, cleans worktree, renames doing→done, extracts decisions. Fail (fix tasks added) → stop; `--continue` picks them up.
@@ -428,5 +436,5 @@ Reverted task: `TaskUpdate(status: "pending")`, dependents stay blocked. Repeate
 | Plateau → probes | 3 cycles <1% triggers probes |
 | Circuit breaker = 3 reverts | Halts, needs human |
 | Wave test after ratchet | Opus writes tests; 3 attempts then revert |
-| Final test before merge | Opus black-box integration tests; failure blocks merge, no retry |
+| Final test before merge | Opus black-box integration tests; pass → full L0-L5 verify + merge; failure → diagnostic L0-L4 verify, results in final-test-{spec}.yaml, merge blocked |
 | Probe diversity | ≥1 contraditoria + ≥1 ingenua |
