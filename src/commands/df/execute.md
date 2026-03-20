@@ -101,23 +101,36 @@ Context ≥50% → checkpoint and exit. Before spawning: `TaskUpdate(status: "in
 
 ### 5.5. RATCHET CHECK
 
-Run health checks in worktree after each agent completes.
+Run `node bin/ratchet.js` in the worktree directory after each agent completes:
+```bash
+node bin/ratchet.js --worktree ${WORKTREE_PATH} --snapshot .deepflow/auto-snapshot.txt
+```
 
-| File | Build | Test | Typecheck | Lint |
-|------|-------|------|-----------|------|
-| `package.json` | `npm run build` | `npm test` | `npx tsc --noEmit` | `npm run lint` |
-| `pyproject.toml` | — | `pytest` | `mypy .` | `ruff check .` |
-| `Cargo.toml` | `cargo build` | `cargo test` | — | `cargo clippy` |
-| `go.mod` | `go build ./...` | `go test ./...` | — | `go vet ./...` |
+The script handles all health checks internally and outputs structured JSON:
+```json
+{"status": "PASS"|"FAIL"|"SALVAGEABLE", "reason": "...", "details": "..."}
+```
 
-Run Build → Test → Typecheck → Lint (stop on first failure). Ratchet uses ONLY pre-existing tests from `.deepflow/auto-snapshot.txt`.
+**Exit codes:** 0 = PASS, 1 = FAIL (script already ran `git revert HEAD --no-edit`), 2 = SALVAGEABLE (lint/typecheck only; build+tests passed).
+
+**You MUST NOT inspect, classify, or reinterpret test failures. FAIL means revert. No exceptions.**
+
+**Prohibited actions during ratchet:**
+- No `git stash` or `git checkout` for investigation purposes
+- No inline edits to pre-existing test files
+- No reading raw test output to decide what "really" failed
+
+**Broken-tests policy:** Updating pre-existing tests requires a separate dedicated task in PLAN.md with explicit justification — never inline during execution.
+
+**Orchestrator response by exit code:**
+- **Exit 0 (PASS):** Commit stands. Proceed to §5.6 wave test agent.
+- **Exit 1 (FAIL):** Script already reverted. Set `TaskUpdate(status: "pending")`. Report: `"✗ T{n}: reverted"`.
+- **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="haiku")` to fix lint/typecheck issues. Re-run `node bin/ratchet.js`. If still non-zero → revert both commits, set status pending.
 
 **Edit scope validation:** `git diff HEAD~1 --name-only` vs allowed globs. Violation → revert, report.
 **Impact completeness:** diff vs Impact callers/duplicates. Gap → advisory warning (no revert).
 
 **Metric gate (Optimize only):** Run `eval "${metric_command}"` with cwd=`${WORKTREE_PATH}` (never `cd && eval`). Parse float (non-numeric → revert). Compare using `direction`+`min_improvement_threshold`. Both ratchet AND metric must pass → keep. Ratchet pass + metric stagnant → revert. Secondary metrics: regression > `regression_threshold` (5%) → WARNING in auto-report.md (no revert).
-
-**Output truncation:** Success → suppress. Build fail → last 15 lines. Test fail → names + last 20 lines. Typecheck/lint → count + first 5 errors.
 
 **Token tracking result (on pass):** Read `end_percentage`. Sum token fields from `.deepflow/token-history.jsonl` between start/end timestamps (awk ISO 8601 compare). Write to `.deepflow/results/T{N}.yaml`:
 ```yaml
@@ -130,10 +143,6 @@ tokens:
   cache_read_input_tokens: {sum}
 ```
 Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for tracking errors.
-
-**Evaluate:** All pass → commit stands. Failure → partial salvage:
-1. Lint/typecheck-only (build+tests passed): spawn `Agent(model="haiku")` to fix. Re-ratchet. Fail → revert both.
-2. Build/test failure → `git revert HEAD --no-edit` (no salvage).
 
 ### 5.6. WAVE TEST AGENT
 
