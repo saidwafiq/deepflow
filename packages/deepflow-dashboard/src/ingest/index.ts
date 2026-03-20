@@ -24,7 +24,7 @@ async function aggregateAndComputeCosts(): Promise<void> {
   const updated = run(`
     UPDATE sessions SET
       tokens_in = COALESCE((
-        SELECT SUM(te.input_tokens + te.cache_read_tokens + te.cache_creation_tokens)
+        SELECT SUM(te.input_tokens)
         FROM token_events te WHERE te.session_id = sessions.id
       ), sessions.tokens_in),
       tokens_out = COALESCE((
@@ -132,6 +132,33 @@ function runMigrationToolQuotaReparseV1(): void {
   console.log('[ingest:migration] tool_quota_reparse_v1 complete');
 }
 
+/**
+ * One-time migration: wipe sessions + task_attempts + their offsets
+ * so cost fields are recomputed with fixed pricing logic.
+ * Idempotent — tracked via _meta key 'migration:cost_reparse_v1'.
+ */
+function runMigrationCostReparseV1(): void {
+  const already = get("SELECT value FROM _meta WHERE key = 'migration:cost_reparse_v1'");
+  if (already) return;
+
+  console.log('[ingest:migration] Running cost_reparse_v1 — wiping sessions + task_attempts for re-ingestion…');
+
+  // Delete all session rows to force recalculation of costs
+  run('DELETE FROM sessions');
+
+  // Delete task_attempts rows to force recalculation
+  run('DELETE FROM task_attempts');
+
+  // Delete ingest offsets so parsers re-read from byte 0
+  run("DELETE FROM _meta WHERE key LIKE 'ingest_offset:session:%'");
+  run("DELETE FROM _meta WHERE key = 'ingest_offset:task-attempts'");
+
+  // Mark migration as done
+  run("INSERT INTO _meta (key, value) VALUES ('migration:cost_reparse_v1', '1')");
+
+  console.log('[ingest:migration] cost_reparse_v1 complete');
+}
+
 export async function runIngestion(deepflowDir?: string): Promise<void> {
   const claudeDir = resolve(homedir(), '.claude');
   const dfDir = deepflowDir ?? resolve(process.cwd(), '.deepflow');
@@ -141,6 +168,7 @@ export async function runIngestion(deepflowDir?: string): Promise<void> {
   // Run one-time migrations before parsers
   runMigrationSessionReparseV1();
   runMigrationToolQuotaReparseV1();
+  runMigrationCostReparseV1();
   console.log(`[ingest]   claudeDir : ${claudeDir}`);
   console.log(`[ingest]   deepflowDir : ${dfDir}`);
 
