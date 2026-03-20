@@ -377,7 +377,7 @@ Before merge, spawn an independent Opus QA agent that sees ONLY the spec and exp
 
 **8.2. Merge and cleanup:**
 1. `skill: "df:verify", args: "doing-{name}"` — runs L0-L4 gates, merges, cleans worktree, renames doing→done, extracts decisions. Fail (fix tasks added) → stop; `--continue` picks them up.
-2. Remove spec's ENTIRE section from PLAN.md. Recalculate Summary table.
+2. PLAN.md section cleanup handled by verify (step 6).
 
 ---
 
