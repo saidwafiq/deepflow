@@ -187,7 +187,7 @@ async function main() {
   console.log('  skills/          — gap-discovery, atomic-commits, code-completeness, browse-fetch, browse-verify');
   console.log('  agents/          — reasoner (/df:auto — autonomous execution via /loop)');
   if (level === 'global') {
-    console.log('  hooks/           — statusline, update checker, invariant checker');
+    console.log('  hooks/           — statusline, update checker, invariant checker, worktree guard');
   }
   console.log('  hooks/df-spec-*  — spec validation (auto-enforced by /df:spec and /df:plan)');
   console.log('  env/             — ENABLE_LSP_TOOL (code navigation via goToDefinition, findReferences, workspaceSymbol)');
