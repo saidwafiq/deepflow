@@ -145,7 +145,7 @@ export async function parseExecutionHistory(db: DbHelpers, claudeDir: string): P
         }>;
 
         for (const te of tokenRows) {
-          tokensIn += (te.input_tokens ?? 0) + (te.cache_read_tokens ?? 0) + (te.cache_creation_tokens ?? 0);
+          tokensIn += te.input_tokens ?? 0;
           tokensOut += te.output_tokens ?? 0;
           cacheRead += te.cache_read_tokens ?? 0;
           cacheCreation += te.cache_creation_tokens ?? 0;
