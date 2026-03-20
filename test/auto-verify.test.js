@@ -212,3 +212,190 @@ describe('T48 — config-template.yaml three-state browser_verify', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// T46: Diagnostic mode for df:verify
+// ---------------------------------------------------------------------------
+
+describe('T46 — --diagnostic flag in df:verify', () => {
+  const verifyPath = path.join(ROOT, 'src', 'commands', 'df', 'verify.md');
+  let content;
+
+  it('verify.md exists', () => {
+    assert.equal(
+      fs.existsSync(verifyPath),
+      true,
+      'verify.md must exist at src/commands/df/verify.md'
+    );
+    content = fs.readFileSync(verifyPath, 'utf8');
+  });
+
+  // --- Usage section ---
+
+  it('usage section shows --diagnostic flag with a spec argument', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /--diagnostic\s+doing-\w+/,
+      'Usage should show --diagnostic with a doing-* spec argument'
+    );
+  });
+
+  it('usage section includes --diagnostic as a distinct usage line', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    const usageBlock = content.match(/```[\s\S]*?--diagnostic[\s\S]*?```/);
+    assert.ok(usageBlock, 'Usage code block should contain --diagnostic');
+  });
+
+  // --- Diagnostic Mode section ---
+
+  it('has a dedicated "Diagnostic Mode" section', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /##\s+Diagnostic Mode\s*\(`--diagnostic`\)/,
+      'Should have a "Diagnostic Mode (`--diagnostic`)" section header'
+    );
+  });
+
+  it('diagnostic mode runs L0-L4 only and skips L5', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /L0-L4 only.*skip L5/i,
+      'Diagnostic mode should specify L0-L4 only, skip L5'
+    );
+  });
+
+  it('diagnostic mode skips L5 even if frontend is detected', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /skip L5.*even if frontend/i,
+      'Should explicitly state L5 is skipped even when frontend is detected'
+    );
+  });
+
+  // --- Results file output ---
+
+  it('writes results to .deepflow/results/final-test-{spec}.yaml', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /\.deepflow\/results\/final-test-\{spec\}\.yaml/,
+      'Should write to .deepflow/results/final-test-{spec}.yaml'
+    );
+  });
+
+  it('results are written under a diagnostics: key', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /`diagnostics:`\s*key/,
+      'Results should be under a diagnostics: key'
+    );
+  });
+
+  it('diagnostics yaml includes spec, timestamp, L0-L4, and summary fields', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    const diagSection = content.match(/```yaml\s*\n\s*diagnostics:[\s\S]*?```/);
+    assert.ok(diagSection, 'Should have a diagnostics YAML example block');
+    const block = diagSection[0];
+    assert.ok(block.includes('spec:'), 'Diagnostics should include spec field');
+    assert.ok(block.includes('timestamp:'), 'Diagnostics should include timestamp field');
+    assert.ok(block.includes('L0:'), 'Diagnostics should include L0 field');
+    assert.ok(block.includes('L1:'), 'Diagnostics should include L1 field');
+    assert.ok(block.includes('L2:'), 'Diagnostics should include L2 field');
+    assert.ok(block.includes('L4:'), 'Diagnostics should include L4 field');
+    assert.ok(block.includes('summary:'), 'Diagnostics should include summary field');
+  });
+
+  // --- Output format ---
+
+  it('output is prefixed with [DIAGNOSTIC]', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /\[DIAGNOSTIC\]/,
+      'Diagnostic output should use [DIAGNOSTIC] prefix'
+    );
+  });
+
+  // --- Skip conditions ---
+
+  it('diagnostic mode skips merge (post-verification)', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /[Ss]kip.*merge/i,
+      'Diagnostic mode should skip merge'
+    );
+  });
+
+  it('diagnostic mode skips fix task creation', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /[Ss]kip.*fix task/i,
+      'Diagnostic mode should skip fix task creation'
+    );
+  });
+
+  it('diagnostic mode skips spec rename', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /[Ss]kip.*spec rename/i,
+      'Diagnostic mode should skip spec rename'
+    );
+  });
+
+  it('diagnostic mode skips decision extraction', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /[Ss]kip.*decision extraction/i,
+      'Diagnostic mode should skip decision extraction'
+    );
+  });
+
+  it('diagnostic mode skips PLAN.md cleanup (step 6)', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /PLAN\.md cleanup/i,
+      'Diagnostic mode should skip PLAN.md cleanup'
+    );
+  });
+
+  // --- Circuit breaker and snapshot ---
+
+  it('does not count as a revert for circuit breaker', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /not.*count.*revert.*circuit breaker/is,
+      'Diagnostic mode should not count as revert for circuit breaker'
+    );
+  });
+
+  it('does not modify auto-snapshot.txt', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    assert.match(
+      content,
+      /not.*modify.*auto-snapshot\.txt/is,
+      'Diagnostic mode should not modify auto-snapshot.txt'
+    );
+  });
+
+  // --- Post-Verification header guard ---
+
+  it('post-verification section excludes --diagnostic runs', () => {
+    content = content || fs.readFileSync(verifyPath, 'utf8');
+    const postVerif = content.match(/Post-Verification[\s\S]*?`--diagnostic`\s*was\s*NOT\s*used/i);
+    assert.ok(
+      postVerif,
+      'Post-Verification section should guard against --diagnostic runs'
+    );
+  });
+});
