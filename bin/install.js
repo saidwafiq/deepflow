@@ -240,6 +240,7 @@ async function configureHooks(claudeDir) {
   const quotaLoggerCmd = `node "${path.join(claudeDir, 'hooks', 'df-quota-logger.js')}"`;
   const toolUsageCmd = `node "${path.join(claudeDir, 'hooks', 'df-tool-usage.js')}"`;
   const dashboardPushCmd = `node "${path.join(claudeDir, 'hooks', 'df-dashboard-push.js')}"`;
+  const executionHistoryCmd = `node "${path.join(claudeDir, 'hooks', 'df-execution-history.js')}"`;
 
   let settings = {};
 
@@ -353,10 +354,10 @@ async function configureHooks(claudeDir) {
     settings.hooks.PostToolUse = [];
   }
 
-  // Remove any existing deepflow tool usage hooks from PostToolUse
+  // Remove any existing deepflow tool usage / execution history hooks from PostToolUse
   settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(hook => {
     const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-tool-usage');
+    return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history');
   });
 
   // Add tool usage hook
@@ -364,6 +365,14 @@ async function configureHooks(claudeDir) {
     hooks: [{
       type: 'command',
       command: toolUsageCmd
+    }]
+  });
+
+  // Add execution history hook
+  settings.hooks.PostToolUse.push({
+    hooks: [{
+      type: 'command',
+      command: executionHistoryCmd
     }]
   });
   log('PostToolUse hook configured');
@@ -548,7 +557,7 @@ async function uninstall() {
   ];
 
   if (level === 'global') {
-    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-consolidation-check.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js', 'hooks/df-dashboard-push.js');
+    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-consolidation-check.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js', 'hooks/df-dashboard-push.js', 'hooks/df-execution-history.js');
   }
 
   for (const item of toRemove) {
@@ -595,7 +604,7 @@ async function uninstall() {
         if (settings.hooks?.PostToolUse) {
           settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(hook => {
             const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-tool-usage');
+            return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history');
           });
           if (settings.hooks.PostToolUse.length === 0) {
             delete settings.hooks.PostToolUse;

@@ -194,11 +194,12 @@ Steps: 1. chub search/get for APIs 2. LSP findReferences, add unlisted callers 3
 --- END ---
 Spike results: {winner learnings}
 Duplicates: [active]→consolidate [dead]→DELETE. ONLY job: code+commit. No merge/rename/checkout.
+Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed) or TASK_STATUS:revert (if reverted)
 ```
 
-**Bootstrap:** `BOOTSTRAP: Write tests for edit_scope files. Do NOT change implementation. Commit as test({spec}): bootstrap`
+**Bootstrap:** `BOOTSTRAP: Write tests for edit_scope files. Do NOT change implementation. Commit as test({spec}): bootstrap. Last line: TASK_STATUS:pass or TASK_STATUS:fail`
 
-**Spike:** `{task_id} [SPIKE]: {hypothesis}. Files+Spec. {reverted warnings}. Minimal spike. Commit as spike({spec}): {desc}`
+**Spike:** `{task_id} [SPIKE]: {hypothesis}. Files+Spec. {reverted warnings}. Minimal spike. Commit as spike({spec}): {desc}. Last line: TASK_STATUS:pass or TASK_STATUS:fail`
 
 **Optimize Task** (`Agent(model="opus")`):
 ```
@@ -210,6 +211,7 @@ CONSTRAINT: ONE atomic change.
 Last 5 cycles + failed hypotheses + Impact/deps.
 --- END ---
 {Learnings}. ONE change + commit. No metric run, no multiple changes.
+Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail or TASK_STATUS:revert
 ```
 
 **Optimize Probe** (`Agent(model="opus")`):
@@ -224,6 +226,7 @@ Current/Target. Role instruction:
 Full history + all failed hypotheses.
 --- END ---
 ONE atomic change. Commit. STOP.
+Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail or TASK_STATUS:revert
 ```
 
 ### 8. COMPLETE SPECS
