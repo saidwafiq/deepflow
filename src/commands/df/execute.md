@@ -21,10 +21,11 @@ Each task = one background agent. **NEVER use TaskOutput** (100KB+ transcripts e
 2. STOP. End turn. Do NOT poll.
 3. On EACH notification:
    a. Ratchet check (§5.5)
-   b. Passed → TaskUpdate(status: "completed"), update PLAN.md [x] + commit hash
-   c. Failed → partial salvage (§5.5). Salvaged → passed. Not → git revert, TaskUpdate(status: "pending")
-   d. Report ONE line: "✓ T1: ratchet passed (abc123)" or "⚕ T1: salvaged (abc124)" or "✗ T1: reverted"
-   e. NOT all done → end turn, wait | ALL done → next wave or finish
+   b. Passed → wave test agent (§5.6). Tests pass → TaskUpdate(status: "completed"), update PLAN.md [x] + commit hash
+   c. Failed → partial salvage (§5.5). Salvaged → wave test agent (§5.6). Not → git revert, TaskUpdate(status: "pending")
+   d. Wave test agent failed after max attempts → revert ALL task commits, TaskUpdate(status: "pending")
+   e. Report ONE line: "✓ T1: ratchet+tests passed (abc123)" or "⚕ T1: salvaged+tested (abc124)" or "✗ T1: reverted" or "✗ T1: test agent failed, reverted"
+   f. NOT all done → end turn, wait | ALL done → next wave or finish
 4. Between waves: context ≥50% → checkpoint and exit.
 5. Repeat until: all done, all blocked, or context ≥50%.
 ```
@@ -134,6 +135,41 @@ Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for
 1. Lint/typecheck-only (build+tests passed): spawn `Agent(model="haiku")` to fix. Re-ratchet. Fail → revert both.
 2. Build/test failure → `git revert HEAD --no-edit` (no salvage).
 
+### 5.6. WAVE TEST AGENT
+
+<!-- AC-8: After wave ratchet passes, Opus test agent spawns and writes unit tests -->
+<!-- AC-9: Test failures trigger implementer re-spawn with failure feedback; max 3 attempts then revert -->
+
+**Trigger:** After ratchet check passes (or after successful salvage) for a task.
+
+**Attempt tracking:** Initialize `attempt_count = 1` and `failure_feedback = ""` per task when first spawned. Max 3 total attempts (1 initial + 2 retries).
+
+**Flow:**
+1. Capture the implementation diff: `git -C ${WORKTREE_PATH} diff HEAD~1` → store as `IMPL_DIFF`.
+2. Spawn `Agent(model="opus")` with Wave Test prompt (§6). `run_in_background=true`. End turn, wait.
+3. On notification:
+   a. Run ratchet check (§5.5) — all new + pre-existing tests must pass.
+   b. **Tests pass** → commit stands. Task complete. Report: `"✓ T{n}: ratchet+tests passed ({hash})"`.
+   c. **Tests fail** →
+      - If `attempt_count < 3`:
+        - `git revert HEAD --no-edit` (revert test commit)
+        - `git revert HEAD --no-edit` (revert implementation commit)
+        - Accumulate failure output: `failure_feedback += "Attempt {N}: {truncated_test_output}\n"`
+        - `attempt_count += 1`
+        - Re-spawn implementer agent with original prompt + failure feedback appendix:
+          ```
+          PREVIOUS FAILURES (attempt {N-1} of 3):
+          {failure_feedback}
+          Fix the issues above. Do NOT repeat the same mistakes.
+          ```
+        - On implementer notification: ratchet check (§5.5). Passed → goto step 1 (spawn test agent again). Failed → same retry logic.
+      - If `attempt_count >= 3`:
+        - Revert ALL commits back to pre-task state: `git -C ${WORKTREE_PATH} reset --hard {pre_task_commit}`
+        - `TaskUpdate(status: "pending")`
+        - Report: `"✗ T{n}: test agent failed after 3 attempts, reverted"`
+
+**Output truncation for failure feedback:** Test failures → test names + last 30 lines of output. Build failures → last 15 lines. Cap total `failure_feedback` at 200 lines.
+
 ### 5.7. PARALLEL SPIKE PROBES
 
 Trigger: ≥2 [SPIKE] tasks with same blocker or identical hypothesis.
@@ -224,6 +260,28 @@ Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STA
 
 **Bootstrap:** `BOOTSTRAP: Write tests for edit_scope files. Do NOT change implementation. Commit as test({spec}): bootstrap. Last line: TASK_STATUS:pass or TASK_STATUS:fail`
 
+**Wave Test** (`Agent(model="opus")`):
+```
+--- START ---
+You are a QA engineer. Write unit tests for the following code changes.
+Use {test_framework}. Test behavioral correctness, not implementation details.
+Spec: {spec}. Task: {task_id}.
+
+Implementation diff:
+{IMPL_DIFF}
+
+--- MIDDLE ---
+Files changed: {changed_files}
+Existing test patterns: {test_file_examples from auto-snapshot.txt, first 3}
+
+--- END ---
+Write thorough unit tests covering: happy paths, edge cases, error handling.
+Follow existing test conventions in the codebase.
+Commit as: test({spec}): wave-{N} unit tests
+Do NOT modify implementation files. ONLY add/edit test files.
+Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail
+```
+
 **Spike:** `{task_id} [SPIKE]: {hypothesis}. Files+Spec. {reverted warnings}. Minimal spike. Commit as spike({spec}): {desc}. Last line: TASK_STATUS:pass or TASK_STATUS:fail`
 
 **Optimize Task** (`Agent(model="opus")`):
@@ -308,4 +366,5 @@ Reverted task: `TaskUpdate(status: "pending")`, dependents stay blocked. Repeate
 | Ratchet + metric both required | Keep only if both pass |
 | Plateau → probes | 3 cycles <1% triggers probes |
 | Circuit breaker = 3 reverts | Halts, needs human |
+| Wave test after ratchet | Opus writes tests; 3 attempts then revert |
 | Probe diversity | ≥1 contraditoria + ≥1 ingenua |
