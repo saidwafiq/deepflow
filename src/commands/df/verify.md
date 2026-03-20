@@ -12,13 +12,35 @@ context: fork
 
 ## Usage
 ```
-/df:verify                  # Verify doing-* specs with all tasks completed
-/df:verify doing-upload     # Verify specific spec
-/df:verify --re-verify      # Re-verify done-* specs (already merged)
+/df:verify                        # Verify doing-* specs with all tasks completed
+/df:verify doing-upload           # Verify specific spec
+/df:verify --re-verify            # Re-verify done-* specs (already merged)
+/df:verify --diagnostic doing-upload  # L0-L4 only; write results to diagnostics yaml; no merge/fix/rename
 ```
 
 ## Spec File States
 `specs/feature.md` → unplanned (skip) | `doing-*.md` → default target | `done-*.md` → `--re-verify` only
+
+## Diagnostic Mode (`--diagnostic`)
+
+When invoked with `--diagnostic`:
+
+- Run **L0-L4 only** (skip L5 entirely, even if frontend detected).
+- Write results to `.deepflow/results/final-test-{spec}.yaml` under a `diagnostics:` key:
+  ```yaml
+  diagnostics:
+    spec: doing-upload
+    timestamp: 2024-01-15T10:30:00Z
+    L0: pass          # or fail
+    L1: pass          # or fail
+    L2: pass          # or warn (no tool)
+    L4: fail          # or pass
+    summary: "L0 ✓ | L1 ✓ | L2 ⚠ | L3 — | L4 ✗"
+  ```
+- Prefix all report output with `[DIAGNOSTIC]`.
+- **Skip entirely:** Post-Verification merge (§4), fix task creation, spec rename, decision extraction, PLAN.md cleanup (step 6).
+- Does **not** count as a revert for the circuit breaker.
+- Does **not** modify `auto-snapshot.txt`.
 
 ## Behavior
 
@@ -165,7 +187,7 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
 
 ## Post-Verification: Worktree Merge & Cleanup
 
-**Only runs when ALL gates pass.**
+**Only runs when ALL gates pass AND `--diagnostic` was NOT used.**
 
 1. **Discover worktree:** Read `.deepflow/checkpoint.json` for `worktree_branch`/`worktree_path`. Fallback: infer from `doing-*` spec name + `git worktree list --porcelain`. No worktree → "nothing to merge", exit.
 2. **Merge:** `git checkout main && git merge ${BRANCH} --no-ff -m "feat({spec}): merge verified changes"`. On conflict → keep worktree, output "Resolve manually, run /df:verify --merge-only", exit.
