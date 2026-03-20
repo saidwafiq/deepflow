@@ -7,9 +7,9 @@ Updated: 2026-03-20
 
 | Metric | Count |
 |--------|-------|
-| Specs analyzed | 2 |
-| Tasks created | 10 |
-| Tasks completed | 10 |
+| Specs analyzed | 1 |
+| Tasks created | 8 |
+| Tasks completed | 8 |
 | Tasks pending | 0 |
 
 ### doing-command-cleanup
@@ -172,82 +172,3 @@ T44 (verification) ← blocked by T38-T43
 ## File Conflict Matrix (command-cleanup)
 
 No file conflicts — each task touches distinct files. `bin/install.js` only modified by T41.
-
----
-
-### doing-plan-cleanup
-
-#### Spec Layer
-
-Spec plan-cleanup: L3 (full) — 0 spikes, 2 impl tasks
-
-#### REQ Status
-
-| REQ | Status | Notes |
-|-----|--------|-------|
-| REQ-1 | MISSING | `verify.md` post-verification (lines 159-169) has no PLAN.md cleanup step |
-| REQ-2 | MISSING | No summary recalculation or empty-delete logic in verify.md |
-| REQ-3 | DONE | `plan.md:200-202` step 8 already prunes stale done-* sections |
-| REQ-4 | MISSING | `execute.md:380` still says "Remove spec's ENTIRE section from PLAN.md" |
-
-#### Tasks
-
-- [x] **T49**: Add PLAN.md cleanup step to verify.md post-verification (f2ecfaf)
-  - Files: src/commands/df/verify.md
-  - Model: haiku
-  - Effort: low
-  - REQs: REQ-1, REQ-2
-  - Changes:
-    1. Add step 6 to Post-Verification section (after step 5 "Extract decisions", line 167): "**Clean PLAN.md:** Find the `### {spec-name}` section (match on name stem, strip `doing-`/`done-` prefix). Delete from header through the line before the next `### ` header (or EOF). Recalculate Summary table (recount `### ` headers for spec count, `- [ ]`/`- [x]` for task counts). If no spec sections remain, delete PLAN.md entirely. Skip silently if PLAN.md missing or section already gone."
-    2. Update output line 169: add `✓ Cleaned PLAN.md` to success message
-  - Impact:
-    - Callers: `/df:execute` step 8.2 invokes verify — cleanup now happens inside verify
-    - Data flow: verify.md post-verification now removes done spec section from PLAN.md
-  - Blocked by: none
-
-- [x] **T50**: Reword execute.md step 8.2 — defer PLAN.md cleanup to verify (cdece5a)
-  - Files: src/commands/df/execute.md
-  - Model: haiku
-  - Effort: low
-  - REQs: REQ-4
-  - Changes:
-    1. Line 380: replace "Remove spec's ENTIRE section from PLAN.md. Recalculate Summary table." with "PLAN.md section cleanup handled by verify (step 6)."
-  - Impact:
-    - Callers: no behavioral change — verify already runs in step 8.2 line 379
-    - Data flow: removes duplicate ownership of PLAN.md cleanup
-  - Blocked by: T40 (file conflict: execute.md)
-
-## Dependency Graph (plan-cleanup)
-
-```
-T49 (verify.md step 6) ← no blockers
-T50 (execute.md reword) ← blocked by T40 (command-cleanup, execute.md conflict)
-```
-
-## Parallelism Opportunities (plan-cleanup)
-
-- **Wave 1**: T49 — parallel with T38, T39, T45, T48 (no shared files or different sections)
-- **Wave 2**: T50 — blocked by T40 (cross-spec)
-
-## File Conflict Matrix (plan-cleanup)
-
-| File | Tasks | Resolution |
-|------|-------|------------|
-| verify.md | T49 (plan-cleanup), T45 (auto-verify), T46 (auto-verify) | T49 ∥ T45 (different sections) → T46 |
-| execute.md | T50 (plan-cleanup), T40 (command-cleanup), T47 (auto-verify) | T40 → T50 → T47 |
-
----
-
-## Global Cross-Spec Dependency Summary
-
-```
-execute.md chain: T40 (command-cleanup) → T50 (plan-cleanup) → T47 (auto-verify)
-verify.md chain:  T45 ∥ T49 (parallel, different sections) → T46 → (T47 needs T46)
-```
-
-## Global Wave Plan
-
-- **Wave 1**: T38 + T39 + T45 + T48 + T49 — all parallel (no file conflicts)
-- **Wave 2**: T40 + T41 + T42 + T43 + T46 — T40/T41/T43 blocked by T39, T42 by T38, T46 by T45
-- **Wave 3**: T44 + T50 — T44 blocked by T38-T43, T50 blocked by T40
-- **Wave 4**: T47 — blocked by T46 + T50
