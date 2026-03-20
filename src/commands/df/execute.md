@@ -21,10 +21,11 @@ Each task = one background agent. **NEVER use TaskOutput** (100KB+ transcripts e
 2. STOP. End turn. Do NOT poll.
 3. On EACH notification:
    a. Ratchet check (§5.5)
-   b. Passed → TaskUpdate(status: "completed"), update PLAN.md [x] + commit hash
-   c. Failed → partial salvage (§5.5). Salvaged → passed. Not → git revert, TaskUpdate(status: "pending")
-   d. Report ONE line: "✓ T1: ratchet passed (abc123)" or "⚕ T1: salvaged (abc124)" or "✗ T1: reverted"
-   e. NOT all done → end turn, wait | ALL done → next wave or finish
+   b. Passed → wave test agent (§5.6). Tests pass → re-snapshot (§5.6) → TaskUpdate(status: "completed"), update PLAN.md [x] + commit hash
+   c. Failed → partial salvage (§5.5). Salvaged → wave test agent (§5.6). Not → git revert, TaskUpdate(status: "pending")
+   d. Wave test agent failed after max attempts → revert ALL task commits, TaskUpdate(status: "pending")
+   e. Report ONE line: "✓ T1: ratchet+tests passed (abc123)" or "⚕ T1: salvaged+tested (abc124)" or "✗ T1: reverted" or "✗ T1: test agent failed, reverted"
+   f. NOT all done → end turn, wait | ALL done → next wave or finish
 4. Between waves: context ≥50% → checkpoint and exit.
 5. Repeat until: all done, all blocked, or context ≥50%.
 ```
@@ -53,7 +54,26 @@ git -C ${WORKTREE_PATH} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.
 
 ### 1.7. NO-TESTS BOOTSTRAP
 
-Zero test files → spawn ONE bootstrap agent (§6 Bootstrap). Pass → re-snapshot, end cycle. Fail → revert, halt "Bootstrap failed — manual intervention required". Subsequent cycles use bootstrapped tests as baseline.
+<!-- AC-1: zero test files triggers bootstrap before wave 1 -->
+<!-- AC-2: bootstrap success re-snapshots auto-snapshot.txt; subsequent tasks use updated snapshot -->
+<!-- AC-3: bootstrap failure with default model retries with Opus; double failure halts with specific message -->
+
+**Gate:** After §1.6 snapshot, check `auto-snapshot.txt`:
+```bash
+SNAPSHOT_COUNT=$(wc -l < .deepflow/auto-snapshot.txt | tr -d ' ')
+```
+If `SNAPSHOT_COUNT` is `0` (zero test files found), MUST spawn bootstrap agent before wave 1. No implementation tasks may start until bootstrap completes successfully.
+
+**Bootstrap flow:**
+1. Spawn `Agent(model="{default_model}", ...)` with Bootstrap prompt (§6). End turn, wait for notification.
+2. **On success (TASK_STATUS:pass):** Re-snapshot immediately:
+   ```bash
+   git -C ${WORKTREE_PATH} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' > .deepflow/auto-snapshot.txt
+   ```
+   All subsequent tasks use this updated snapshot as their ratchet baseline. Proceed to wave 1.
+3. **On failure (TASK_STATUS:fail) with default model:** Retry ONCE with `Agent(model="opus", ...)` using the same Bootstrap prompt.
+   - Opus success → re-snapshot (same command above) → proceed to wave 1.
+   - Opus failure → halt with message: `"Bootstrap failed with both default and Opus — manual intervention required"`. Do not proceed.
 
 ### 2. LOAD PLAN
 
@@ -114,6 +134,46 @@ Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for
 **Evaluate:** All pass → commit stands. Failure → partial salvage:
 1. Lint/typecheck-only (build+tests passed): spawn `Agent(model="haiku")` to fix. Re-ratchet. Fail → revert both.
 2. Build/test failure → `git revert HEAD --no-edit` (no salvage).
+
+### 5.6. WAVE TEST AGENT
+
+<!-- AC-8: After wave ratchet passes, Opus test agent spawns and writes unit tests -->
+<!-- AC-9: Test failures trigger implementer re-spawn with failure feedback; max 3 attempts then revert -->
+<!-- AC-12: auto-snapshot.txt re-generated after wave test agent commits; wave N+1 ratchet includes wave N tests -->
+
+**Trigger:** After ratchet check passes (or after successful salvage) for a task.
+
+**Attempt tracking:** Initialize `attempt_count = 1` and `failure_feedback = ""` per task when first spawned. Max 3 total attempts (1 initial + 2 retries).
+
+**Flow:**
+1. Capture the implementation diff: `git -C ${WORKTREE_PATH} diff HEAD~1` → store as `IMPL_DIFF`.
+2. Spawn `Agent(model="opus")` with Wave Test prompt (§6). `run_in_background=true`. End turn, wait.
+3. On notification:
+   a. Run ratchet check (§5.5) — all new + pre-existing tests must pass.
+   b. **Tests pass** → commit stands. **Re-snapshot** immediately so wave N+1 ratchet includes wave N tests:
+      ```bash
+      git -C ${WORKTREE_PATH} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' > .deepflow/auto-snapshot.txt
+      ```
+      Task complete. Report: `"✓ T{n}: ratchet+tests passed ({hash})"`.
+   c. **Tests fail** →
+      - If `attempt_count < 3`:
+        - `git revert HEAD --no-edit` (revert test commit)
+        - `git revert HEAD --no-edit` (revert implementation commit)
+        - Accumulate failure output: `failure_feedback += "Attempt {N}: {truncated_test_output}\n"`
+        - `attempt_count += 1`
+        - Re-spawn implementer agent with original prompt + failure feedback appendix:
+          ```
+          PREVIOUS FAILURES (attempt {N-1} of 3):
+          {failure_feedback}
+          Fix the issues above. Do NOT repeat the same mistakes.
+          ```
+        - On implementer notification: ratchet check (§5.5). Passed → goto step 1 (spawn test agent again). Failed → same retry logic.
+      - If `attempt_count >= 3`:
+        - Revert ALL commits back to pre-task state: `git -C ${WORKTREE_PATH} reset --hard {pre_task_commit}`
+        - `TaskUpdate(status: "pending")`
+        - Report: `"✗ T{n}: test agent failed after 3 attempts, reverted"`
+
+**Output truncation for failure feedback:** Test failures → test names + last 30 lines of output. Build failures → last 15 lines. Cap total `failure_feedback` at 200 lines.
 
 ### 5.7. PARALLEL SPIKE PROBES
 
@@ -186,18 +246,46 @@ REPEAT:
 --- START ---
 {task_id}: {description}  Files: {files}  Spec: {spec}
 {If reverted: DO NOT repeat: - Cycle {N}: "{reason}"}
+{If spike insights exist:
+spike_results:
+  hypothesis: {hypothesis from spike_insights}
+  outcome: {outcome}
+  edge_cases: {edge_cases}
+  insight: {insight from probe_learnings}
+}
 Success criteria: {ACs from spec relevant to this task}
 --- MIDDLE (omit for low effort; omit deps for medium) ---
 Impact: Callers: {file} ({why}) | Duplicates: [active→consolidate] [dead→DELETE] | Data flow: {consumers}
 Prior tasks: {dep_id}: {summary}
 Steps: 1. chub search/get for APIs 2. LSP findReferences, add unlisted callers 3. Read all Impact files 4. Implement 5. Commit
 --- END ---
-Spike results: {winner learnings}
 Duplicates: [active]→consolidate [dead]→DELETE. ONLY job: code+commit. No merge/rename/checkout.
 Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed) or TASK_STATUS:revert (if reverted)
 ```
 
 **Bootstrap:** `BOOTSTRAP: Write tests for edit_scope files. Do NOT change implementation. Commit as test({spec}): bootstrap. Last line: TASK_STATUS:pass or TASK_STATUS:fail`
+
+**Wave Test** (`Agent(model="opus")`):
+```
+--- START ---
+You are a QA engineer. Write unit tests for the following code changes.
+Use {test_framework}. Test behavioral correctness, not implementation details.
+Spec: {spec}. Task: {task_id}.
+
+Implementation diff:
+{IMPL_DIFF}
+
+--- MIDDLE ---
+Files changed: {changed_files}
+Existing test patterns: {test_file_examples from auto-snapshot.txt, first 3}
+
+--- END ---
+Write thorough unit tests covering: happy paths, edge cases, error handling.
+Follow existing test conventions in the codebase.
+Commit as: test({spec}): wave-{N} unit tests
+Do NOT modify implementation files. ONLY add/edit test files.
+Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail
+```
 
 **Spike:** `{task_id} [SPIKE]: {hypothesis}. Files+Spec. {reverted warnings}. Minimal spike. Commit as spike({spec}): {desc}. Last line: TASK_STATUS:pass or TASK_STATUS:fail`
 
@@ -229,9 +317,65 @@ ONE atomic change. Commit. STOP.
 Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail or TASK_STATUS:revert
 ```
 
+**Final Test** (`Agent(model="opus")`):
+```
+--- START ---
+You are an independent QA engineer. You have ONLY the spec and exported interfaces below.
+You cannot read implementation files — you must treat the system as a black box.
+Write integration tests that verify EACH acceptance criterion from the spec.
+
+Spec:
+{SPEC_CONTENT}
+
+Exported interfaces:
+{EXPORTED_INTERFACES}
+
+--- END ---
+Write integration tests covering every AC in the spec.
+Test through public interfaces only — no internal imports, no implementation details.
+If an AC cannot be tested through exports alone, write a test stub with a TODO comment explaining why.
+Commit as: test({spec}): integration tests
+Do NOT read or modify implementation files. ONLY add/edit test files.
+Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail
+```
+
 ### 8. COMPLETE SPECS
 
+<!-- AC-10: After all waves, Opus black-box test agent spawns with spec + exports only (no implementation) -->
+<!-- AC-11: Final integration tests must all pass before merge proceeds; failure blocks merge -->
+
 All tasks done for `doing-*` spec:
+
+**8.1. Final Test Agent (black-box integration tests):**
+
+Before merge, spawn an independent Opus QA agent that sees ONLY the spec and exported interfaces — never implementation source.
+
+1. Extract exported interfaces from the worktree (public API surface):
+   ```bash
+   # Collect exported symbols — adapt pattern to language
+   git -C ${WORKTREE_PATH} diff main --name-only | xargs grep -h '^\(export\|pub \|func \|def \)' 2>/dev/null | head -100
+   ```
+   Store result as `EXPORTED_INTERFACES`. Also load spec content: `cat specs/doing-{name}.md` → `SPEC_CONTENT`.
+
+2. Spawn `Agent(model="opus")` with Final Test prompt (§6). `run_in_background=true`. End turn, wait.
+
+3. On notification:
+   a. Run ratchet check (§5.5) — all integration tests must pass.
+   b. **Tests pass** → commit stands. Proceed to step 8.2 (merge).
+   c. **Tests fail** → **merge is blocked**. Do NOT retry. Report:
+      `"✗ Final integration tests failed for {spec} — merge blocked, requires human review"`
+      Leave worktree intact. Set all spec tasks back to `TaskUpdate(status: "pending")`.
+      Write failure details to `.deepflow/results/final-test-{spec}.yaml`:
+      ```yaml
+      spec: {spec}
+      status: blocked
+      reason: "Final integration tests failed"
+      output: |
+        {truncated test output — last 30 lines}
+      ```
+      STOP. Do not proceed to merge.
+
+**8.2. Merge and cleanup:**
 1. `skill: "df:verify", args: "doing-{name}"` — runs L0-L4 gates, merges, cleans worktree, renames doing→done, extracts decisions. Fail (fix tasks added) → stop; `--continue` picks them up.
 2. Remove spec's ENTIRE section from PLAN.md. Recalculate Summary table.
 
@@ -283,4 +427,6 @@ Reverted task: `TaskUpdate(status: "pending")`, dependents stay blocked. Repeate
 | Ratchet + metric both required | Keep only if both pass |
 | Plateau → probes | 3 cycles <1% triggers probes |
 | Circuit breaker = 3 reverts | Halts, needs human |
+| Wave test after ratchet | Opus writes tests; 3 attempts then revert |
+| Final test before merge | Opus black-box integration tests; failure blocks merge, no retry |
 | Probe diversity | ≥1 contraditoria + ≥1 ingenua |
