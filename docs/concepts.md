@@ -152,7 +152,7 @@ Two loops operate at different timescales:
 
 **Human loop (upstream):** `/df:discover` → `/df:debate` → `/df:spec` — you define the problem, at your pace.
 
-**AI loop (downstream):** `/df:auto` → repeated `/df:auto-cycle` — the system plans, executes, validates, and merges autonomously.
+**AI loop (downstream):** `/df:auto` → repeated auto-cycle skill — the system plans, executes, validates, and merges autonomously.
 
 Each cycle gets fresh context (no accumulated rot). Cross-cycle state persists in `.deepflow/auto-memory.yaml` — task outcomes, revert counts, probe insights.
 
@@ -162,7 +162,7 @@ Circuit breaker halts after N consecutive reverts on the same task.
 
 Architectural decisions are captured in two ways:
 - **Automatically** by `/df:verify` — extracted from completed specs
-- **Manually** via `/df:note` — ad-hoc decisions from conversation
+- **Manually** via conversation — ad-hoc decisions are auto-extracted by `/df:verify`
 
 All decisions go to `.deepflow/decisions.md`. Contradictions appended, never overwritten.
 
