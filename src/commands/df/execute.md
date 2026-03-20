@@ -156,8 +156,11 @@ Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for
 
 **Flow:**
 1. Capture the implementation diff: `git -C ${WORKTREE_PATH} diff HEAD~1` → store as `IMPL_DIFF`.
-2. Spawn `Agent(model="opus")` with Wave Test prompt (§6). `run_in_background=true`. End turn, wait.
-3. On notification:
+2. Gather dedup context:
+   - Read `.deepflow/auto-snapshot.txt` → store full file list as `SNAPSHOT_FILES`.
+   - Extract existing test function names: `grep -h 'describe\|it(\|test(\|def test_\|func Test' $(cat .deepflow/auto-snapshot.txt) 2>/dev/null | head -50` → store as `EXISTING_TEST_NAMES`.
+3. Spawn `Agent(model="opus")` with Wave Test prompt (§6), passing `SNAPSHOT_FILES` and `EXISTING_TEST_NAMES`. `run_in_background=true`. End turn, wait.
+4. On notification:
    a. Run ratchet check (§5.5) — all new + pre-existing tests must pass.
    b. **Tests pass** → commit stands. **Re-snapshot** immediately so wave N+1 ratchet includes wave N tests:
       ```bash
@@ -176,7 +179,7 @@ Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for
           {failure_feedback}
           Fix the issues above. Do NOT repeat the same mistakes.
           ```
-        - On implementer notification: ratchet check (§5.5). Passed → goto step 1 (spawn test agent again). Failed → same retry logic.
+        - On implementer notification: ratchet check (§5.5). Passed → goto step 2 (gather dedup context, spawn test agent again). Failed → same retry logic.
       - If `attempt_count >= 3`:
         - Revert ALL commits back to pre-task state: `git -C ${WORKTREE_PATH} reset --hard {pre_task_commit}`
         - `TaskUpdate(status: "pending")`
@@ -288,9 +291,16 @@ Implementation diff:
 Files changed: {changed_files}
 Existing test patterns: {test_file_examples from auto-snapshot.txt, first 3}
 
+Pre-existing test files (from auto-snapshot.txt):
+{SNAPSHOT_FILES}
+
+Existing test function names (do NOT duplicate these):
+{EXISTING_TEST_NAMES}
+
 --- END ---
 Write thorough unit tests covering: happy paths, edge cases, error handling.
 Follow existing test conventions in the codebase.
+Do not duplicate tests for functionality already covered by the existing tests listed above.
 Commit as: test({spec}): wave-{N} unit tests
 Do NOT modify implementation files. ONLY add/edit test files.
 Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail
