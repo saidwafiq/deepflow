@@ -12,13 +12,35 @@ context: fork
 
 ## Usage
 ```
-/df:verify                  # Verify doing-* specs with all tasks completed
-/df:verify doing-upload     # Verify specific spec
-/df:verify --re-verify      # Re-verify done-* specs (already merged)
+/df:verify                        # Verify doing-* specs with all tasks completed
+/df:verify doing-upload           # Verify specific spec
+/df:verify --re-verify            # Re-verify done-* specs (already merged)
+/df:verify --diagnostic doing-upload  # L0-L4 only; write results to diagnostics yaml; no merge/fix/rename
 ```
 
 ## Spec File States
 `specs/feature.md` → unplanned (skip) | `doing-*.md` → default target | `done-*.md` → `--re-verify` only
+
+## Diagnostic Mode (`--diagnostic`)
+
+When invoked with `--diagnostic`:
+
+- Run **L0-L4 only** (skip L5 entirely, even if frontend detected).
+- Write results to `.deepflow/results/final-test-{spec}.yaml` under a `diagnostics:` key:
+  ```yaml
+  diagnostics:
+    spec: doing-upload
+    timestamp: 2024-01-15T10:30:00Z
+    L0: pass          # or fail
+    L1: pass          # or fail
+    L2: pass          # or warn (no tool)
+    L4: fail          # or pass
+    summary: "L0 ✓ | L1 ✓ | L2 ⚠ | L3 — | L4 ✗"
+  ```
+- Prefix all report output with `[DIAGNOSTIC]`.
+- **Skip entirely:** Post-Verification merge (§4), fix task creation, spec rename, decision extraction, PLAN.md cleanup (step 6).
+- Does **not** count as a revert for the circuit breaker.
+- Does **not** modify `auto-snapshot.txt`.
 
 ## Behavior
 
@@ -71,7 +93,9 @@ No tool → pass with warning. When available: stash changes → run coverage on
 
 Algorithm: detect frontend → resolve dev command/port → start server → poll readiness → read assertions from PLAN.md → auto-install Playwright Chromium → evaluate via `locator.ariaSnapshot()` → screenshot → retry once on failure → report.
 
-**Step 1: Detect frontend.** Config `quality.browser_verify` overrides: `false` → always skip (`L5 — (no frontend)`), `true` → always run, absent → auto-detect from package.json (both deps and devDeps):
+**Step 1: Detect frontend.** Config `quality.browser_verify` overrides: `false` → always skip (`L5 — (no frontend)`), `true` → always run, absent → auto-detect using BOTH conditions:
+
+1. Frontend framework found in package.json (deps or devDeps):
 
 | Package(s) | Framework |
 |------------|-----------|
@@ -82,7 +106,12 @@ Algorithm: detect frontend → resolve dev command/port → start server → pol
 | `@sveltejs/kit` | SvelteKit |
 | `svelte`, `@sveltejs/*` | Svelte |
 
-No frontend detected and no config override → `L5 — (no frontend)`, skip remaining L5 steps.
+2. A `browser_assertions:` block exists in PLAN.md scoped to the current spec.
+
+**Auto-detect outcomes (no config override):**
+- No frontend detected → `L5 — (no frontend)`, skip remaining L5 steps.
+- Frontend detected but no `browser_assertions:` block in PLAN.md for current spec → `L5 — (no browser_assertions in PLAN.md)`, skip remaining L5 steps.
+- Both conditions met → proceed to Steps 2–6.
 
 **Step 2: Dev server lifecycle.**
 1. **Resolve dev command:** Config `quality.dev_command` wins → fallback to `npm run dev` if `scripts.dev` exists → none found → skip L5 with warning.
@@ -113,7 +142,7 @@ No frontend detected and no config override → `L5 — (no frontend)`, skip rem
 | Fail | Fail — same selectors | L5 ✗ — genuine failure |
 | Fail | Fail — different selectors | L5 ✗ (flaky) |
 
-All L5 outcomes: `✓` pass | `⚠` passed on retry | `✗` both failed (same) | `✗ (flaky)` both failed (different) | `— (no frontend)` | `— (no assertions)` | `✗ (install failed)`
+All L5 outcomes: `✓` pass | `⚠` passed on retry | `✗` both failed (same) | `✗ (flaky)` both failed (different) | `— (no frontend)` | `— (no browser_assertions in PLAN.md)` | `— (no assertions)` | `✗ (install failed)`
 
 **Fix task on L5 failure:** Append to PLAN.md under spec section with next T{n} ID. Include: failing assertions (selector + detail), first 40 lines of `locator('body').ariaSnapshot()` DOM excerpt, screenshot path, flakiness note if assertion sets differed.
 
@@ -158,7 +187,7 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
 
 ## Post-Verification: Worktree Merge & Cleanup
 
-**Only runs when ALL gates pass.**
+**Only runs when ALL gates pass AND `--diagnostic` was NOT used.**
 
 1. **Discover worktree:** Read `.deepflow/checkpoint.json` for `worktree_branch`/`worktree_path`. Fallback: infer from `doing-*` spec name + `git worktree list --porcelain`. No worktree → "nothing to merge", exit.
 2. **Merge:** `git checkout main && git merge ${BRANCH} --no-ff -m "feat({spec}): merge verified changes"`. On conflict → keep worktree, output "Resolve manually, run /df:verify --merge-only", exit.
