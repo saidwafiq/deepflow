@@ -124,7 +124,7 @@ describe('Installer output — commands and skills listing', () => {
     }
   });
 
-  test('output does NOT list removed commands (report, note, resume, consolidate)', { todo: 'REQ-8: installer output update not yet implemented' }, () => {
+  test('output does NOT list removed commands (report, note, resume, consolidate)', () => {
     const { stdout } = runInstaller([], { home: tmpHome, cwd: tmpProject });
     const removedCommands = [
       '/df:report',
@@ -255,7 +255,7 @@ describe('Hook configuration — consolidation-check hook', () => {
     assert.equal(filtered.length, 3, 'Malformed hooks should be kept (not errored)');
   });
 
-  test('configureHooks does NOT add consolidation-check to SessionStart', { todo: 'REQ-9: consolidation-check hook removal not yet implemented' }, () => {
+  test('configureHooks does NOT add consolidation-check to SessionStart', () => {
     // Read install.js source and verify the string 'consolidation-check' does not
     // appear as a command being PUSHED to SessionStart.
     const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
@@ -271,7 +271,7 @@ describe('Hook configuration — consolidation-check hook', () => {
     );
   });
 
-  test('source does not reference df-consolidation-check.js in hook setup variable', { todo: 'REQ-9: consolidation-check hook removal not yet implemented' }, () => {
+  test('source does not reference df-consolidation-check.js in hook setup variable', () => {
     const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
 
     // consolidationCheckCmd should not be defined / used to register a hook
