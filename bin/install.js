@@ -241,6 +241,7 @@ async function configureHooks(claudeDir) {
   const dashboardPushCmd = `node "${path.join(claudeDir, 'hooks', 'df-dashboard-push.js')}"`;
   const executionHistoryCmd = `node "${path.join(claudeDir, 'hooks', 'df-execution-history.js')}"`;
   const worktreeGuardCmd = `node "${path.join(claudeDir, 'hooks', 'df-worktree-guard.js')}"`;
+  const snapshotGuardCmd = `node "${path.join(claudeDir, 'hooks', 'df-snapshot-guard.js')}"`;
   const invariantCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-invariant-check.js')}"`;
 
   let settings = {};
@@ -347,10 +348,10 @@ async function configureHooks(claudeDir) {
     settings.hooks.PostToolUse = [];
   }
 
-  // Remove any existing deepflow tool usage / execution history / worktree guard / invariant check hooks from PostToolUse
+  // Remove any existing deepflow tool usage / execution history / worktree guard / snapshot guard / invariant check hooks from PostToolUse
   settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(hook => {
     const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard') && !cmd.includes('df-invariant-check');
+    return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard') && !cmd.includes('df-snapshot-guard') && !cmd.includes('df-invariant-check');
   });
 
   // Add tool usage hook
@@ -374,6 +375,14 @@ async function configureHooks(claudeDir) {
     hooks: [{
       type: 'command',
       command: worktreeGuardCmd
+    }]
+  });
+
+  // Add snapshot guard hook (blocks Write/Edit to ratchet-baseline files in auto-snapshot.txt)
+  settings.hooks.PostToolUse.push({
+    hooks: [{
+      type: 'command',
+      command: snapshotGuardCmd
     }]
   });
 
@@ -566,7 +575,7 @@ async function uninstall() {
   ];
 
   if (level === 'global') {
-    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js', 'hooks/df-dashboard-push.js', 'hooks/df-execution-history.js', 'hooks/df-worktree-guard.js');
+    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js', 'hooks/df-dashboard-push.js', 'hooks/df-execution-history.js', 'hooks/df-worktree-guard.js', 'hooks/df-snapshot-guard.js');
   }
 
   for (const item of toRemove) {
@@ -613,7 +622,7 @@ async function uninstall() {
         if (settings.hooks?.PostToolUse) {
           settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(hook => {
             const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard') && !cmd.includes('df-invariant-check');
+            return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard') && !cmd.includes('df-snapshot-guard') && !cmd.includes('df-invariant-check');
           });
           if (settings.hooks.PostToolUse.length === 0) {
             delete settings.hooks.PostToolUse;
