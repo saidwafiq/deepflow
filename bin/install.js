@@ -183,8 +183,8 @@ async function main() {
   console.log(`${c.green}Installation complete!${c.reset}`);
   console.log('');
   console.log(`Installed to ${c.cyan}${CLAUDE_DIR}${c.reset}:`);
-  console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:auto, /df:note, /df:resume, /df:update, /df:report');
-  console.log('  skills/          — gap-discovery, atomic-commits, code-completeness, browse-fetch, browse-verify');
+  console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:auto, /df:update');
+  console.log('  skills/          — gap-discovery, atomic-commits, code-completeness, browse-fetch, browse-verify, auto-cycle');
   console.log('  agents/          — reasoner (/df:auto — autonomous execution via /loop)');
   if (level === 'global') {
     console.log('  hooks/           — statusline, update checker, invariant checker, worktree guard');
@@ -236,7 +236,6 @@ async function configureHooks(claudeDir) {
   const settingsPath = path.join(claudeDir, 'settings.json');
   const statuslineCmd = `node "${path.join(claudeDir, 'hooks', 'df-statusline.js')}"`;
   const updateCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-check-update.js')}"`;
-  const consolidationCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-consolidation-check.js')}"`;
   const quotaLoggerCmd = `node "${path.join(claudeDir, 'hooks', 'df-quota-logger.js')}"`;
   const toolUsageCmd = `node "${path.join(claudeDir, 'hooks', 'df-tool-usage.js')}"`;
   const dashboardPushCmd = `node "${path.join(claudeDir, 'hooks', 'df-dashboard-push.js')}"`;
@@ -295,7 +294,7 @@ async function configureHooks(claudeDir) {
   // Remove any existing deepflow update check / quota logger hooks from SessionStart
   settings.hooks.SessionStart = settings.hooks.SessionStart.filter(hook => {
     const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-check-update') && !cmd.includes('df-consolidation-check') && !cmd.includes('df-quota-logger');
+    return !cmd.includes('df-check-update') && !cmd.includes('df-quota-logger');
   });
 
   // Add update check hook
@@ -303,14 +302,6 @@ async function configureHooks(claudeDir) {
     hooks: [{
       type: 'command',
       command: updateCheckCmd
-    }]
-  });
-
-  // Add consolidation check hook
-  settings.hooks.SessionStart.push({
-    hooks: [{
-      type: 'command',
-      command: consolidationCheckCmd
     }]
   });
 
@@ -575,7 +566,7 @@ async function uninstall() {
   ];
 
   if (level === 'global') {
-    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-consolidation-check.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js', 'hooks/df-dashboard-push.js', 'hooks/df-execution-history.js', 'hooks/df-worktree-guard.js');
+    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js', 'hooks/df-dashboard-push.js', 'hooks/df-execution-history.js', 'hooks/df-worktree-guard.js');
   }
 
   for (const item of toRemove) {
@@ -604,7 +595,7 @@ async function uninstall() {
         if (settings.hooks?.SessionStart) {
           settings.hooks.SessionStart = settings.hooks.SessionStart.filter(hook => {
             const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-check-update') && !cmd.includes('df-consolidation-check') && !cmd.includes('df-quota-logger');
+            return !cmd.includes('df-check-update') && !cmd.includes('df-quota-logger');
           });
           if (settings.hooks.SessionStart.length === 0) {
             delete settings.hooks.SessionStart;
