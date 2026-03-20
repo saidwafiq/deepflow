@@ -172,6 +172,22 @@ Updated: 2026-03-19
     - Duplicates: report.md [active — redirect to dashboard]
   - Blocked by: T12
 
+### doing-task-tracking
+
+- [x] **T25**: Fix hook/parser field mismatch — hook emits `event` + `started_at`/`ended_at`, parser expects `type` + `timestamp` — 1339377
+  - Files: hooks/df-execution-history.js
+  - Model: sonnet
+  - Effort: low
+  - REQs: REQ-1, REQ-5
+  - Changes:
+    1. In `df-execution-history.js`: change `event` field to `type` in both startRecord and endRecord
+    2. Change `started_at`/`ended_at` fields to `timestamp` in both records (spec says single `timestamp` field per record)
+    3. Aligns hook output with spec's JSONL record shapes and parser's TypeScript interfaces
+  - Impact:
+    - Callers: execution-history.ts parser reads these records
+    - Data flow: fixes entire task_attempts ingestion pipeline (AC-1, AC-5, AC-6)
+  - Blocked by: none
+
 ### doing-dashboard-fixes
 
 - [x] **T21**: Fix session parser — extract from `event.message.usage/model/content`, compute cost via `resolveModelPricing()` — ab031ef
