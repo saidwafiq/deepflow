@@ -24,7 +24,7 @@ async function aggregateAndComputeCosts(): Promise<void> {
   const updated = run(`
     UPDATE sessions SET
       tokens_in = COALESCE((
-        SELECT SUM(te.input_tokens + te.cache_read_tokens + te.cache_creation_tokens)
+        SELECT SUM(te.input_tokens)
         FROM token_events te WHERE te.session_id = sessions.id
       ), sessions.tokens_in),
       tokens_out = COALESCE((
