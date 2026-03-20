@@ -6,7 +6,7 @@
  * Exits silently (code 0) on all errors — never blocks tool execution (REQ-8).
  *
  * Output record fields:
- *   event, task_id, spec, session_id, started_at, ended_at, status
+ *   type, task_id, spec, session_id, timestamp, status
  */
 
 'use strict';
@@ -91,22 +91,19 @@ process.stdin.on('end', () => {
     const status = extractStatus(data.tool_response);
 
     const startRecord = {
-      event: 'task_start',
+      type: 'task_start',
       task_id: taskId,
       spec,
       session_id: sessionId,
-      started_at: timestamp,
-      ended_at: timestamp,  // C-1: started_at = ended_at for v1
+      timestamp,
     };
 
     const endRecord = {
-      event: 'task_end',
+      type: 'task_end',
       task_id: taskId,
-      spec,
       session_id: sessionId,
-      started_at: timestamp,
-      ended_at: timestamp,
       status,
+      timestamp,
     };
 
     const logDir = path.dirname(historyFile);
