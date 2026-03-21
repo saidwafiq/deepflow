@@ -18,9 +18,6 @@ function discoverTokenHistoryFiles(claudeDir: string): Array<{ path: string; pro
       .map(d => d.name);
 
     for (const dirName of projectDirs) {
-      // Skip worktree dirs for token-history (they share the parent's)
-      if (dirName.includes('--')) continue;
-
       // Decode dir name to real path: "-Users-saidsalles-apps-foo" → "/Users/saidsalles/apps/foo"
       const realPath = '/' + dirName.replace(/^-/, '').replace(/-/g, '/');
       const tokenFile = resolve(realPath, '.deepflow', 'token-history.jsonl');
