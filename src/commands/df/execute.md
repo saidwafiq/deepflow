@@ -107,11 +107,38 @@ Context ≥50% → checkpoint and exit. Before spawning: `TaskUpdate(status: "in
 
 **Token tracking start:** Store `start_percentage` (from context.json) and `start_timestamp` (ISO 8601) keyed by task_id. Omit if unavailable.
 
-**NEVER use `isolation: "worktree"`.** Deepflow manages a shared worktree so wave 2 sees wave 1 commits. **Spawn ALL ready tasks in ONE message** except file conflicts.
+**Spawn ALL ready tasks in ONE message** except file conflicts.
+
+**Intra-wave isolation:** For standard (non-spike, non-optimize) parallel tasks, use `isolation: "worktree"` so each agent works in its own isolated branch. Spikes use sub-worktrees managed by §5.7. Optimize tasks run one at a time in the shared worktree.
 
 **File conflicts (1 file = 1 writer):** Check `Files:` lists. Overlap → spawn lowest-numbered only; rest stay pending. Log: `"⏳ T{N} deferred — file conflict with T{M} on {filename}"`
 
 **≥2 [SPIKE] tasks same problem →** Parallel Spike Probes (§5.7). **[OPTIMIZE] tasks →** Optimize Cycle (§5.9), one at a time.
+
+### 5.1. INTRA-WAVE CHERRY-PICK MERGE
+
+After ALL wave-N agents complete (all notifications received and ratchet checks done), collect their commits and cherry-pick into the shared worktree BEFORE wave N+1 begins.
+
+**Ordering:** Cherry-pick in ascending task-number order (T1 before T2 before T3, etc.) to ensure deterministic application.
+
+**Per commit (via §5.8 haiku context-fork):**
+```
+Spawn Agent(model="haiku", isolation: "none", run_in_background=false):
+  Working directory: {SHARED_WORKTREE_PATH}
+  Run: git cherry-pick {task_commit_sha}
+  Return exactly ONE line: "cherry-pick: applied {sha} cleanly" or "cherry-pick: conflict in {file}"
+  Last line: TASK_STATUS:pass or TASK_STATUS:fail
+```
+
+**On TASK_STATUS:pass:** Cherry-pick succeeded. Log: `"✓ T{N}: cherry-picked {sha} to shared worktree"`.
+
+**On TASK_STATUS:fail (conflict detected):**
+1. Spawn haiku context-fork: `git cherry-pick --abort` — receive one-line confirmation.
+2. Log: `"✗ T{N}: cherry-pick conflict — reverting agent commit"`.
+3. Spawn haiku context-fork in the **agent's isolated worktree**: `git revert HEAD --no-edit` — receive one-line summary.
+4. `TaskUpdate(status: "pending")`. Task will retry in a future wave.
+
+**Wave gate:** Wave N+1 MUST NOT start until all wave-N cherry-picks complete (pass or revert). This ensures wave N+1 agents see the full integrated state of wave N.
 
 ### 5.5. RATCHET CHECK
 
