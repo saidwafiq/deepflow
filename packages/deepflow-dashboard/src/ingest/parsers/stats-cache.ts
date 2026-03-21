@@ -60,7 +60,8 @@ export async function parseStatsCache(db: DbHelpers, claudeDir: string): Promise
       ? ((parsed as { sessions: StatsCacheSession[] }).sessions ?? [])
       : [];
 
-  let upserted = 0;
+  let inserted = 0;
+  let updated = 0;
 
   for (const s of sessions) {
     const id = s.id ?? s.sessionId;
@@ -84,35 +85,75 @@ export async function parseStatsCache(db: DbHelpers, claudeDir: string): Promise
     if (rawCacheCreation < 0) console.warn(`[ingest:stats-cache] Clamping negative cache_creation (${rawCacheCreation}) to 0 for session ${id}`);
     if (rawCost < 0) console.warn(`[ingest:stats-cache] Clamping negative cost (${rawCost}) to 0 for session ${id}`);
 
-    try {
-      db.run(
-        `INSERT OR IGNORE INTO sessions
-           (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation,
-            duration_ms, messages, tool_calls, cost, started_at, ended_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id,
-          s.user ?? 'unknown',
-          s.project ?? null,
-          s.model ?? 'unknown',
-          clampedTokensIn,
-          clampedTokensOut,
-          clampedCacheRead,
-          clampedCacheCreation,
-          s.duration_ms ?? s.durationMs ?? null,
-          s.messages ?? 0,
-          s.tool_calls ?? s.toolCalls ?? 0,
-          clampedCost,
-          startedAt,
-          s.ended_at ?? s.endedAt ?? null,
-        ]
-      );
-      upserted++;
-    } catch (err) {
-      console.warn(`[ingest:stats-cache] Insert failed for session ${id}:`, err);
+    const existing = db.get('SELECT id FROM sessions WHERE id = ?', [id]);
+    if (existing) {
+      try {
+        db.run(
+          `UPDATE sessions SET
+             model = COALESCE(NULLIF(?, 'unknown'), model),
+             user = COALESCE(NULLIF(?, 'unknown'), user),
+             project = COALESCE(?, project),
+             tokens_in = CASE WHEN ? > 0 THEN ? ELSE tokens_in END,
+             tokens_out = CASE WHEN ? > 0 THEN ? ELSE tokens_out END,
+             cache_read = CASE WHEN ? > 0 THEN ? ELSE cache_read END,
+             cache_creation = CASE WHEN ? > 0 THEN ? ELSE cache_creation END,
+             cost = CASE WHEN ? > 0 THEN ? ELSE cost END,
+             duration_ms = COALESCE(?, duration_ms),
+             messages = COALESCE(?, messages),
+             tool_calls = COALESCE(?, tool_calls),
+             ended_at = COALESCE(?, ended_at)
+           WHERE id = ?`,
+          [
+            s.model ?? 'unknown',
+            s.user ?? 'unknown',
+            s.project ?? null,
+            clampedTokensIn, clampedTokensIn,
+            clampedTokensOut, clampedTokensOut,
+            clampedCacheRead, clampedCacheRead,
+            clampedCacheCreation, clampedCacheCreation,
+            clampedCost, clampedCost,
+            s.duration_ms ?? s.durationMs ?? null,
+            s.messages ?? null,
+            s.tool_calls ?? s.toolCalls ?? null,
+            s.ended_at ?? s.endedAt ?? null,
+            id,
+          ]
+        );
+        updated++;
+      } catch (err) {
+        console.warn(`[ingest:stats-cache] Update failed for session ${id}:`, err);
+      }
+    } else {
+      try {
+        db.run(
+          `INSERT INTO sessions
+             (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation,
+              duration_ms, messages, tool_calls, cost, started_at, ended_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            id,
+            s.user ?? 'unknown',
+            s.project ?? null,
+            s.model ?? 'unknown',
+            clampedTokensIn,
+            clampedTokensOut,
+            clampedCacheRead,
+            clampedCacheCreation,
+            s.duration_ms ?? s.durationMs ?? null,
+            s.messages ?? 0,
+            s.tool_calls ?? s.toolCalls ?? 0,
+            clampedCost,
+            startedAt,
+            s.ended_at ?? s.endedAt ?? null,
+          ]
+        );
+        inserted++;
+      } catch (err) {
+        console.warn(`[ingest:stats-cache] Insert failed for session ${id}:`, err);
+      }
     }
   }
 
   db.run('INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)', [offsetKey, contentSize]);
-  if (upserted > 0) console.log(`[ingest:stats-cache] Inserted ${upserted} session records from stats-cache`);
+  if (inserted > 0 || updated > 0) console.log(`[ingest:stats-cache] Inserted ${inserted}, updated ${updated} session records from stats-cache`);
 }
