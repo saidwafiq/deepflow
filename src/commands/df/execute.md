@@ -85,7 +85,21 @@ For each `[ ]` task: `TaskCreate(subject: "{task_id}: {description}", activeForm
 
 ### 3–4. READY TASKS
 
-Warn if unplanned `specs/*.md` (excluding doing-/done-) exist (non-blocking). Ready = TaskList where status: "pending" AND blockedBy: empty.
+Warn if unplanned `specs/*.md` (excluding doing-/done-) exist (non-blocking).
+
+**Wave computation (shell injection — do NOT compute manually):**
+```
+WAVE_PLAN=!`node bin/wave-runner.js --plan PLAN.md 2>/dev/null || echo 'WAVE_ERROR'`
+```
+Parse the output to determine the current wave. Output format:
+```
+Wave 1: T1 — description, T4 — description
+Wave 2: T2 — description
+...
+```
+If output is `WAVE_ERROR` or `(no pending tasks)`, fall back to TaskList where status: "pending" AND blockedBy: empty for wave 1.
+
+Ready = tasks listed in Wave 1 of the wave-runner output (cross-referenced with TaskList status: "pending").
 
 ### 5. SPAWN AGENTS
 
@@ -93,17 +107,44 @@ Context ≥50% → checkpoint and exit. Before spawning: `TaskUpdate(status: "in
 
 **Token tracking start:** Store `start_percentage` (from context.json) and `start_timestamp` (ISO 8601) keyed by task_id. Omit if unavailable.
 
-**NEVER use `isolation: "worktree"`.** Deepflow manages a shared worktree so wave 2 sees wave 1 commits. **Spawn ALL ready tasks in ONE message** except file conflicts.
+**Spawn ALL ready tasks in ONE message** except file conflicts.
+
+**Intra-wave isolation:** For standard (non-spike, non-optimize) parallel tasks, use `isolation: "worktree"` so each agent works in its own isolated branch. Spikes use sub-worktrees managed by §5.7. Optimize tasks run one at a time in the shared worktree.
 
 **File conflicts (1 file = 1 writer):** Check `Files:` lists. Overlap → spawn lowest-numbered only; rest stay pending. Log: `"⏳ T{N} deferred — file conflict with T{M} on {filename}"`
 
 **≥2 [SPIKE] tasks same problem →** Parallel Spike Probes (§5.7). **[OPTIMIZE] tasks →** Optimize Cycle (§5.9), one at a time.
 
+### 5.1. INTRA-WAVE CHERRY-PICK MERGE
+
+After ALL wave-N agents complete (all notifications received and ratchet checks done), collect their commits and cherry-pick into the shared worktree BEFORE wave N+1 begins.
+
+**Ordering:** Cherry-pick in ascending task-number order (T1 before T2 before T3, etc.) to ensure deterministic application.
+
+**Per commit (via §5.8 haiku context-fork):**
+```
+Spawn Agent(model="haiku", isolation: "none", run_in_background=false):
+  Working directory: {SHARED_WORKTREE_PATH}
+  Run: git cherry-pick {task_commit_sha}
+  Return exactly ONE line: "cherry-pick: applied {sha} cleanly" or "cherry-pick: conflict in {file}"
+  Last line: TASK_STATUS:pass or TASK_STATUS:fail
+```
+
+**On TASK_STATUS:pass:** Cherry-pick succeeded. Log: `"✓ T{N}: cherry-picked {sha} to shared worktree"`.
+
+**On TASK_STATUS:fail (conflict detected):**
+1. Spawn haiku context-fork: `git cherry-pick --abort` — receive one-line confirmation.
+2. Log: `"✗ T{N}: cherry-pick conflict — reverting agent commit"`.
+3. Spawn haiku context-fork in the **agent's isolated worktree**: `git revert HEAD --no-edit` — receive one-line summary.
+4. `TaskUpdate(status: "pending")`. Task will retry in a future wave.
+
+**Wave gate:** Wave N+1 MUST NOT start until all wave-N cherry-picks complete (pass or revert). This ensures wave N+1 agents see the full integrated state of wave N.
+
 ### 5.5. RATCHET CHECK
 
 Run `node bin/ratchet.js` in the worktree directory after each agent completes:
 ```bash
-node bin/ratchet.js --worktree ${WORKTREE_PATH} --snapshot .deepflow/auto-snapshot.txt
+node bin/ratchet.js --worktree ${WORKTREE_PATH} --snapshot .deepflow/auto-snapshot.txt --task T{N}
 ```
 
 The script handles all health checks internally and outputs structured JSON:
@@ -124,7 +165,11 @@ The script handles all health checks internally and outputs structured JSON:
 
 **Orchestrator response by exit code:**
 - **Exit 0 (PASS):** Commit stands. Proceed to §5.6 wave test agent.
-- **Exit 1 (FAIL):** Script already reverted. Set `TaskUpdate(status: "pending")`. Report: `"✗ T{n}: reverted"`.
+- **Exit 1 (FAIL):** Script already reverted. Set `TaskUpdate(status: "pending")`. Recompute remaining waves:
+  ```
+  WAVE_PLAN=!`node bin/wave-runner.js --plan PLAN.md --recalc --failed T{N} 2>/dev/null || echo 'WAVE_ERROR'`
+  ```
+  Report: `"✗ T{n}: reverted"`.
 - **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="haiku")` to fix lint/typecheck issues. Re-run `node bin/ratchet.js`. If still non-zero → revert both commits, set status pending.
 
 **Edit scope validation:** `git diff HEAD~1 --name-only` vs allowed globs. Violation → revert, report.
@@ -155,7 +200,8 @@ Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for
 **Attempt tracking:** Initialize `attempt_count = 1` and `failure_feedback = ""` per task when first spawned. Max 3 total attempts (1 initial + 2 retries).
 
 **Flow:**
-1. Gather dedup context:
+1. Capture the implementation diff summary via haiku context-fork (§5.8): spawn haiku with `git -C ${WORKTREE_PATH} diff HEAD~1`; receive one-line summary (e.g., `diff: 3 files, +47/-12 lines`). The Wave Test agent will read the full diff itself via the `Read` tool or `git diff HEAD~1` — do NOT capture or pass the raw diff to the Wave Test prompt.
+2. Gather dedup context:
    - Read `.deepflow/auto-snapshot.txt` → store full file list as `SNAPSHOT_FILES`.
    - Extract existing test function names: `grep -h 'describe\|it(\|test(\|def test_\|func Test' $(cat .deepflow/auto-snapshot.txt) 2>/dev/null | head -50` → store as `EXISTING_TEST_NAMES`.
 3. Spawn `Agent(model="opus")` with Wave Test prompt (§6), passing `SNAPSHOT_FILES` and `EXISTING_TEST_NAMES`. `run_in_background=true`. End turn, wait.
@@ -197,7 +243,7 @@ Trigger: ≥2 [SPIKE] tasks with same blocker or identical hypothesis.
 5. **Winner selection** (no LLM judge): disqualify regressions. Standard: fewer regressions > coverage > fewer files > first complete. Optimize: best metric delta > fewer regressions > fewer files. No passes → reset pending for debugger.
 6. Preserve all worktrees. Losers: branch + `-failed`. Record in checkpoint.json.
 7. Log all outcomes to `.deepflow/auto-memory.yaml` under `spike_insights`+`probe_learnings` (schema in src/skills/auto-cycle/SKILL.md). Both winners and losers.
-8. Cherry-pick winner into shared worktree. Winner → `[x] [PROBE_WINNER]`, losers → `[~] [PROBE_FAILED]`.
+8. Cherry-pick winner into shared worktree via haiku context-fork (§5.8): spawn haiku with `git cherry-pick {winner_sha}`; receive one-line summary. Winner → `[x] [PROBE_WINNER]`, losers → `[~] [PROBE_FAILED]`.
 
 #### 5.7.1. PROBE DIVERSITY (Optimize Probes)
 
@@ -210,6 +256,37 @@ Roles: **contextualizada** (refine best), **contraditoria** (opposite of best), 
 | 3rd+ | 6 | 2 contextualizada + 2 contraditoria + 2 ingenua |
 
 Every set: ≥1 contraditoria + ≥1 ingenua. contextualizada from round 2+ only. Scale persists in `optimize_state.probe_scale`.
+
+### 5.8. HAIKU GIT-OPS (context-fork)
+
+<!-- AC-7: git diff/stash/cherry-pick run in a haiku context-fork; orchestrator receives one-line summary -->
+
+Git operations that produce large output (diff, stash, cherry-pick conflict output) MUST be delegated to a context-forked haiku subagent. Raw output never enters the orchestrator context.
+
+**Trigger:** Any of: post-implementation diff capture (§5.6 step 1), revert confirmation, cherry-pick merge-back.
+
+**Pattern:**
+```
+Spawn Agent(model="haiku", run_in_background=false):
+  Working directory: {WORKTREE_PATH}
+  Run: {git command}
+  Return exactly ONE line: "{operation}: {N lines changed / N files / outcome}"
+  Do NOT output the raw diff or full command output.
+  Last line: TASK_STATUS:pass or TASK_STATUS:fail
+```
+
+**Examples by operation:**
+
+| Operation | Git command | Expected one-line summary |
+|-----------|-------------|--------------------------|
+| Post-impl diff | `git diff HEAD~1` | `diff: 3 files, +47/-12 lines` |
+| Stash check | `git stash list` | `stash: 2 entries (stash@{0}: T3 work-in-progress)` |
+| Cherry-pick | `git cherry-pick {sha}` | `cherry-pick: applied {sha} cleanly` or `cherry-pick: conflict in {file}` |
+| Revert confirm | `git log --oneline -3` | `log: HEAD={sha} T3-impl, parent={sha} T2-impl` |
+
+**Orchestrator stores the one-line summary only.** Never stores or logs the haiku subagent transcript.
+
+**Fallback:** If haiku subagent returns TASK_STATUS:fail, orchestrator runs the minimal shell equivalent (`git diff --stat HEAD~1`) directly — this produces compact output safe for orchestrator context.
 
 ### 5.9. OPTIMIZE CYCLE
 
