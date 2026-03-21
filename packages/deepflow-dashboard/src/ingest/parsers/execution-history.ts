@@ -117,7 +117,10 @@ export async function parseExecutionHistory(db: DbHelpers, claudeDir: string): P
       const end = rec as TaskEndRecord;
       const key = `${end.task_id}::${end.session_id ?? ''}`;
       const start = starts.get(key);
-      if (!start) continue;
+      if (!start) {
+        console.warn(`[ingest:execution-history] Orphaned task_end: task_id=${end.task_id}, session_id=${end.session_id}`);
+        continue;
+      }
 
       const sessionId = start.session_id ?? null;
       const startedAt = start.timestamp;
