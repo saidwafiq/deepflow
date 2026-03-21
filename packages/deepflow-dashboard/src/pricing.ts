@@ -18,6 +18,10 @@ export interface PricingData {
 }
 
 let cached: PricingData | null = null;
+let cachedAt = 0;
+
+/** TTL for the pricing cache: 1 hour. Exported for testability (mock-clock tests). */
+export const PRICING_TTL_MS = 3_600_000;
 
 function loadFallback(): PricingData {
   // Use createRequire to load JSON in ESM context
@@ -45,12 +49,29 @@ async function fetchRemotePricing(): Promise<PricingData | null> {
 }
 
 /**
- * Return pricing data, fetching from remote once per process.
- * Falls back to bundled JSON if remote is unreachable.
+ * Return pricing data, refreshing after PRICING_TTL_MS.
+ * On TTL expiry, attempts remote refetch; falls back to stale cache on failure.
+ * Falls back to bundled JSON if no cache exists and remote is unreachable.
  */
 export async function fetchPricing(): Promise<PricingData> {
-  if (cached) return cached;
+  const now = Date.now();
+  if (cached && now - cachedAt <= PRICING_TTL_MS) return cached;
 
+  if (cached) {
+    // TTL expired — attempt refresh; keep stale on failure
+    const remote = await fetchRemotePricing();
+    if (remote) {
+      console.log('[pricing] Cache refreshed from remote');
+      cached = remote;
+      cachedAt = now;
+    } else {
+      console.log('[pricing] Remote unavailable — keeping stale cache');
+      cachedAt = now; // reset TTL to avoid hammering on every call
+    }
+    return cached;
+  }
+
+  // Cold start
   const remote = await fetchRemotePricing();
   if (remote) {
     console.log('[pricing] Loaded from remote');
@@ -59,6 +80,7 @@ export async function fetchPricing(): Promise<PricingData> {
     console.log('[pricing] Remote unavailable — using bundled fallback');
     cached = loadFallback();
   }
+  cachedAt = now;
 
   return cached;
 }
