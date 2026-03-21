@@ -1,0 +1,57 @@
+task: T51
+date: 2026-03-20
+verdict: PASS
+
+checks:
+  AC-1:
+    description: bin/ratchet.js exists, runs health checks build→test→typecheck→lint in order, outputs exactly one JSON line, auto-reverts on FAIL
+    result: PASS
+    evidence:
+      - STAGE_ORDER = ['build', 'test', 'typecheck', 'lint'] (line 275)
+      - Outputs one JSON line via process.stdout.write(JSON.stringify({...}) + '\n') then process.exit()
+      - autoRevert() calls git revert HEAD --no-edit before FAIL output (line 317)
+      - JSON shapes: {"result":"PASS"} / {"result":"FAIL","stage":"...","log":"..."} / {"result":"SALVAGEABLE","stage":"...","log":"..."}
+
+  AC-2:
+    description: Test command uses snapshot file list (xargs/file-args), no test-discovery flags or globs
+    result: PASS
+    evidence:
+      - loadSnapshotFiles() reads .deepflow/auto-snapshot.txt, absolutizes paths (lines 76-85)
+      - Node test: cmds.test = ['node', '--test', ...snapshotFiles] (line 126)
+      - Python test: cmds.test = ['pytest', ...snapshotFiles] (line 149)
+      - No --testPathPattern, --discover, or glob patterns found in ratchet.js
+
+  AC-3:
+    description: PostToolUse hook blocks Write/Edit to snapshot-listed files with exit 1 and explanatory message; registered in install.js
+    result: PASS
+    evidence:
+      - hooks/df-snapshot-guard.js exits 1 when tool_name is Write|Edit and file matches snapshot (lines 94-100)
+      - Explanatory message printed to stderr before exit(1) (lines 94-99)
+      - install.js line 244: snapshotGuardCmd constructed
+      - install.js lines 381-387: snapshotGuardCmd pushed to settings.hooks.PostToolUse
+      - Cleanup on uninstall: line 578 includes df-snapshot-guard.js in toRemove
+
+  AC-4:
+    description: execute.md §5.5 replaced with node bin/ratchet.js, zero raw test parsing, includes prohibitions
+    result: PASS
+    evidence:
+      - "node bin/ratchet.js" found at line 104 and 106 of execute.md
+      - "MUST NOT inspect, classify, or reinterpret" at line 116
+      - "No git stash or git checkout for investigation purposes" at line 119
+      - "No inline edits to pre-existing test files" at line 120
+      - No raw npm test / npm run build commands in §5.5 ratchet section
+
+  AC-5:
+    description: Wave test agent prompt includes full snapshot file list + existing test function names + dedup instruction
+    result: PASS
+    evidence:
+      - SNAPSHOT_FILES referenced at line 160 (loading) and line 295 (prompt injection)
+      - EXISTING_TEST_NAMES referenced at line 161 (loading) and line 298 (prompt injection)
+      - "Do not duplicate tests for functionality already covered by the existing tests listed above" at line 303
+
+  AC-6:
+    description: execute.md states pre-existing test failures always revert; updating snapshot tests requires separate PLAN.md task
+    result: PASS
+    evidence:
+      - "FAIL means revert. No exceptions." at line 116
+      - "Updating pre-existing tests requires a separate dedicated task in PLAN.md with explicit justification — never inline during execution." at line 123
