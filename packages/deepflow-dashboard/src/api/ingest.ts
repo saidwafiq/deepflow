@@ -1,5 +1,30 @@
 import { Hono } from 'hono';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { run, get, getDb } from '../db/index.js';
+
+/**
+ * Resolve the ingest shared secret. Priority:
+ *  1. DEEPFLOW_INGEST_SECRET env var
+ *  2. ingest_secret field in .deepflow/config.yaml
+ * Returns undefined when not configured (auth disabled).
+ */
+function resolveIngestSecret(): string | undefined {
+  if (process.env.DEEPFLOW_INGEST_SECRET) {
+    return process.env.DEEPFLOW_INGEST_SECRET;
+  }
+  const configPath = resolve(process.cwd(), '.deepflow', 'config.yaml');
+  if (existsSync(configPath)) {
+    try {
+      const raw = readFileSync(configPath, 'utf-8');
+      const match = raw.match(/^ingest_secret:\s*["']?([^\s"'\n]+)["']?/m);
+      if (match?.[1]) return match[1];
+    } catch {
+      // Ignore — no secret
+    }
+  }
+  return undefined;
+}
 
 export interface IngestPayload {
   user: string;
@@ -157,7 +182,18 @@ function insertPayload(payload: IngestPayload): number {
 export function createIngestRouter(): Hono {
   const router = new Hono();
 
+  const secret = resolveIngestSecret();
+
   router.post('/', async (c) => {
+    // Bearer token auth — enforced when a secret is configured
+    if (secret) {
+      const authHeader = c.req.header('Authorization') ?? '';
+      const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+      if (token !== secret) {
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+    }
+
     let body: unknown;
     try {
       body = await c.req.json();

@@ -50,22 +50,27 @@ function saveState(stateFile: string, state: BackfillState): void {
 // ---------------------------------------------------------------------------
 
 /** POST a batch of payloads to the remote server. Returns true on success. */
-async function postBatch(url: string, payloads: IngestPayload[]): Promise<boolean> {
+async function postBatch(url: string, payloads: IngestPayload[], secret?: string): Promise<boolean> {
   return new Promise((resolve) => {
     const body = JSON.stringify(payloads);
     const parsed = new URL(url);
     const isHttps = parsed.protocol === 'https:';
     const lib = isHttps ? https : http;
 
+    const headers: Record<string, string | number> = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
+    };
+    if (secret) {
+      headers['Authorization'] = `Bearer ${secret}`;
+    }
+
     const options: http.RequestOptions = {
       hostname: parsed.hostname,
       port: parsed.port || (isHttps ? 443 : 80),
       path: parsed.pathname,
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-      },
+      headers,
       timeout: 30000,
     };
 
@@ -102,6 +107,7 @@ async function sendInBatchesWithOffset(
   stateFile: string,
   state: BackfillState,
   offsetKey: keyof BackfillState,
+  secret?: string,
 ): Promise<number> {
   const pending = payloads.slice(startOffset);
   if (pending.length === 0) return 0;
@@ -109,7 +115,7 @@ async function sendInBatchesWithOffset(
   let sent = 0;
   for (let i = 0; i < pending.length; i += BATCH_SIZE) {
     const batch = pending.slice(i, i + BATCH_SIZE);
-    const ok = await postBatch(url, batch);
+    const ok = await postBatch(url, batch, secret);
     if (ok) {
       sent += batch.length;
       // Persist the new offset immediately after each successful batch
@@ -272,6 +278,8 @@ export interface BackfillOptions {
   claudeDir?: string;
   deepflowDir?: string;
   user?: string;
+  /** Shared secret for bearer token auth. Falls back to DEEPFLOW_INGEST_SECRET env var. */
+  secret?: string;
 }
 
 /** Main backfill entry point. */
@@ -279,6 +287,7 @@ export async function runBackfill(opts: BackfillOptions): Promise<void> {
   const claudeDir = opts.claudeDir ?? resolve(homedir(), '.claude');
   const deepflowDir = opts.deepflowDir ?? resolve(process.cwd(), '.deepflow');
   const user = opts.user ?? process.env.USER ?? 'unknown';
+  const secret = opts.secret ?? process.env.DEEPFLOW_INGEST_SECRET;
   const ingestUrl = opts.url.replace(/\/$/, '') + '/api/ingest';
   const stateFile = resolve(deepflowDir, 'backfill-state.json');
 
@@ -313,6 +322,7 @@ export async function runBackfill(opts: BackfillOptions): Promise<void> {
     stateFile,
     state,
     'sessions_offset',
+    secret,
   );
 
   // Send token-history source
@@ -323,6 +333,7 @@ export async function runBackfill(opts: BackfillOptions): Promise<void> {
     stateFile,
     state,
     'token_history_offset',
+    secret,
   );
 
   const totalSent = sentSessions + sentTokenHistory;
