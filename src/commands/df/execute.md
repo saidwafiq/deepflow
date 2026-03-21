@@ -173,7 +173,7 @@ Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for
 **Attempt tracking:** Initialize `attempt_count = 1` and `failure_feedback = ""` per task when first spawned. Max 3 total attempts (1 initial + 2 retries).
 
 **Flow:**
-1. Capture the implementation diff: `git -C ${WORKTREE_PATH} diff HEAD~1` → store as `IMPL_DIFF`.
+1. Capture the implementation diff via haiku context-fork (§5.8): spawn haiku with `git -C ${WORKTREE_PATH} diff HEAD~1`; receive one-line summary (e.g., `diff: 3 files, +47/-12 lines`). Then capture full diff for Wave Test prompt **in a separate haiku fork** that returns the raw diff as its sole output (this stays in haiku's context; orchestrator passes it as an opaque string to the Wave Test agent prompt without storing it in orchestrator context).
 2. Gather dedup context:
    - Read `.deepflow/auto-snapshot.txt` → store full file list as `SNAPSHOT_FILES`.
    - Extract existing test function names: `grep -h 'describe\|it(\|test(\|def test_\|func Test' $(cat .deepflow/auto-snapshot.txt) 2>/dev/null | head -50` → store as `EXISTING_TEST_NAMES`.
@@ -216,7 +216,7 @@ Trigger: ≥2 [SPIKE] tasks with same blocker or identical hypothesis.
 5. **Winner selection** (no LLM judge): disqualify regressions. Standard: fewer regressions > coverage > fewer files > first complete. Optimize: best metric delta > fewer regressions > fewer files. No passes → reset pending for debugger.
 6. Preserve all worktrees. Losers: branch + `-failed`. Record in checkpoint.json.
 7. Log all outcomes to `.deepflow/auto-memory.yaml` under `spike_insights`+`probe_learnings` (schema in src/skills/auto-cycle/SKILL.md). Both winners and losers.
-8. Cherry-pick winner into shared worktree. Winner → `[x] [PROBE_WINNER]`, losers → `[~] [PROBE_FAILED]`.
+8. Cherry-pick winner into shared worktree via haiku context-fork (§5.8): spawn haiku with `git cherry-pick {winner_sha}`; receive one-line summary. Winner → `[x] [PROBE_WINNER]`, losers → `[~] [PROBE_FAILED]`.
 
 #### 5.7.1. PROBE DIVERSITY (Optimize Probes)
 
@@ -229,6 +229,37 @@ Roles: **contextualizada** (refine best), **contraditoria** (opposite of best), 
 | 3rd+ | 6 | 2 contextualizada + 2 contraditoria + 2 ingenua |
 
 Every set: ≥1 contraditoria + ≥1 ingenua. contextualizada from round 2+ only. Scale persists in `optimize_state.probe_scale`.
+
+### 5.8. HAIKU GIT-OPS (context-fork)
+
+<!-- AC-7: git diff/stash/cherry-pick run in a haiku context-fork; orchestrator receives one-line summary -->
+
+Git operations that produce large output (diff, stash, cherry-pick conflict output) MUST be delegated to a context-forked haiku subagent. Raw output never enters the orchestrator context.
+
+**Trigger:** Any of: post-implementation diff capture (§5.6 step 1), revert confirmation, cherry-pick merge-back.
+
+**Pattern:**
+```
+Spawn Agent(model="haiku", run_in_background=false):
+  Working directory: {WORKTREE_PATH}
+  Run: {git command}
+  Return exactly ONE line: "{operation}: {N lines changed / N files / outcome}"
+  Do NOT output the raw diff or full command output.
+  Last line: TASK_STATUS:pass or TASK_STATUS:fail
+```
+
+**Examples by operation:**
+
+| Operation | Git command | Expected one-line summary |
+|-----------|-------------|--------------------------|
+| Post-impl diff | `git diff HEAD~1` | `diff: 3 files, +47/-12 lines` |
+| Stash check | `git stash list` | `stash: 2 entries (stash@{0}: T3 work-in-progress)` |
+| Cherry-pick | `git cherry-pick {sha}` | `cherry-pick: applied {sha} cleanly` or `cherry-pick: conflict in {file}` |
+| Revert confirm | `git log --oneline -3` | `log: HEAD={sha} T3-impl, parent={sha} T2-impl` |
+
+**Orchestrator stores the one-line summary only.** Never stores or logs the haiku subagent transcript.
+
+**Fallback:** If haiku subagent returns TASK_STATUS:fail, orchestrator runs the minimal shell equivalent (`git diff --stat HEAD~1`) directly — this produces compact output safe for orchestrator context.
 
 ### 5.9. OPTIMIZE CYCLE
 
