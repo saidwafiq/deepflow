@@ -23,11 +23,21 @@ import { join } from 'node:path';
 // we build the exact dir structure the discovery function expects,
 // provide a mock db, and capture console.warn output.
 
-/** Build a claudeDir with projects/<encoded>/  structure pointing to a
- *  temp project dir that contains .deepflow/execution-history.jsonl */
+/** Build a claudeDir with projects/<encoded>/ structure pointing to a
+ *  temp project dir that contains .deepflow/execution-history.jsonl.
+ *
+ *  The discovery function decodes dir names via:
+ *    '/' + dirName.replace(/^-/, '').replace(/-/g, '/')
+ *  So we must ensure our project dir path has NO hyphens in any segment.
+ *  We create a deterministic path under /tmp using only underscores.
+ */
+let fixtureCounter = 0;
+
 function setupFixture(jsonlLines) {
-  // Create a temp "project" dir
-  const projectDir = mkdtempSync(join(tmpdir(), 'exec-hist-test-'));
+  // Use a path with no hyphens so the encode/decode roundtrip works.
+  const projectDir = join(tmpdir(), `exechist_proj_${process.pid}_${++fixtureCounter}`);
+  mkdirSync(projectDir, { recursive: true });
+
   const deepflowDir = join(projectDir, '.deepflow');
   mkdirSync(deepflowDir, { recursive: true });
   writeFileSync(
@@ -35,12 +45,10 @@ function setupFixture(jsonlLines) {
     jsonlLines.map(l => JSON.stringify(l)).join('\n') + '\n'
   );
 
-  // Create a claudeDir with projects/ containing an encoded dir name
-  // that decodes back to projectDir.
-  // The decoder does: '/' + dirName.replace(/^-/, '').replace(/-/g, '/')
-  // So we encode projectDir: strip leading '/', replace '/' with '-', prepend '-'
+  // Encode: strip leading '/', replace '/' with '-', prepend '-'
   const encoded = '-' + projectDir.slice(1).replace(/\//g, '-');
-  const claudeDir = mkdtempSync(join(tmpdir(), 'claude-dir-'));
+
+  const claudeDir = join(tmpdir(), `exechist_claude_${process.pid}_${fixtureCounter}`);
   const projectsDir = join(claudeDir, 'projects');
   mkdirSync(projectsDir, { recursive: true });
   mkdirSync(join(projectsDir, encoded), { recursive: true });
