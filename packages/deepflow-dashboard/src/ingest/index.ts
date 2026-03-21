@@ -46,6 +46,34 @@ async function aggregateAndComputeCosts(): Promise<void> {
     WHERE EXISTS (SELECT 1 FROM token_events te WHERE te.session_id = sessions.id)
   `);
 
+  // Resolve 'unknown' model in token_events by looking up the session's known model
+  run(`
+    UPDATE token_events SET model = (
+      SELECT s.model FROM sessions s WHERE s.id = token_events.session_id
+        AND s.model IS NOT NULL AND s.model != 'unknown'
+    )
+    WHERE token_events.model = 'unknown'
+      AND EXISTS (
+        SELECT 1 FROM sessions s WHERE s.id = token_events.session_id
+          AND s.model IS NOT NULL AND s.model != 'unknown'
+      )
+  `);
+
+  // Resolve model for synthetic sessions (cache-synthetic-*) from their token_events
+  run(`
+    UPDATE sessions SET model = (
+      SELECT te.model FROM token_events te WHERE te.session_id = sessions.id
+        AND te.model IS NOT NULL AND te.model != 'unknown'
+      LIMIT 1
+    )
+    WHERE sessions.id LIKE 'cache-synthetic-%'
+      AND (sessions.model IS NULL OR sessions.model = 'unknown')
+      AND EXISTS (
+        SELECT 1 FROM token_events te WHERE te.session_id = sessions.id
+          AND te.model IS NOT NULL AND te.model != 'unknown'
+      )
+  `);
+
   // Aggregate tool_usage → sessions.tool_calls
   run(`
     UPDATE sessions SET

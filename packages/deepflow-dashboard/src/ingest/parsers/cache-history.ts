@@ -58,12 +58,20 @@ export async function parseCacheHistory(db: DbHelpers, claudeDir: string): Promi
       if (rawCacheRead < 0) console.warn(`[ingest:cache-history] Clamping negative cache_read_tokens (${rawCacheRead}) to 0 at line ${i + 1}`);
       if (rawCacheCreation < 0) console.warn(`[ingest:cache-history] Clamping negative cache_creation_tokens (${rawCacheCreation}) to 0 at line ${i + 1}`);
 
+      // Resolve model: prefer record field, then existing session row, then 'unknown'
+      let resolvedModel = (record.model as string | undefined) ?? '';
+      if (!resolvedModel || resolvedModel === 'unknown') {
+        const sessionRow = db.get('SELECT model FROM sessions WHERE id = ? AND model IS NOT NULL AND model != \'unknown\'', [sessionId]);
+        if (sessionRow) resolvedModel = sessionRow.model as string;
+      }
+      if (!resolvedModel) resolvedModel = 'unknown';
+
       db.run(
         `INSERT INTO token_events (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, timestamp)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           sessionId,
-          (record.model as string) ?? 'unknown',
+          resolvedModel,
           0, // cache events carry no regular input/output tokens
           0,
           clampedCacheRead,
