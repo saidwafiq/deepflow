@@ -85,7 +85,21 @@ For each `[ ]` task: `TaskCreate(subject: "{task_id}: {description}", activeForm
 
 ### 3–4. READY TASKS
 
-Warn if unplanned `specs/*.md` (excluding doing-/done-) exist (non-blocking). Ready = TaskList where status: "pending" AND blockedBy: empty.
+Warn if unplanned `specs/*.md` (excluding doing-/done-) exist (non-blocking).
+
+**Wave computation (shell injection — do NOT compute manually):**
+```
+WAVE_PLAN=!`node bin/wave-runner.js --plan PLAN.md 2>/dev/null || echo 'WAVE_ERROR'`
+```
+Parse the output to determine the current wave. Output format:
+```
+Wave 1: T1 — description, T4 — description
+Wave 2: T2 — description
+...
+```
+If output is `WAVE_ERROR` or `(no pending tasks)`, fall back to TaskList where status: "pending" AND blockedBy: empty for wave 1.
+
+Ready = tasks listed in Wave 1 of the wave-runner output (cross-referenced with TaskList status: "pending").
 
 ### 5. SPAWN AGENTS
 
@@ -103,7 +117,7 @@ Context ≥50% → checkpoint and exit. Before spawning: `TaskUpdate(status: "in
 
 Run `node bin/ratchet.js` in the worktree directory after each agent completes:
 ```bash
-node bin/ratchet.js --worktree ${WORKTREE_PATH} --snapshot .deepflow/auto-snapshot.txt
+node bin/ratchet.js --worktree ${WORKTREE_PATH} --snapshot .deepflow/auto-snapshot.txt --task T{N}
 ```
 
 The script handles all health checks internally and outputs structured JSON:
@@ -124,7 +138,11 @@ The script handles all health checks internally and outputs structured JSON:
 
 **Orchestrator response by exit code:**
 - **Exit 0 (PASS):** Commit stands. Proceed to §5.6 wave test agent.
-- **Exit 1 (FAIL):** Script already reverted. Set `TaskUpdate(status: "pending")`. Report: `"✗ T{n}: reverted"`.
+- **Exit 1 (FAIL):** Script already reverted. Set `TaskUpdate(status: "pending")`. Recompute remaining waves:
+  ```
+  WAVE_PLAN=!`node bin/wave-runner.js --plan PLAN.md --recalc --failed T{N} 2>/dev/null || echo 'WAVE_ERROR'`
+  ```
+  Report: `"✗ T{n}: reverted"`.
 - **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="haiku")` to fix lint/typecheck issues. Re-run `node bin/ratchet.js`. If still non-zero → revert both commits, set status pending.
 
 **Edit scope validation:** `git diff HEAD~1 --name-only` vs allowed globs. Violation → revert, report.
