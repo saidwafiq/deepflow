@@ -46,12 +46,10 @@ function rmrf(dir) {
 // ---------------------------------------------------------------------------
 
 const extractedFns = (() => {
-  // Replace the main() call at the end with exports
   const modifiedSrc = RATCHET_SRC
-    .replace(/^main\(\);?\s*$/m, '')  // Remove the main() call
-    .replace(/^#!.*$/m, '');           // Remove shebang
+    .replace(/^main\(\);?\s*$/m, '')
+    .replace(/^#!.*$/m, '');
 
-  // Wrap in a function that returns the internal functions
   const wrapped = `
     ${modifiedSrc}
     return {
@@ -61,6 +59,8 @@ const extractedFns = (() => {
       parseCommand,
       hasNpmScript,
       buildCommands,
+      parseArgs,
+      updatePlanMd,
     };
   `;
 
@@ -75,6 +75,8 @@ const {
   parseCommand,
   hasNpmScript,
   buildCommands,
+  parseArgs,
+  updatePlanMd,
 } = extractedFns;
 
 // ---------------------------------------------------------------------------
@@ -865,5 +867,307 @@ describe('Structural invariants — source assertions', () => {
   test('main() is called at the end', () => {
     const lastNonEmpty = RATCHET_SRC.trim().split('\n').filter(l => l.trim()).pop();
     assert.equal(lastNonEmpty.trim(), 'main();');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14. parseArgs — CLI argument parser
+// ---------------------------------------------------------------------------
+
+describe('parseArgs — parses --task, --worktree, --snapshot flags', () => {
+  test('returns all nulls when no flags provided', () => {
+    const args = parseArgs([]);
+    assert.deepEqual(args, { task: null, worktree: null, snapshot: null });
+  });
+
+  test('parses --task flag', () => {
+    const args = parseArgs(['--task', 'T54']);
+    assert.equal(args.task, 'T54');
+    assert.equal(args.worktree, null);
+    assert.equal(args.snapshot, null);
+  });
+
+  test('parses --worktree flag', () => {
+    const args = parseArgs(['--worktree', '/some/path']);
+    assert.equal(args.worktree, '/some/path');
+    assert.equal(args.task, null);
+  });
+
+  test('parses --snapshot flag', () => {
+    const args = parseArgs(['--snapshot', '/snap/auto-snapshot.txt']);
+    assert.equal(args.snapshot, '/snap/auto-snapshot.txt');
+    assert.equal(args.task, null);
+  });
+
+  test('parses all three flags together', () => {
+    const args = parseArgs(['--task', 'T12', '--worktree', '/w', '--snapshot', '/s']);
+    assert.equal(args.task, 'T12');
+    assert.equal(args.worktree, '/w');
+    assert.equal(args.snapshot, '/s');
+  });
+
+  test('parses flags in any order', () => {
+    const args = parseArgs(['--snapshot', '/s', '--task', 'T99', '--worktree', '/w']);
+    assert.equal(args.task, 'T99');
+    assert.equal(args.worktree, '/w');
+    assert.equal(args.snapshot, '/s');
+  });
+
+  test('ignores unknown flags', () => {
+    const args = parseArgs(['--unknown', 'val', '--task', 'T1']);
+    assert.equal(args.task, 'T1');
+    assert.equal(args.worktree, null);
+  });
+
+  test('ignores flag without a value (at end of argv)', () => {
+    const args = parseArgs(['--task']);
+    assert.equal(args.task, null);
+  });
+
+  test('ignores flag when next arg is missing (end of array)', () => {
+    const args = parseArgs(['--worktree']);
+    assert.equal(args.worktree, null);
+  });
+
+  test('handles task ID with various formats', () => {
+    assert.equal(parseArgs(['--task', 'T1']).task, 'T1');
+    assert.equal(parseArgs(['--task', 'T100']).task, 'T100');
+    assert.equal(parseArgs(['--task', 'some-string']).task, 'some-string');
+  });
+
+  test('last value wins when flag is repeated', () => {
+    const args = parseArgs(['--task', 'T1', '--task', 'T2']);
+    assert.equal(args.task, 'T2');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 15. updatePlanMd — PLAN.md checkbox updater
+// ---------------------------------------------------------------------------
+
+describe('updatePlanMd — updates PLAN.md task checkboxes', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    // Initialize git repo so rev-parse works
+    execFileSync('git', ['init'], { cwd: tmpDir, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir, stdio: 'ignore' });
+    fs.writeFileSync(path.join(tmpDir, 'dummy.txt'), 'x');
+    execFileSync('git', ['add', '.'], { cwd: tmpDir, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: tmpDir, stdio: 'ignore' });
+  });
+
+  afterEach(() => { rmrf(tmpDir); });
+
+  test('checks off matching task and appends commit hash', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'PLAN.md'),
+      '# Plan\n- [ ] **T54** Write ratchet tests\n- [ ] **T55** Other task\n'
+    );
+    updatePlanMd(tmpDir, 'T54', tmpDir);
+
+    const result = fs.readFileSync(path.join(tmpDir, 'PLAN.md'), 'utf8');
+    assert.ok(result.includes('- [x] **T54** Write ratchet tests'));
+    assert.ok(!result.includes('- [ ] **T54**'));
+    // Should have a commit hash appended
+    assert.match(result, /- \[x\] \*\*T54\*\* Write ratchet tests \([a-f0-9]+\)/);
+  });
+
+  test('does not modify other tasks', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'PLAN.md'),
+      '- [ ] **T54** Task A\n- [ ] **T55** Task B\n'
+    );
+    updatePlanMd(tmpDir, 'T54', tmpDir);
+
+    const result = fs.readFileSync(path.join(tmpDir, 'PLAN.md'), 'utf8');
+    assert.ok(result.includes('- [ ] **T55** Task B'));
+  });
+
+  test('does nothing when PLAN.md does not exist', () => {
+    // No PLAN.md file — should not throw
+    assert.doesNotThrow(() => updatePlanMd(tmpDir, 'T54', tmpDir));
+  });
+
+  test('does nothing when task ID not found in PLAN.md', () => {
+    const content = '- [ ] **T99** Some other task\n';
+    fs.writeFileSync(path.join(tmpDir, 'PLAN.md'), content);
+    updatePlanMd(tmpDir, 'T54', tmpDir);
+
+    const result = fs.readFileSync(path.join(tmpDir, 'PLAN.md'), 'utf8');
+    assert.equal(result, content);
+  });
+
+  test('does not re-check already checked task', () => {
+    const content = '- [x] **T54** Already done\n';
+    fs.writeFileSync(path.join(tmpDir, 'PLAN.md'), content);
+    updatePlanMd(tmpDir, 'T54', tmpDir);
+
+    const result = fs.readFileSync(path.join(tmpDir, 'PLAN.md'), 'utf8');
+    // The regex specifically matches "- [ ]" (unchecked), so already-checked should be unchanged
+    assert.equal(result, content);
+  });
+
+  test('handles PLAN.md with extra content around the task line', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'PLAN.md'),
+      '# Implementation Plan\n\n## Phase 1\n- [ ] **T10** First task — details here\n\n## Phase 2\n- [ ] **T20** Second task\n'
+    );
+    updatePlanMd(tmpDir, 'T10', tmpDir);
+
+    const result = fs.readFileSync(path.join(tmpDir, 'PLAN.md'), 'utf8');
+    assert.ok(result.includes('- [x] **T10** First task'));
+    assert.ok(result.includes('- [ ] **T20** Second task'));
+  });
+
+  test('appends hash even with complex task description', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'PLAN.md'),
+      '- [ ] **T7** Implement `parseArgs()` + `updatePlanMd()` in bin/ratchet.js\n'
+    );
+    updatePlanMd(tmpDir, 'T7', tmpDir);
+
+    const result = fs.readFileSync(path.join(tmpDir, 'PLAN.md'), 'utf8');
+    assert.match(result, /- \[x\] \*\*T7\*\*.*\([a-f0-9]+\)/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. --snapshot CLI flag integration with main logic — source assertions
+// ---------------------------------------------------------------------------
+
+describe('--snapshot flag — overrides snapshot-derived test command', () => {
+  test('source reads --snapshot file and overrides cmds.test for node projects', () => {
+    assert.ok(
+      RATCHET_SRC.includes('cliArgs.snapshot'),
+      'main() should reference cliArgs.snapshot'
+    );
+  });
+
+  test('source checks snapshot file existence before reading', () => {
+    assert.ok(
+      RATCHET_SRC.includes("fs.existsSync(cliArgs.snapshot)"),
+      'Should check if snapshot file exists'
+    );
+  });
+
+  test('source only overrides test when no cfg.test_command and node project', () => {
+    // The condition: projectType === 'node' && !cfg.test_command
+    assert.ok(
+      RATCHET_SRC.includes("projectType === 'node'") && RATCHET_SRC.includes('!cfg.test_command'),
+      'Snapshot override should be gated on node project type and no config test_command'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 17. --task flag integration — updatePlanMd called only on PASS
+// ---------------------------------------------------------------------------
+
+describe('--task flag — updatePlanMd called only on PASS', () => {
+  test('updatePlanMd is called after PASS output and before exit(0)', () => {
+    const passIdx = RATCHET_SRC.indexOf("result: 'PASS'");
+    const updateIdx = RATCHET_SRC.indexOf('updatePlanMd(repoRoot, cliArgs.task, cwd)');
+    const exitIdx = RATCHET_SRC.indexOf('process.exit(0)');
+    assert.ok(passIdx !== -1, 'PASS output should exist');
+    assert.ok(updateIdx !== -1, 'updatePlanMd call should exist');
+    assert.ok(exitIdx !== -1, 'process.exit(0) should exist');
+    assert.ok(passIdx < updateIdx, 'updatePlanMd should be after PASS output');
+    assert.ok(updateIdx < exitIdx, 'updatePlanMd should be before exit(0)');
+  });
+
+  test('updatePlanMd is guarded by cliArgs.task check', () => {
+    assert.ok(
+      RATCHET_SRC.includes('if (cliArgs.task)'),
+      'updatePlanMd call should be guarded by cliArgs.task truthiness check'
+    );
+  });
+
+  test('FAIL path does not call updatePlanMd', () => {
+    // Between the FAIL output and exit(1), there should be no updatePlanMd
+    const failIdx = RATCHET_SRC.indexOf("result: 'FAIL'");
+    const exit1Idx = RATCHET_SRC.indexOf('process.exit(1)');
+    const block = RATCHET_SRC.slice(failIdx, exit1Idx);
+    assert.ok(!block.includes('updatePlanMd'), 'FAIL path should not call updatePlanMd');
+  });
+
+  test('SALVAGEABLE path does not call updatePlanMd', () => {
+    const salvIdx = RATCHET_SRC.indexOf("result: 'SALVAGEABLE'");
+    const exit2Idx = RATCHET_SRC.indexOf('process.exit(2)');
+    const block = RATCHET_SRC.slice(salvIdx, exit2Idx);
+    assert.ok(!block.includes('updatePlanMd'), 'SALVAGEABLE path should not call updatePlanMd');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 18. Subprocess integration — --task flag with real execution
+// ---------------------------------------------------------------------------
+
+describe('Subprocess integration — --task flag updates PLAN.md on PASS', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    execFileSync('git', ['init'], { cwd: tmpDir, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir, stdio: 'ignore' });
+  });
+
+  afterEach(() => { rmrf(tmpDir); });
+
+  test('--task flag is passed through to ratchet process (PASS still returned)', () => {
+    // Note: mainRepoRoot resolution for worktrees means PLAN.md update
+    // behavior is tested via direct updatePlanMd unit tests above.
+    // Here we verify the --task flag doesn't break normal PASS behavior.
+    fs.writeFileSync(path.join(tmpDir, 'dummy.txt'), 'hello');
+    execFileSync('git', ['add', '.'], { cwd: tmpDir, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: tmpDir, stdio: 'ignore' });
+
+    const result = execFileSync(process.execPath, [RATCHET_PATH, '--task', 'T42'], {
+      cwd: tmpDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const parsed = JSON.parse(result.trim());
+    assert.equal(parsed.result, 'PASS');
+  });
+
+  test('--task does not update PLAN.md when no PLAN.md exists', () => {
+    fs.writeFileSync(path.join(tmpDir, 'dummy.txt'), 'hello');
+    execFileSync('git', ['add', '.'], { cwd: tmpDir, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: tmpDir, stdio: 'ignore' });
+
+    const result = execFileSync(process.execPath, [RATCHET_PATH, '--task', 'T42'], {
+      cwd: tmpDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const parsed = JSON.parse(result.trim());
+    assert.equal(parsed.result, 'PASS');
+    // No PLAN.md should exist (it wasn't created)
+    assert.ok(!fs.existsSync(path.join(tmpDir, 'PLAN.md')));
+  });
+
+  test('without --task flag, PLAN.md is not modified', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'PLAN.md'),
+      '- [ ] **T42** Do the thing\n'
+    );
+    fs.writeFileSync(path.join(tmpDir, 'dummy.txt'), 'hello');
+    execFileSync('git', ['add', '.'], { cwd: tmpDir, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: tmpDir, stdio: 'ignore' });
+
+    execFileSync(process.execPath, [RATCHET_PATH], {
+      cwd: tmpDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const plan = fs.readFileSync(path.join(tmpDir, 'PLAN.md'), 'utf8');
+    assert.ok(plan.includes('- [ ] **T42**'), 'PLAN.md should remain unchecked without --task');
   });
 });
