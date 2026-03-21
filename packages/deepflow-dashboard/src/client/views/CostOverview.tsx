@@ -26,6 +26,8 @@ interface ProjectRow {
   cost: number;
   tokens_in: number;
   tokens_out: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
   sessions: number;
 }
 
@@ -162,7 +164,7 @@ export function CostOverview() {
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--bg-secondary)' }}>
               <tr>
-                {['Project', 'Sessions', 'Tokens In', 'Tokens Out', 'Cost'].map((h) => (
+                {['Project', 'Sessions', 'Tokens In', 'Tokens Out', 'Cache Read', 'Cache Creation', 'Cost'].map((h) => (
                   <th
                     key={h}
                     className="px-4 py-2 text-left font-medium"
@@ -183,6 +185,8 @@ export function CostOverview() {
                   <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{p.sessions}</td>
                   <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(p.tokens_in)}</td>
                   <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(p.tokens_out)}</td>
+                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(p.cache_read_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(p.cache_creation_tokens)}</td>
                   <td className="px-4 py-2 tabular-nums font-medium" style={{ color: 'var(--text)' }}>{fmtDollars(p.cost)}</td>
                 </tr>
               ))}

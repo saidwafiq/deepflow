@@ -28,7 +28,7 @@ interface SessionsResponse {
   offset: number;
 }
 
-type SortKey = 'started_at' | 'cost' | 'duration_ms' | 'messages' | 'tool_calls' | 'tokens_in' | 'tokens_out';
+type SortKey = 'started_at' | 'cost' | 'duration_ms' | 'messages' | 'tool_calls' | 'tokens_in' | 'tokens_out' | 'user';
 
 /* ---- Helpers ---- */
 function fmtDollars(n: number) {
@@ -155,6 +155,19 @@ export function SessionList() {
                   >
                     Model
                   </th>
+                  <ColHeader label="User" k="user" />
+                  <th
+                    className="px-4 py-2 text-left font-medium"
+                    style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
+                  >
+                    Cache Read
+                  </th>
+                  <th
+                    className="px-4 py-2 text-left font-medium"
+                    style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
+                  >
+                    Cache Creation
+                  </th>
                   <ColHeader label="Duration" k="duration_ms" />
                   <ColHeader label="Messages" k="messages" />
                   <ColHeader label="Tool Calls" k="tool_calls" />
@@ -178,6 +191,15 @@ export function SessionList() {
                     <td className="px-4 py-2 whitespace-nowrap text-xs" style={{ color: 'var(--text)' }}>
                       {s.model}
                     </td>
+                    <td className="px-4 py-2 max-w-[160px] truncate text-xs" style={{ color: 'var(--text)' }}>
+                      {s.user ?? '—'}
+                    </td>
+                    <td className="px-4 py-2 tabular-nums text-center" style={{ color: 'var(--text)' }}>
+                      {fmtTokens(s.cache_read)}
+                    </td>
+                    <td className="px-4 py-2 tabular-nums text-center" style={{ color: 'var(--text)' }}>
+                      {fmtTokens(s.cache_creation)}
+                    </td>
                     <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>
                       {fmtDuration(s.duration_ms)}
                     </td>
@@ -200,7 +222,7 @@ export function SessionList() {
                 ))}
                 {data.data.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center" style={{ color: 'var(--text-secondary)' }}>
+                    <td colSpan={12} className="px-4 py-8 text-center" style={{ color: 'var(--text-secondary)' }}>
                       No sessions found.
                     </td>
                   </tr>
