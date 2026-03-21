@@ -70,7 +70,7 @@ const MODEL_ALIASES: Record<string, string> = {
   'claude-sonnet-4-6[1m]': 'claude-sonnet-4-20250514',
   'claude-sonnet-4-6': 'claude-sonnet-4-20250514',
   'claude-sonnet-4-5': 'claude-sonnet-4-5-20250514',
-  'claude-haiku-4-5': 'claude-haiku-3-5-20241022',
+  'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
 };
 
 /** Resolve a model string to its pricing entry */
@@ -86,6 +86,7 @@ export function resolveModelPricing(pricing: PricingData, model: string): ModelP
     const keyBase = key.replace(/-\d{8}$/, '');
     if (keyBase === base) return val;
   }
+  console.warn(`[pricing] No pricing found for model: ${model}`);
   return undefined;
 }
 
