@@ -155,8 +155,7 @@ Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for
 **Attempt tracking:** Initialize `attempt_count = 1` and `failure_feedback = ""` per task when first spawned. Max 3 total attempts (1 initial + 2 retries).
 
 **Flow:**
-1. Capture the implementation diff: `git -C ${WORKTREE_PATH} diff HEAD~1` → store as `IMPL_DIFF`.
-2. Gather dedup context:
+1. Gather dedup context:
    - Read `.deepflow/auto-snapshot.txt` → store full file list as `SNAPSHOT_FILES`.
    - Extract existing test function names: `grep -h 'describe\|it(\|test(\|def test_\|func Test' $(cat .deepflow/auto-snapshot.txt) 2>/dev/null | head -50` → store as `EXISTING_TEST_NAMES`.
 3. Spawn `Agent(model="opus")` with Wave Test prompt (§6), passing `SNAPSHOT_FILES` and `EXISTING_TEST_NAMES`. `run_in_background=true`. End turn, wait.
@@ -284,8 +283,7 @@ You are a QA engineer. Write unit tests for the following code changes.
 Use {test_framework}. Test behavioral correctness, not implementation details.
 Spec: {spec}. Task: {task_id}.
 
-Implementation diff:
-{IMPL_DIFF}
+To inspect the implementation diff, use the `Read` tool or run `git diff HEAD~1` in the worktree.
 
 --- MIDDLE ---
 Files changed: {changed_files}
