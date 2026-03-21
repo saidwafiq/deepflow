@@ -29,6 +29,29 @@ function validatePayload(body: unknown): string[] {
   if (!b.project || typeof b.project !== 'string') errors.push('project is required (string)');
   if (!b.tokens || typeof b.tokens !== 'object' || Array.isArray(b.tokens)) {
     errors.push('tokens is required (object with model keys)');
+  } else {
+    // Validate no negative token values within each model entry
+    const tokens = b.tokens as Record<string, Record<string, unknown>>;
+    for (const [mdl, usage] of Object.entries(tokens)) {
+      if (typeof usage !== 'object' || usage === null) continue;
+      const fields: Array<[string, string]> = [
+        ['input', 'tokens_in'],
+        ['output', 'tokens_out'],
+        ['cache_read', 'cache_read'],
+        ['cache_creation', 'cache_creation'],
+      ];
+      for (const [field, label] of fields) {
+        const val = (usage as Record<string, unknown>)[field];
+        if (typeof val === 'number' && val < 0) {
+          errors.push(`tokens.${mdl}.${field} (${label}) must be >= 0, got ${val}`);
+        }
+      }
+    }
+  }
+
+  // Validate top-level cost field
+  if (b.cost !== undefined && typeof b.cost === 'number' && b.cost < 0) {
+    errors.push(`cost must be >= 0, got ${b.cost}`);
   }
 
   return errors;
@@ -55,11 +78,13 @@ function insertPayload(payload: IngestPayload): number {
   const ts = new Date().toISOString();
 
   for (const [, usage] of Object.entries(tokens)) {
-    totalIn += usage.input ?? 0;
-    totalOut += usage.output ?? 0;
-    totalCacheRead += usage.cache_read ?? 0;
-    totalCacheCreation += usage.cache_creation ?? 0;
+    totalIn += Math.max(0, usage.input ?? 0);
+    totalOut += Math.max(0, usage.output ?? 0);
+    totalCacheRead += Math.max(0, usage.cache_read ?? 0);
+    totalCacheCreation += Math.max(0, usage.cache_creation ?? 0);
   }
+
+  const clampedCost = Math.max(0, cost);
 
   // Derive a stable session id if not provided
   const sid = session_id ?? `${user}:${project}:${started_at ?? ts}`;
@@ -78,7 +103,7 @@ function insertPayload(payload: IngestPayload): number {
          duration_ms = COALESCE(?, duration_ms)
        WHERE id = ?`,
       [totalIn, totalOut, totalCacheRead, totalCacheCreation,
-       messages, tool_calls, cost,
+       messages, tool_calls, clampedCost,
        ended_at ?? null, duration_ms ?? null, sid]
     );
   } else {
@@ -89,7 +114,7 @@ function insertPayload(payload: IngestPayload): number {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [sid, user, project, primaryModel,
        totalIn, totalOut, totalCacheRead, totalCacheCreation,
-       messages, tool_calls, cost,
+       messages, tool_calls, clampedCost,
        started_at ?? ts, ended_at ?? null, duration_ms ?? null]
     );
   }
@@ -102,8 +127,8 @@ function insertPayload(payload: IngestPayload): number {
          (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, timestamp)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [sid, mdl,
-       usage.input ?? 0, usage.output ?? 0,
-       usage.cache_read ?? 0, usage.cache_creation ?? 0,
+       Math.max(0, usage.input ?? 0), Math.max(0, usage.output ?? 0),
+       Math.max(0, usage.cache_read ?? 0), Math.max(0, usage.cache_creation ?? 0),
        started_at ?? ts]
     );
     inserted++;

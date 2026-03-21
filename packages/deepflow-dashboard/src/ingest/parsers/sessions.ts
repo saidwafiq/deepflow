@@ -161,8 +161,16 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         }
       }
 
+      // Clamp accumulated token values to non-negative before cost computation and DB writes
+      if (tokensIn < 0) { console.warn(`[ingest:sessions] Clamping negative tokensIn (${tokensIn}) to 0 for session ${sessionId}`); tokensIn = 0; }
+      if (tokensOut < 0) { console.warn(`[ingest:sessions] Clamping negative tokensOut (${tokensOut}) to 0 for session ${sessionId}`); tokensOut = 0; }
+      if (cacheRead < 0) { console.warn(`[ingest:sessions] Clamping negative cacheRead (${cacheRead}) to 0 for session ${sessionId}`); cacheRead = 0; }
+      if (cacheCreation < 0) { console.warn(`[ingest:sessions] Clamping negative cacheCreation (${cacheCreation}) to 0 for session ${sessionId}`); cacheCreation = 0; }
+
       // Compute cost after loop using accumulated tokens + resolved model
-      const cost = computeCost(pricing, model, tokensIn, tokensOut, cacheRead, cacheCreation);
+      const rawCost = computeCost(pricing, model, tokensIn, tokensOut, cacheRead, cacheCreation);
+      const cost = Math.max(0, rawCost);
+      if (rawCost < 0) console.warn(`[ingest:sessions] Clamping negative cost (${rawCost}) to 0 for session ${sessionId}`);
 
       // Calculate duration from timestamps
       if (startedAt && endedAt) {

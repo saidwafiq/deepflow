@@ -14,14 +14,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   user             TEXT NOT NULL,
   project          TEXT,
   model            TEXT,
-  tokens_in        INTEGER NOT NULL DEFAULT 0,
-  tokens_out       INTEGER NOT NULL DEFAULT 0,
-  cache_read       INTEGER NOT NULL DEFAULT 0,
-  cache_creation   INTEGER NOT NULL DEFAULT 0,
+  tokens_in        INTEGER NOT NULL DEFAULT 0 CHECK (tokens_in >= 0),
+  tokens_out       INTEGER NOT NULL DEFAULT 0 CHECK (tokens_out >= 0),
+  cache_read       INTEGER NOT NULL DEFAULT 0 CHECK (cache_read >= 0),
+  cache_creation   INTEGER NOT NULL DEFAULT 0 CHECK (cache_creation >= 0),
   duration_ms      INTEGER,
   messages         INTEGER NOT NULL DEFAULT 0,
   tool_calls       INTEGER NOT NULL DEFAULT 0,
-  cost             REAL    NOT NULL DEFAULT 0,
+  cost             REAL    NOT NULL DEFAULT 0 CHECK (cost >= 0),
   started_at       TEXT    NOT NULL,   -- ISO-8601
   ended_at         TEXT
 );
@@ -30,10 +30,10 @@ CREATE TABLE IF NOT EXISTS token_events (
   id                     INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id             TEXT    NOT NULL REFERENCES sessions(id),
   model                  TEXT    NOT NULL,
-  input_tokens           INTEGER NOT NULL DEFAULT 0,
-  output_tokens          INTEGER NOT NULL DEFAULT 0,
-  cache_read_tokens      INTEGER NOT NULL DEFAULT 0,
-  cache_creation_tokens  INTEGER NOT NULL DEFAULT 0,
+  input_tokens           INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+  output_tokens          INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+  cache_read_tokens      INTEGER NOT NULL DEFAULT 0 CHECK (cache_read_tokens >= 0),
+  cache_creation_tokens  INTEGER NOT NULL DEFAULT 0 CHECK (cache_creation_tokens >= 0),
   timestamp              TEXT    NOT NULL   -- ISO-8601
 );
 

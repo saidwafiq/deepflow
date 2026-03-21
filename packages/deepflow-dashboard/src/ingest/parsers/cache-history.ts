@@ -51,6 +51,13 @@ export async function parseCacheHistory(db: DbHelpers, claudeDir: string): Promi
     }
 
     try {
+      const rawCacheRead = (record.cache_read_tokens ?? record.cacheReadTokens ?? record.tokens ?? 0) as number;
+      const rawCacheCreation = (record.cache_creation_tokens ?? record.cacheCreationTokens ?? 0) as number;
+      const clampedCacheRead = Math.max(0, rawCacheRead);
+      const clampedCacheCreation = Math.max(0, rawCacheCreation);
+      if (rawCacheRead < 0) console.warn(`[ingest:cache-history] Clamping negative cache_read_tokens (${rawCacheRead}) to 0 at line ${i + 1}`);
+      if (rawCacheCreation < 0) console.warn(`[ingest:cache-history] Clamping negative cache_creation_tokens (${rawCacheCreation}) to 0 at line ${i + 1}`);
+
       db.run(
         `INSERT INTO token_events (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, timestamp)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -59,8 +66,8 @@ export async function parseCacheHistory(db: DbHelpers, claudeDir: string): Promi
           (record.model as string) ?? 'unknown',
           0, // cache events carry no regular input/output tokens
           0,
-          (record.cache_read_tokens ?? record.cacheReadTokens ?? record.tokens ?? 0) as number,
-          (record.cache_creation_tokens ?? record.cacheCreationTokens ?? 0) as number,
+          clampedCacheRead,
+          clampedCacheCreation,
           ts,
         ]
       );

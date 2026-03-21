@@ -102,16 +102,29 @@ export async function parseTokenHistory(db: DbHelpers, claudeDir: string): Promi
       }
 
       try {
+        const rawInputTokens = (record.input_tokens ?? record.inputTokens ?? 0) as number;
+        const rawOutputTokens = (record.output_tokens ?? record.outputTokens ?? 0) as number;
+        const rawCacheRead = (record.cache_read_input_tokens ?? record.cache_read_tokens ?? record.cacheReadTokens ?? 0) as number;
+        const rawCacheCreation = (record.cache_creation_input_tokens ?? record.cache_creation_tokens ?? record.cacheCreationTokens ?? 0) as number;
+        const clampedInputTokens = Math.max(0, rawInputTokens);
+        const clampedOutputTokens = Math.max(0, rawOutputTokens);
+        const clampedCacheRead = Math.max(0, rawCacheRead);
+        const clampedCacheCreation = Math.max(0, rawCacheCreation);
+        if (rawInputTokens < 0) console.warn(`[ingest:token-history] Clamping negative input_tokens (${rawInputTokens}) to 0 at line ${i + 1} in ${filePath}`);
+        if (rawOutputTokens < 0) console.warn(`[ingest:token-history] Clamping negative output_tokens (${rawOutputTokens}) to 0 at line ${i + 1} in ${filePath}`);
+        if (rawCacheRead < 0) console.warn(`[ingest:token-history] Clamping negative cache_read_tokens (${rawCacheRead}) to 0 at line ${i + 1} in ${filePath}`);
+        if (rawCacheCreation < 0) console.warn(`[ingest:token-history] Clamping negative cache_creation_tokens (${rawCacheCreation}) to 0 at line ${i + 1} in ${filePath}`);
+
         db.run(
           `INSERT INTO token_events (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, timestamp)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
             sessionId,
             ((record.model as string) ?? 'unknown').replace(/\[\d+[km]\]$/i, ''),
-            (record.input_tokens ?? record.inputTokens ?? 0) as number,
-            (record.output_tokens ?? record.outputTokens ?? record.output_tokens ?? 0) as number,
-            (record.cache_read_input_tokens ?? record.cache_read_tokens ?? record.cacheReadTokens ?? 0) as number,
-            (record.cache_creation_input_tokens ?? record.cache_creation_tokens ?? record.cacheCreationTokens ?? 0) as number,
+            clampedInputTokens,
+            clampedOutputTokens,
+            clampedCacheRead,
+            clampedCacheCreation,
             (record.timestamp ?? new Date().toISOString()) as string,
           ]
         );

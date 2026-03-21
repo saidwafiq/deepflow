@@ -68,6 +68,22 @@ export async function parseStatsCache(db: DbHelpers, claudeDir: string): Promise
 
     const startedAt = s.started_at ?? s.startedAt ?? new Date().toISOString();
 
+    const rawTokensIn = s.tokens_in ?? s.inputTokens ?? 0;
+    const rawTokensOut = s.tokens_out ?? s.outputTokens ?? 0;
+    const rawCacheRead = s.cache_read ?? s.cacheReadTokens ?? 0;
+    const rawCacheCreation = s.cache_creation ?? s.cacheCreationTokens ?? 0;
+    const rawCost = s.cost ?? 0;
+    const clampedTokensIn = Math.max(0, rawTokensIn);
+    const clampedTokensOut = Math.max(0, rawTokensOut);
+    const clampedCacheRead = Math.max(0, rawCacheRead);
+    const clampedCacheCreation = Math.max(0, rawCacheCreation);
+    const clampedCost = Math.max(0, rawCost);
+    if (rawTokensIn < 0) console.warn(`[ingest:stats-cache] Clamping negative tokens_in (${rawTokensIn}) to 0 for session ${id}`);
+    if (rawTokensOut < 0) console.warn(`[ingest:stats-cache] Clamping negative tokens_out (${rawTokensOut}) to 0 for session ${id}`);
+    if (rawCacheRead < 0) console.warn(`[ingest:stats-cache] Clamping negative cache_read (${rawCacheRead}) to 0 for session ${id}`);
+    if (rawCacheCreation < 0) console.warn(`[ingest:stats-cache] Clamping negative cache_creation (${rawCacheCreation}) to 0 for session ${id}`);
+    if (rawCost < 0) console.warn(`[ingest:stats-cache] Clamping negative cost (${rawCost}) to 0 for session ${id}`);
+
     try {
       db.run(
         `INSERT OR IGNORE INTO sessions
@@ -79,14 +95,14 @@ export async function parseStatsCache(db: DbHelpers, claudeDir: string): Promise
           s.user ?? 'unknown',
           s.project ?? null,
           s.model ?? 'unknown',
-          s.tokens_in ?? s.inputTokens ?? 0,
-          s.tokens_out ?? s.outputTokens ?? 0,
-          s.cache_read ?? s.cacheReadTokens ?? 0,
-          s.cache_creation ?? s.cacheCreationTokens ?? 0,
+          clampedTokensIn,
+          clampedTokensOut,
+          clampedCacheRead,
+          clampedCacheCreation,
           s.duration_ms ?? s.durationMs ?? null,
           s.messages ?? 0,
           s.tool_calls ?? s.toolCalls ?? 0,
-          s.cost ?? 0,
+          clampedCost,
           startedAt,
           s.ended_at ?? s.endedAt ?? null,
         ]
