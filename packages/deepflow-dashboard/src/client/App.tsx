@@ -16,19 +16,6 @@ import { QuotaStatus } from './views/QuotaStatus';
 import { TokenByTool } from './views/TokenByTool';
 
 /* ---------------------------------------------------------------------------
- * Placeholder for views not yet implemented.
- * --------------------------------------------------------------------------- */
-function PlaceholderView({ name }: { name: string }) {
-  return (
-    <div className="flex h-full items-center justify-center text-2xl font-light" style={{ color: 'var(--text-secondary)' }}>
-      {name}
-    </div>
-  );
-}
-
-const OverviewView = () => <PlaceholderView name="Overview" />;
-
-/* ---------------------------------------------------------------------------
  * Layout — sidebar + header + main content
  * --------------------------------------------------------------------------- */
 function Layout() {
@@ -46,7 +33,7 @@ function Layout() {
         {/* Main */}
         <main className="flex-1 overflow-auto p-6">
           <Routes>
-            <Route path="/" element={<OverviewView />} />
+            <Route path="/" element={<CostOverview />} />
             <Route path="/sessions" element={<SessionList />} />
             <Route path="/tasks" element={<TaskTracking />} />
             <Route path="/quota" element={<QuotaStatus />} />
