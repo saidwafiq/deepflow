@@ -200,7 +200,7 @@ Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for
 **Attempt tracking:** Initialize `attempt_count = 1` and `failure_feedback = ""` per task when first spawned. Max 3 total attempts (1 initial + 2 retries).
 
 **Flow:**
-1. Capture the implementation diff via haiku context-fork (§5.8): spawn haiku with `git -C ${WORKTREE_PATH} diff HEAD~1`; receive one-line summary (e.g., `diff: 3 files, +47/-12 lines`). Then capture full diff for Wave Test prompt **in a separate haiku fork** that returns the raw diff as its sole output (this stays in haiku's context; orchestrator passes it as an opaque string to the Wave Test agent prompt without storing it in orchestrator context).
+1. Capture the implementation diff summary via haiku context-fork (§5.8): spawn haiku with `git -C ${WORKTREE_PATH} diff HEAD~1`; receive one-line summary (e.g., `diff: 3 files, +47/-12 lines`). The Wave Test agent will read the full diff itself via the `Read` tool or `git diff HEAD~1` — do NOT capture or pass the raw diff to the Wave Test prompt.
 2. Gather dedup context:
    - Read `.deepflow/auto-snapshot.txt` → store full file list as `SNAPSHOT_FILES`.
    - Extract existing test function names: `grep -h 'describe\|it(\|test(\|def test_\|func Test' $(cat .deepflow/auto-snapshot.txt) 2>/dev/null | head -50` → store as `EXISTING_TEST_NAMES`.
@@ -360,8 +360,7 @@ You are a QA engineer. Write unit tests for the following code changes.
 Use {test_framework}. Test behavioral correctness, not implementation details.
 Spec: {spec}. Task: {task_id}.
 
-Implementation diff:
-{IMPL_DIFF}
+To inspect the implementation diff, use the `Read` tool or run `git diff HEAD~1` in the worktree.
 
 --- MIDDLE ---
 Files changed: {changed_files}
