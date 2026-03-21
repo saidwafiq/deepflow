@@ -2,9 +2,12 @@
  * Backfill: reads local ~/.claude/ data and POSTs it to a team server.
  * Uses the same parsers as local ingestion, but transforms rows to
  * the /api/ingest payload format instead of writing to a local DB.
+ *
+ * Offset tracking: persists last-sent offset per source to
+ * .deepflow/backfill-state.json so re-runs skip already-sent records.
  */
 
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 import https from 'node:https';
@@ -12,6 +15,39 @@ import http from 'node:http';
 import type { IngestPayload } from './api/ingest.js';
 
 const BATCH_SIZE = 100;
+
+// ---------------------------------------------------------------------------
+// Offset state
+// ---------------------------------------------------------------------------
+
+export interface BackfillState {
+  sessions_offset: number;
+  token_history_offset: number;
+}
+
+function loadState(stateFile: string): BackfillState {
+  if (existsSync(stateFile)) {
+    try {
+      const raw = readFileSync(stateFile, 'utf-8');
+      const parsed = JSON.parse(raw) as Partial<BackfillState>;
+      return {
+        sessions_offset: parsed.sessions_offset ?? 0,
+        token_history_offset: parsed.token_history_offset ?? 0,
+      };
+    } catch {
+      // Corrupted state — start from zero; will re-send but won't lose data
+    }
+  }
+  return { sessions_offset: 0, token_history_offset: 0 };
+}
+
+function saveState(stateFile: string, state: BackfillState): void {
+  writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n', 'utf-8');
+}
+
+// ---------------------------------------------------------------------------
+// HTTP helpers
+// ---------------------------------------------------------------------------
 
 /** POST a batch of payloads to the remote server. Returns true on success. */
 async function postBatch(url: string, payloads: IngestPayload[]): Promise<boolean> {
@@ -53,22 +89,46 @@ async function postBatch(url: string, payloads: IngestPayload[]): Promise<boolea
   });
 }
 
-/** Send payloads in BATCH_SIZE chunks. Returns total successful count. */
-async function sendInBatches(url: string, payloads: IngestPayload[]): Promise<number> {
+/**
+ * Send payloads in BATCH_SIZE chunks starting from `startOffset`.
+ * Persists the offset after each successful batch.
+ * Stops on first failure to preserve the last-good offset.
+ * Returns the number of newly sent records.
+ */
+async function sendInBatchesWithOffset(
+  url: string,
+  payloads: IngestPayload[],
+  startOffset: number,
+  stateFile: string,
+  state: BackfillState,
+  offsetKey: keyof BackfillState,
+): Promise<number> {
+  const pending = payloads.slice(startOffset);
+  if (pending.length === 0) return 0;
+
   let sent = 0;
-  for (let i = 0; i < payloads.length; i += BATCH_SIZE) {
-    const batch = payloads.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+    const batch = pending.slice(i, i + BATCH_SIZE);
     const ok = await postBatch(url, batch);
     if (ok) {
       sent += batch.length;
-      process.stdout.write(`\r[backfill] Sent ${sent}/${payloads.length}`);
+      // Persist the new offset immediately after each successful batch
+      (state[offsetKey] as number) = startOffset + sent;
+      saveState(stateFile, state);
+      process.stdout.write(`\r[backfill] Sent ${sent}/${pending.length} (${offsetKey})`);
     } else {
-      console.warn(`\n[backfill] Batch ${i / BATCH_SIZE + 1} failed, continuing…`);
+      // Stop on failure; last-good offset is already persisted
+      console.warn(`\n[backfill] Batch failed at offset ${startOffset + sent}, stopping. Last-good offset preserved.`);
+      break;
     }
   }
-  if (payloads.length > 0) process.stdout.write('\n');
+  if (pending.length > 0) process.stdout.write('\n');
   return sent;
 }
+
+// ---------------------------------------------------------------------------
+// Collectors
+// ---------------------------------------------------------------------------
 
 /** Build IngestPayload objects from session JSONL files in ~/.claude/projects/ */
 function collectSessionPayloads(claudeDir: string): IngestPayload[] {
@@ -203,6 +263,10 @@ function collectTokenHistoryPayloads(deepflowDir: string, defaultUser: string): 
   return payloads;
 }
 
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 export interface BackfillOptions {
   url: string;
   claudeDir?: string;
@@ -216,27 +280,55 @@ export async function runBackfill(opts: BackfillOptions): Promise<void> {
   const deepflowDir = opts.deepflowDir ?? resolve(process.cwd(), '.deepflow');
   const user = opts.user ?? process.env.USER ?? 'unknown';
   const ingestUrl = opts.url.replace(/\/$/, '') + '/api/ingest';
+  const stateFile = resolve(deepflowDir, 'backfill-state.json');
 
   console.log(`[backfill] Source: ${claudeDir}`);
   console.log(`[backfill] Target: ${ingestUrl}`);
+  console.log(`[backfill] State:  ${stateFile}`);
 
-  // Collect from both sources; merge by session_id preference (session files first)
+  // Load persisted offsets
+  const state = loadState(stateFile);
+  console.log(`[backfill] Offsets: sessions=${state.sessions_offset}, token_history=${state.token_history_offset}`);
+
+  // Collect from both sources
   const sessionPayloads = collectSessionPayloads(claudeDir);
   const tokenPayloads = collectTokenHistoryPayloads(deepflowDir, user);
 
-  // Deduplicate: session payloads take precedence; skip token-history records whose
-  // session_id is already covered by a session file payload.
+  // Deduplicate: session payloads take precedence
   const seenSessions = new Set(sessionPayloads.map((p) => p.session_id).filter(Boolean));
   const deduped = tokenPayloads.filter((p) => !seenSessions.has(p.session_id));
 
-  const all = [...sessionPayloads, ...deduped];
-  console.log(`[backfill] Collected ${all.length} records (${sessionPayloads.length} sessions + ${deduped.length} token-history)`);
+  const newSessions = sessionPayloads.length - state.sessions_offset;
+  const newTokenHistory = deduped.length - state.token_history_offset;
+  console.log(
+    `[backfill] Collected ${sessionPayloads.length} sessions (${newSessions > 0 ? newSessions : 0} new), ` +
+    `${deduped.length} token-history (${newTokenHistory > 0 ? newTokenHistory : 0} new)`,
+  );
 
-  if (all.length === 0) {
-    console.log('[backfill] Nothing to send.');
-    return;
+  // Send sessions source
+  const sentSessions = await sendInBatchesWithOffset(
+    ingestUrl,
+    sessionPayloads,
+    state.sessions_offset,
+    stateFile,
+    state,
+    'sessions_offset',
+  );
+
+  // Send token-history source
+  const sentTokenHistory = await sendInBatchesWithOffset(
+    ingestUrl,
+    deduped,
+    state.token_history_offset,
+    stateFile,
+    state,
+    'token_history_offset',
+  );
+
+  const totalSent = sentSessions + sentTokenHistory;
+  if (totalSent === 0) {
+    console.log('[backfill] Nothing new to send.');
+  } else {
+    console.log(`[backfill] Done. Sent ${totalSent} new records (${sentSessions} sessions + ${sentTokenHistory} token-history).`);
   }
-
-  const sent = await sendInBatches(ingestUrl, all);
-  console.log(`[backfill] Done. Sent ${sent}/${all.length} records.`);
 }
