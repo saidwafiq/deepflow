@@ -133,7 +133,8 @@ function runMigrationToolQuotaReparseV1(): void {
 }
 
 /**
- * One-time migration: wipe sessions + task_attempts + their offsets
+ * One-time migration: reset cost/token fields on sessions (preserving user, project, model,
+ * messages, tool_calls, duration_ms, started_at, ended_at) + delete task_attempts + token_events
  * so cost fields are recomputed with fixed pricing logic.
  * Idempotent — tracked via _meta key 'migration:cost_reparse_v1'.
  */
@@ -141,10 +142,14 @@ function runMigrationCostReparseV1(): void {
   const already = get("SELECT value FROM _meta WHERE key = 'migration:cost_reparse_v1'");
   if (already) return;
 
-  console.log('[ingest:migration] Running cost_reparse_v1 — wiping sessions + task_attempts for re-ingestion…');
+  console.log('[ingest:migration] Running cost_reparse_v1 — resetting cost/token fields + task_attempts for re-ingestion…');
 
-  // Delete all session rows to force recalculation of costs
-  run('DELETE FROM sessions');
+  // Zero out cost and token fields only — preserve user, project, model, messages,
+  // tool_calls, duration_ms, started_at, ended_at and all other session metadata
+  run('UPDATE sessions SET cost = 0, tokens_in = 0, tokens_out = 0, cache_read = 0, cache_creation = 0');
+
+  // Delete token_events to force re-ingestion of token data
+  run('DELETE FROM token_events');
 
   // Delete task_attempts rows to force recalculation
   run('DELETE FROM task_attempts');
@@ -152,6 +157,7 @@ function runMigrationCostReparseV1(): void {
   // Delete ingest offsets so parsers re-read from byte 0
   run("DELETE FROM _meta WHERE key LIKE 'ingest_offset:session:%'");
   run("DELETE FROM _meta WHERE key = 'ingest_offset:task-attempts'");
+  run("DELETE FROM _meta WHERE key LIKE 'ingest_offset:token-%'");
 
   // Mark migration as done
   run("INSERT INTO _meta (key, value) VALUES ('migration:cost_reparse_v1', '1')");
