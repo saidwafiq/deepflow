@@ -30,11 +30,13 @@ CREATE TABLE IF NOT EXISTS token_events (
   id                     INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id             TEXT    NOT NULL REFERENCES sessions(id),
   model                  TEXT    NOT NULL,
+  source                 TEXT    NOT NULL DEFAULT 'ingest',
   input_tokens           INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
   output_tokens          INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
   cache_read_tokens      INTEGER NOT NULL DEFAULT 0 CHECK (cache_read_tokens >= 0),
   cache_creation_tokens  INTEGER NOT NULL DEFAULT 0 CHECK (cache_creation_tokens >= 0),
-  timestamp              TEXT    NOT NULL   -- ISO-8601
+  timestamp              TEXT    NOT NULL,  -- ISO-8601
+  UNIQUE (session_id, model, source)
 );
 
 CREATE TABLE IF NOT EXISTS quota_snapshots (
