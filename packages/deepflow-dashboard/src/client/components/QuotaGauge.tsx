@@ -6,6 +6,8 @@ interface QuotaGaugeProps {
   pct: number;
   /** ISO timestamp when the quota window resets */
   reset_at: string | null;
+  /** ISO timestamp when the snapshot was captured */
+  capturedAt?: string | null;
   /** Optional sub-label (e.g. user name in team mode) */
   sub?: string;
 }
@@ -44,6 +46,21 @@ function useCountdown(target: string | null): string {
   return label;
 }
 
+/** Returns a human-friendly "Updated X min ago" string from an ISO timestamp. */
+function relativeUpdated(capturedAt: string | null | undefined): string {
+  if (!capturedAt) return '';
+  const diffMs = Date.now() - new Date(capturedAt).getTime();
+  if (diffMs < 0) return 'Updated just now';
+  const totalSecs = Math.floor(diffMs / 1000);
+  if (totalSecs < 60) return 'Updated just now';
+  const mins = Math.floor(totalSecs / 60);
+  if (mins < 60) return `Updated ${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `Updated ${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `Updated ${days}d ago`;
+}
+
 /** Color based on utilization — green → yellow → red */
 function gaugeColor(pct: number): string {
   if (pct >= 90) return '#ef4444';
@@ -51,7 +68,7 @@ function gaugeColor(pct: number): string {
   return 'var(--accent)';
 }
 
-export function QuotaGauge({ label, pct, reset_at, sub }: QuotaGaugeProps) {
+export function QuotaGauge({ label, pct, reset_at, capturedAt, sub }: QuotaGaugeProps) {
   const countdown = useCountdown(reset_at);
   const clampedPct = Math.min(100, Math.max(0, pct));
   const color = gaugeColor(clampedPct);
@@ -90,6 +107,13 @@ export function QuotaGauge({ label, pct, reset_at, sub }: QuotaGaugeProps) {
       <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
         Resets in <span className="tabular-nums font-medium" style={{ color: 'var(--text)' }}>{countdown}</span>
       </p>
+
+      {/* Captured-at timestamp */}
+      {capturedAt && (
+        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+          {relativeUpdated(capturedAt)}
+        </p>
+      )}
     </div>
   );
 }

@@ -11,6 +11,7 @@ interface QuotaEntry {
   limit_val: number;
   utilization_pct: number;
   reset_at: string | null;
+  captured_at: string | null;
   /** Present in team mode */
   user?: string;
 }
@@ -86,6 +87,7 @@ export function QuotaStatus() {
                   label={label(e.window_type)}
                   pct={e.utilization_pct}
                   reset_at={e.reset_at}
+                  capturedAt={e.captured_at}
                 />
               ))}
             </div>
@@ -106,6 +108,7 @@ export function QuotaStatus() {
             label={label(e.window_type)}
             pct={e.utilization_pct}
             reset_at={e.reset_at}
+            capturedAt={e.captured_at}
           />
         ))}
       </div>
