@@ -26,6 +26,42 @@ function resolveIngestSecret(): string | undefined {
   return undefined;
 }
 
+// ---------------------------------------------------------------------------
+// In-memory rate limiter: 100 requests per 60-second window, keyed by IP
+// ---------------------------------------------------------------------------
+const RATE_LIMIT_MAX = 100;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+const rateLimitMap = new Map<string, RateLimitEntry>();
+
+/** Returns remaining TTL in seconds if the IP is over the limit, or 0 if allowed. */
+function checkRateLimit(ip: string): number {
+  const now = Date.now();
+
+  // Purge all expired entries on each request to avoid unbounded growth
+  for (const [key, entry] of rateLimitMap) {
+    if (now >= entry.resetAt) rateLimitMap.delete(key);
+  }
+
+  let entry = rateLimitMap.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    entry = { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS };
+    rateLimitMap.set(ip, entry);
+    return 0;
+  }
+
+  entry.count += 1;
+  if (entry.count > RATE_LIMIT_MAX) {
+    return Math.ceil((entry.resetAt - now) / 1000);
+  }
+  return 0;
+}
+
 export interface IngestPayload {
   user: string;
   project: string;
@@ -185,6 +221,20 @@ export function createIngestRouter(): Hono {
   const secret = resolveIngestSecret();
 
   router.post('/', async (c) => {
+    // Rate limiting — 100 req/min per IP, checked before auth
+    const ip =
+      c.req.header('x-forwarded-for')?.split(',')[0].trim() ??
+      c.req.header('x-real-ip') ??
+      'unknown';
+    const retryAfter = checkRateLimit(ip);
+    if (retryAfter > 0) {
+      return c.json(
+        { error: 'Too Many Requests', retryAfter },
+        429,
+        { 'Retry-After': String(retryAfter) }
+      );
+    }
+
     // Bearer token auth — enforced when a secret is configured
     if (secret) {
       const authHeader = c.req.header('Authorization') ?? '';
