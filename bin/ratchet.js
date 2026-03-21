@@ -3,7 +3,7 @@
  * deepflow ratchet
  * Mechanical health-check gate with auto-revert on failure.
  *
- * Usage: node bin/ratchet.js
+ * Usage: node bin/ratchet.js [--task T{N}] [--worktree PATH] [--snapshot PATH]
  *
  * Outputs exactly one JSON line to stdout:
  *   {"result":"PASS"}
@@ -12,6 +12,7 @@
  *
  * Exit codes: 0=PASS, 1=FAIL, 2=SALVAGEABLE
  * On FAIL: executes `git revert HEAD --no-edit` before exiting.
+ * On PASS + --task T{N}: updates PLAN.md [ ] → [x] and appends commit hash.
  */
 
 'use strict';
@@ -278,17 +279,78 @@ const STAGE_ORDER = ['build', 'test', 'typecheck', 'lint'];
 const SALVAGEABLE_STAGES = new Set(['lint']);
 
 // ---------------------------------------------------------------------------
+// CLI argument parser
+// ---------------------------------------------------------------------------
+
+function parseArgs(argv) {
+  const args = { task: null, worktree: null, snapshot: null };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--task' && argv[i + 1]) {
+      args.task = argv[++i];
+    } else if (argv[i] === '--worktree' && argv[i + 1]) {
+      args.worktree = argv[++i];
+    } else if (argv[i] === '--snapshot' && argv[i + 1]) {
+      args.snapshot = argv[++i];
+    }
+  }
+  return args;
+}
+
+// ---------------------------------------------------------------------------
+// PLAN.md updater
+// ---------------------------------------------------------------------------
+
+function updatePlanMd(repoRoot, taskId, cwd) {
+  const planPath = path.join(repoRoot, 'PLAN.md');
+  if (!fs.existsSync(planPath)) return;
+
+  let hash = '';
+  try {
+    hash = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      encoding: 'utf8',
+      cwd,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch (_) {
+    // best-effort
+  }
+
+  const text = fs.readFileSync(planPath, 'utf8');
+  // Match lines like: - [ ] **T54** ...
+  const re = new RegExp(`(^.*- \\[ \\].*\\*\\*${taskId}\\*\\*.*)`, 'm');
+  const updated = text.replace(re, (line) => {
+    let result = line.replace('- [ ]', '- [x]');
+    if (hash) result += ` (${hash})`;
+    return result;
+  });
+
+  if (updated !== text) {
+    fs.writeFileSync(planPath, updated, 'utf8');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 function main() {
-  const cwd = process.cwd();
+  const cliArgs = parseArgs(process.argv.slice(2));
+  const cwd = cliArgs.worktree || process.cwd();
   const repoRoot = mainRepoRoot(cwd);
 
   const cfg = loadConfig(repoRoot);
   const projectType = detectProjectType(repoRoot);
   const snapshotFiles = loadSnapshotFiles(repoRoot);
   const cmds = buildCommands(repoRoot, projectType, snapshotFiles, cfg);
+  // --snapshot flag overrides the snapshot-derived test command
+  if (cliArgs.snapshot && fs.existsSync(cliArgs.snapshot)) {
+    const snapFiles = fs.readFileSync(cliArgs.snapshot, 'utf8')
+      .split('\n').map(l => l.trim()).filter(l => l.length > 0)
+      .map(rel => path.isAbsolute(rel) ? rel : path.join(repoRoot, rel));
+    if (snapFiles.length > 0 && projectType === 'node' && !cfg.test_command) {
+      cmds.test = ['node', '--test', ...snapFiles];
+    }
+  }
 
   for (const stage of STAGE_ORDER) {
     const cmd = cmds[stage];
@@ -321,6 +383,9 @@ function main() {
   }
 
   process.stdout.write(JSON.stringify({ result: 'PASS' }) + '\n');
+  if (cliArgs.task) {
+    updatePlanMd(repoRoot, cliArgs.task, cwd);
+  }
   process.exit(0);
 }
 
