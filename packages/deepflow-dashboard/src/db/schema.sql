@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS command_history (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   command    TEXT    NOT NULL,
   timestamp  TEXT    NOT NULL,    -- ISO-8601
+  -- Nullable: CLI commands may run outside sessions (global /init, cross-project tools)
   session_id TEXT    REFERENCES sessions(id)
 );
 
