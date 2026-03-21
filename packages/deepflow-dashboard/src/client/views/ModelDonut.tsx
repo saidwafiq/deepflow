@@ -139,7 +139,7 @@ export function ModelDonut() {
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--bg-secondary)' }}>
               <tr>
-                {['Model', 'Input Tokens', 'Output Tokens', 'Cache Read', 'Cost'].map((h) => (
+                {['Model', 'Input Tokens', 'Output Tokens', 'Cache Read', 'Cache Creation', 'Cost'].map((h) => (
                   <th
                     key={h}
                     className="px-4 py-2 text-left font-medium"
@@ -160,6 +160,7 @@ export function ModelDonut() {
                   <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(m.input_tokens)}</td>
                   <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(m.output_tokens)}</td>
                   <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(m.cache_read_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(m.cache_creation_tokens)}</td>
                   <td className="px-4 py-2 tabular-nums font-medium" style={{ color: 'var(--text)' }}>{fmtDollars(m.cost)}</td>
                 </tr>
               ))}
