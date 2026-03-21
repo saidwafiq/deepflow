@@ -57,8 +57,8 @@ export function PeakHours() {
 
   const load = useCallback(async () => {
     try {
-      // Fetch up to 500 sessions (server max) to get meaningful hour distribution
-      const params = new URLSearchParams({ limit: '500' });
+      // Fetch only started_at for up to 500 sessions — sufficient for hour distribution
+      const params = new URLSearchParams({ limit: '500', fields: 'started_at' });
       if (mode === 'team' && selectedUser) params.set('user', selectedUser);
       const res = await apiFetch(`/api/sessions?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
