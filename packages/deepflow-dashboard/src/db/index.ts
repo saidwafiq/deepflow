@@ -59,11 +59,28 @@ export async function initDatabase(mode: 'local' | 'serve' = 'local'): Promise<D
   const schema = readFileSync(schemaPath, 'utf-8');
   _db.run(schema);
 
+  // Upgrade v1 → v2: add agent_role columns and index
+  migrateDatabase(_db);
+
   // Persist after schema init
   persistDatabase();
 
   console.log(`[db] Opened database at ${_dbPath}`);
   return _db;
+}
+
+/** Run incremental schema migrations based on _meta.schema_version */
+function migrateDatabase(db: Database): void {
+  const stmt = db.prepare("SELECT value FROM _meta WHERE key = 'schema_version'");
+  const version = stmt.step() ? (stmt.getAsObject()['value'] as string) : '1';
+  stmt.free();
+
+  if (version === '1') {
+    db.run("ALTER TABLE sessions ADD COLUMN agent_role TEXT DEFAULT 'unknown'");
+    db.run("ALTER TABLE token_events ADD COLUMN agent_role TEXT DEFAULT 'unknown'");
+    db.run("CREATE INDEX IF NOT EXISTS idx_sessions_agent_role ON sessions(agent_role)");
+    db.run("UPDATE _meta SET value = '2' WHERE key = 'schema_version'");
+  }
 }
 
 /** Get the initialized database instance (throws if not initialized) */
