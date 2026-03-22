@@ -16,7 +16,7 @@ sessionsRouter.get('/', (c) => {
   const order = c.req.query('order') === 'asc' ? 'ASC' : 'DESC';
 
   // Allowed column names for the ?fields= whitelist
-  const allowedFields = ['started_at', 'cost', 'duration_ms', 'messages', 'tool_calls', 'tokens_in', 'tokens_out', 'user', 'project', 'session_id', 'model'];
+  const allowedFields = ['started_at', 'cost', 'duration_ms', 'messages', 'tool_calls', 'tokens_in', 'tokens_out', 'user', 'project', 'session_id', 'model', 'agent_role'];
   const fieldsRaw = c.req.query('fields');
   const selectClause = fieldsRaw
     ? fieldsRaw
@@ -29,8 +29,11 @@ sessionsRouter.get('/', (c) => {
   const conditions: string[] = [];
   const params: unknown[] = [];
 
+  const agentRole = c.req.query('agent_role');
+
   if (user) { conditions.push('user = ?'); params.push(user); }
   if (project) { conditions.push('project = ?'); params.push(project); }
+  if (agentRole) { conditions.push('agent_role = ?'); params.push(agentRole); }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
