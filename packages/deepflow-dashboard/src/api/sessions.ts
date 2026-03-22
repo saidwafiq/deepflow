@@ -16,7 +16,7 @@ sessionsRouter.get('/', (c) => {
   const order = c.req.query('order') === 'asc' ? 'ASC' : 'DESC';
 
   // Allowed column names for the ?fields= whitelist
-  const allowedFields = ['started_at', 'cost', 'duration_ms', 'messages', 'tool_calls', 'tokens_in', 'tokens_out', 'user', 'project', 'session_id', 'model', 'agent_role'];
+  const allowedFields = ['started_at', 'cost', 'duration_ms', 'messages', 'tool_calls', 'tokens_in', 'tokens_out', 'user', 'project', 'session_id', 'model', 'agent_role', 'cache_hit_ratio'];
   const fieldsRaw = c.req.query('fields');
   const selectClause = fieldsRaw
     ? fieldsRaw
