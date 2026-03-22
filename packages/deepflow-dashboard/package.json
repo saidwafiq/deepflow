@@ -1,6 +1,6 @@
 {
   "name": "deepflow-dashboard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local and team analytics dashboard for Claude Code / deepflow",
   "type": "module",
   "bin": {
