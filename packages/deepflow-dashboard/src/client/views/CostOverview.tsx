@@ -31,10 +31,27 @@ interface ProjectRow {
   sessions: number;
 }
 
+interface AgentRoleRow {
+  agent_role: string;
+  cost: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+interface AgentRoleModelRow {
+  agent_role: string;
+  model: string;
+  cost: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
 interface CostsResponse {
   models: ModelCost[];
   daily: DailyRow[];
   projects: ProjectRow[];
+  by_agent_role: AgentRoleRow[];
+  by_agent_role_model: AgentRoleModelRow[];
 }
 
 /* ---- Helpers ---- */
@@ -152,6 +169,69 @@ export function CostOverview() {
             yTickFormatter={(v) => fmt$$(v as number)}
             tooltipFormatter={(value, name) => [fmtDollars(value as number), name]}
           />
+        </div>
+      )}
+
+      {/* Agent role cost breakdown — MetricCards */}
+      {data.by_agent_role && data.by_agent_role.length > 0 && (
+        <div>
+          <p className="mb-3 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+            Cost by agent role
+          </p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {data.by_agent_role.map((r) => (
+              <MetricCard
+                key={r.agent_role}
+                label={r.agent_role}
+                value={fmtDollars(r.cost)}
+                sub={`${fmtTokens(r.input_tokens + r.output_tokens)} tokens`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Agent role × model breakdown table */}
+      {data.by_agent_role_model && data.by_agent_role_model.length > 0 && (
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ border: '1px solid var(--border)' }}
+        >
+          <p
+            className="px-4 py-2 text-sm font-medium"
+            style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
+          >
+            Cost by agent role × model
+          </p>
+          <table className="w-full text-sm">
+            <thead style={{ background: 'var(--bg-secondary)' }}>
+              <tr>
+                {['Agent Role', 'Model', 'Cost', 'Tokens In', 'Tokens Out'].map((h) => (
+                  <th
+                    key={h}
+                    className="px-4 py-2 text-left font-medium"
+                    style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.by_agent_role_model.map((r, i) => (
+                <tr
+                  key={`${r.agent_role}|${r.model}`}
+                  style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--bg-secondary)' }}
+                >
+                  <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--text)' }}>{r.agent_role}</td>
+                  <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--text)' }}>{r.model}</td>
+                  <td className="px-4 py-2 tabular-nums font-medium" style={{ color: 'var(--text)' }}>{fmtDollars(r.cost)}</td>
+                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(r.input_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(r.output_tokens)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
