@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS _meta (
 );
 
 -- Insert schema version on first run; ignored on subsequent runs.
-INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '1');
+INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '2');
 
 CREATE TABLE IF NOT EXISTS sessions (
   id               TEXT PRIMARY KEY,
@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   tool_calls       INTEGER NOT NULL DEFAULT 0,
   cost             REAL    NOT NULL DEFAULT 0 CHECK (cost >= 0),
   started_at       TEXT    NOT NULL,   -- ISO-8601
-  ended_at         TEXT
+  ended_at         TEXT,
+  agent_role       TEXT    NOT NULL DEFAULT 'unknown'
 );
 
 CREATE TABLE IF NOT EXISTS token_events (
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS token_events (
   cache_read_tokens      INTEGER NOT NULL DEFAULT 0 CHECK (cache_read_tokens >= 0),
   cache_creation_tokens  INTEGER NOT NULL DEFAULT 0 CHECK (cache_creation_tokens >= 0),
   timestamp              TEXT    NOT NULL,  -- ISO-8601
+  agent_role             TEXT    NOT NULL DEFAULT 'unknown',
   UNIQUE (session_id, model, source)
 );
 
@@ -81,6 +83,7 @@ CREATE TABLE IF NOT EXISTS command_history (
 );
 
 -- Indexes for common query patterns
+CREATE INDEX IF NOT EXISTS idx_sessions_agent_role    ON sessions(agent_role);
 CREATE INDEX IF NOT EXISTS idx_sessions_user          ON sessions(user);
 CREATE INDEX IF NOT EXISTS idx_sessions_started_at    ON sessions(started_at);
 CREATE INDEX IF NOT EXISTS idx_token_events_session   ON token_events(session_id);
