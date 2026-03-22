@@ -98,6 +98,10 @@ export async function parseTokenHistory(db: DbHelpers, claudeDir: string): Promi
         }
       }
 
+      // Resolve agent_role from the session row (set during session ingest)
+      const sessionRow = db.get('SELECT agent_role FROM sessions WHERE id = ?', [sessionId]) as Record<string, unknown> | undefined;
+      const agentRole = (sessionRow?.agent_role as string | undefined) ?? 'orchestrator';
+
       try {
         const rawInputTokens = (record.input_tokens ?? record.inputTokens ?? 0) as number;
         const rawOutputTokens = (record.output_tokens ?? record.outputTokens ?? 0) as number;
@@ -113,8 +117,8 @@ export async function parseTokenHistory(db: DbHelpers, claudeDir: string): Promi
         if (rawCacheCreation < 0) console.warn(`[ingest:token-history] Clamping negative cache_creation_tokens (${rawCacheCreation}) to 0 at line ${i + 1} in ${filePath}`);
 
         db.run(
-          `INSERT INTO token_events (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, timestamp)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO token_events (session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, timestamp, agent_role)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             sessionId,
             ((record.model as string) ?? 'unknown').replace(/\[\d+[km]\]$/i, ''),
@@ -123,6 +127,7 @@ export async function parseTokenHistory(db: DbHelpers, claudeDir: string): Promi
             clampedCacheRead,
             clampedCacheCreation,
             (record.timestamp ?? new Date().toISOString()) as string,
+            agentRole,
           ]
         );
         inserted++;

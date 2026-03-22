@@ -65,6 +65,41 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
   // Load pricing once for cost computation
   const pricing = await fetchPricing();
 
+  // Load subagent registry: Map<session_id, Set<agent_type>>
+  const registryPath = resolve(claudeDir, 'subagent-sessions.jsonl');
+  const registryMap = new Map<string, Set<string>>();
+  if (existsSync(registryPath)) {
+    try {
+      const registryLines = readFileSync(registryPath, 'utf-8').split('\n');
+      for (const line of registryLines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const entry = JSON.parse(trimmed) as Record<string, unknown>;
+          const sid = entry.session_id as string | undefined;
+          const atype = entry.agent_type as string | undefined;
+          if (sid && atype) {
+            if (!registryMap.has(sid)) registryMap.set(sid, new Set());
+            registryMap.get(sid)!.add(atype);
+          }
+        } catch {
+          console.warn('[ingest:sessions] Skipping malformed registry line:', trimmed);
+        }
+      }
+    } catch (err) {
+      console.warn('[ingest:sessions] Cannot read subagent registry:', err);
+    }
+  } else {
+    console.warn('[ingest:sessions] subagent-sessions.jsonl not found, all sessions default to orchestrator');
+  }
+
+  function resolveAgentRole(sessionId: string): string {
+    const types = registryMap.get(sessionId);
+    if (!types || types.size === 0) return 'orchestrator';
+    if (types.size === 1) return types.values().next().value as string;
+    return 'mixed';
+  }
+
   let totalInserted = 0;
   let totalUpdated = 0;
 
@@ -189,10 +224,11 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
                messages = messages + ?, tool_calls = tool_calls + ?,
                cost = cost + ?, duration_ms = ?, ended_at = COALESCE(?, ended_at),
                model = COALESCE(NULLIF(?, 'unknown'), model),
-               project = COALESCE(?, project)
+               project = COALESCE(?, project),
+               agent_role = ?
                WHERE id = ?`,
               [tokensIn, tokensOut, cacheRead, cacheCreation, messages, toolCalls, cost,
-               durationMs, endedAt, model, project, sessionId]
+               durationMs, endedAt, model, project, resolveAgentRole(sessionId), sessionId]
             );
             totalUpdated++;
           } catch (err) {
@@ -201,11 +237,11 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         } else {
           try {
             db.run(
-              `INSERT INTO sessions (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation, duration_ms, messages, tool_calls, cost, started_at, ended_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              `INSERT INTO sessions (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation, duration_ms, messages, tool_calls, cost, started_at, ended_at, agent_role)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [sessionId, user, project, model, tokensIn, tokensOut, cacheRead, cacheCreation,
                durationMs, messages, toolCalls, cost,
-               startedAt ?? new Date().toISOString(), endedAt]
+               startedAt ?? new Date().toISOString(), endedAt, resolveAgentRole(sessionId)]
             );
             totalInserted++;
           } catch (err) {
