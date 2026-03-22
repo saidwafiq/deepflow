@@ -243,6 +243,7 @@ async function configureHooks(claudeDir) {
   const worktreeGuardCmd = `node "${path.join(claudeDir, 'hooks', 'df-worktree-guard.js')}"`;
   const snapshotGuardCmd = `node "${path.join(claudeDir, 'hooks', 'df-snapshot-guard.js')}"`;
   const invariantCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-invariant-check.js')}"`;
+  const subagentRegistryCmd = `node "${path.join(claudeDir, 'hooks', 'df-subagent-registry.js')}"`;
 
   let settings = {};
 
@@ -394,6 +395,26 @@ async function configureHooks(claudeDir) {
     }]
   });
   log('PostToolUse hook configured');
+
+  // Configure SubagentStop hook for subagent registry
+  if (!settings.hooks.SubagentStop) {
+    settings.hooks.SubagentStop = [];
+  }
+
+  // Remove any existing subagent registry hooks
+  settings.hooks.SubagentStop = settings.hooks.SubagentStop.filter(hook => {
+    const cmd = hook.hooks?.[0]?.command || '';
+    return !cmd.includes('df-subagent-registry');
+  });
+
+  // Add subagent registry hook
+  settings.hooks.SubagentStop.push({
+    hooks: [{
+      type: 'command',
+      command: subagentRegistryCmd
+    }]
+  });
+  log('SubagentStop hook configured');
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 }
@@ -575,7 +596,7 @@ async function uninstall() {
   ];
 
   if (level === 'global') {
-    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js', 'hooks/df-dashboard-push.js', 'hooks/df-execution-history.js', 'hooks/df-worktree-guard.js', 'hooks/df-snapshot-guard.js');
+    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js', 'hooks/df-dashboard-push.js', 'hooks/df-execution-history.js', 'hooks/df-worktree-guard.js', 'hooks/df-snapshot-guard.js', 'hooks/df-subagent-registry.js');
   }
 
   for (const item of toRemove) {
@@ -628,11 +649,20 @@ async function uninstall() {
             delete settings.hooks.PostToolUse;
           }
         }
+        if (settings.hooks?.SubagentStop) {
+          settings.hooks.SubagentStop = settings.hooks.SubagentStop.filter(hook => {
+            const cmd = hook.hooks?.[0]?.command || '';
+            return !cmd.includes('df-subagent-registry');
+          });
+          if (settings.hooks.SubagentStop.length === 0) {
+            delete settings.hooks.SubagentStop;
+          }
+        }
         if (settings.hooks && Object.keys(settings.hooks).length === 0) {
           delete settings.hooks;
         }
         fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-        console.log(`  ${c.green}✓${c.reset} Removed SessionStart/SessionEnd/PostToolUse hooks`);
+        console.log(`  ${c.green}✓${c.reset} Removed SessionStart/SessionEnd/PostToolUse/SubagentStop hooks`);
       } catch (e) {
         // Fail silently
       }
