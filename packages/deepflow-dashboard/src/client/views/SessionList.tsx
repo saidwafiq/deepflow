@@ -8,17 +8,14 @@ interface Session {
   id: string;
   started_at: string;
   ended_at: string | null;
-  user: string | null;
   project: string | null;
   model: string;
-  messages: number;
-  tool_calls: number;
+  agent_role: string | null;
   tokens_in: number;
   tokens_out: number;
-  cache_read: number;
-  cache_creation: number;
   cost: number;
   duration_ms: number;
+  cache_hit_ratio: number | null;
 }
 
 interface SessionsResponse {
@@ -28,7 +25,7 @@ interface SessionsResponse {
   offset: number;
 }
 
-type SortKey = 'started_at' | 'cost' | 'duration_ms' | 'messages' | 'tool_calls' | 'tokens_in' | 'tokens_out' | 'user';
+type SortKey = 'started_at' | 'cost' | 'duration_ms' | 'tokens_in';
 
 /* ---- Helpers ---- */
 function fmtDollars(n: number) {
@@ -114,6 +111,15 @@ export function SessionList() {
     </th>
   );
 
+  const StaticHeader = ({ label }: { label: string }) => (
+    <th
+      className="px-4 py-2 text-left font-medium whitespace-nowrap"
+      style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
+    >
+      {label}
+    </th>
+  );
+
   if (error) {
     return <p className="text-sm" style={{ color: '#ef4444' }}>Failed to load sessions: {error}</p>;
   }
@@ -137,42 +143,13 @@ export function SessionList() {
             <table className="w-full text-sm">
               <thead style={{ background: 'var(--bg-secondary)' }}>
                 <tr>
-                  <th
-                    className="px-4 py-2 text-left font-medium"
-                    style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
-                  >
-                    Started
-                  </th>
-                  <th
-                    className="px-4 py-2 text-left font-medium"
-                    style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
-                  >
-                    Project
-                  </th>
-                  <th
-                    className="px-4 py-2 text-left font-medium"
-                    style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
-                  >
-                    Model
-                  </th>
-                  <ColHeader label="User" k="user" />
-                  <th
-                    className="px-4 py-2 text-left font-medium"
-                    style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
-                  >
-                    Cache Read
-                  </th>
-                  <th
-                    className="px-4 py-2 text-left font-medium"
-                    style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
-                  >
-                    Cache Creation
-                  </th>
+                  <ColHeader label="Started" k="started_at" />
+                  <StaticHeader label="Project" />
+                  <StaticHeader label="Model" />
+                  <StaticHeader label="Agent Role" />
+                  <StaticHeader label="Cache Hit %" />
                   <ColHeader label="Duration" k="duration_ms" />
-                  <ColHeader label="Messages" k="messages" />
-                  <ColHeader label="Tool Calls" k="tool_calls" />
-                  <ColHeader label="Tokens In" k="tokens_in" />
-                  <ColHeader label="Tokens Out" k="tokens_out" />
+                  <ColHeader label="Total Tokens" k="tokens_in" />
                   <ColHeader label="Cost" k="cost" />
                 </tr>
               </thead>
@@ -191,38 +168,26 @@ export function SessionList() {
                     <td className="px-4 py-2 whitespace-nowrap text-xs" style={{ color: 'var(--text)' }}>
                       {s.model}
                     </td>
-                    <td className="px-4 py-2 max-w-[160px] truncate text-xs" style={{ color: 'var(--text)' }}>
-                      {s.user ?? '—'}
+                    <td className="px-4 py-2 whitespace-nowrap text-xs" style={{ color: 'var(--text)' }}>
+                      {s.agent_role ?? '—'}
                     </td>
-                    <td className="px-4 py-2 tabular-nums text-center" style={{ color: 'var(--text)' }}>
-                      {fmtTokens(s.cache_read)}
+                    <td className="px-4 py-2 tabular-nums text-center text-xs" style={{ color: 'var(--text)' }}>
+                      {s.cache_hit_ratio != null ? `${(s.cache_hit_ratio * 100).toFixed(1)}%` : '—'}
                     </td>
-                    <td className="px-4 py-2 tabular-nums text-center" style={{ color: 'var(--text)' }}>
-                      {fmtTokens(s.cache_creation)}
-                    </td>
-                    <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>
+                    <td className="px-4 py-2 tabular-nums text-xs" style={{ color: 'var(--text)' }}>
                       {fmtDuration(s.duration_ms)}
                     </td>
-                    <td className="px-4 py-2 tabular-nums text-center" style={{ color: 'var(--text)' }}>
-                      {s.messages}
+                    <td className="px-4 py-2 tabular-nums text-xs" style={{ color: 'var(--text)' }}>
+                      {fmtTokens(s.tokens_in + s.tokens_out)}
                     </td>
-                    <td className="px-4 py-2 tabular-nums text-center" style={{ color: 'var(--text)' }}>
-                      {s.tool_calls}
-                    </td>
-                    <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>
-                      {fmtTokens(s.tokens_in)}
-                    </td>
-                    <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>
-                      {fmtTokens(s.tokens_out)}
-                    </td>
-                    <td className="px-4 py-2 tabular-nums font-medium" style={{ color: 'var(--text)' }}>
+                    <td className="px-4 py-2 tabular-nums font-medium text-xs" style={{ color: 'var(--text)' }}>
                       {fmtDollars(s.cost)}
                     </td>
                   </tr>
                 ))}
                 {data.data.length === 0 && (
                   <tr>
-                    <td colSpan={12} className="px-4 py-8 text-center" style={{ color: 'var(--text-secondary)' }}>
+                    <td colSpan={8} className="px-4 py-8 text-center" style={{ color: 'var(--text-secondary)' }}>
                       No sessions found.
                     </td>
                   </tr>
