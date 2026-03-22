@@ -57,5 +57,34 @@ costsRouter.get('/', async (c) => {
     [`-${days}`, ...userParam] as import('sql.js').SqlValue[]
   );
 
-  return c.json({ models: modelCosts, daily: dailySeries, projects: projectBreakdown });
+  // Per-agent-role breakdown
+  const byAgentRole = all(
+    `SELECT agent_role,
+            SUM(cost)       AS cost,
+            SUM(tokens_in)  AS input_tokens,
+            SUM(tokens_out) AS output_tokens
+     FROM sessions
+     WHERE started_at >= datetime('now', ? || ' days')
+     ${user ? 'AND user = ?' : ''}
+     GROUP BY agent_role
+     ORDER BY cost DESC`,
+    [`-${days}`, ...userParam] as import('sql.js').SqlValue[]
+  );
+
+  // Per-agent-role-model breakdown
+  const byAgentRoleModel = all(
+    `SELECT agent_role,
+            model,
+            SUM(cost)       AS cost,
+            SUM(tokens_in)  AS input_tokens,
+            SUM(tokens_out) AS output_tokens
+     FROM sessions
+     WHERE started_at >= datetime('now', ? || ' days')
+     ${user ? 'AND user = ?' : ''}
+     GROUP BY agent_role, model
+     ORDER BY cost DESC`,
+    [`-${days}`, ...userParam] as import('sql.js').SqlValue[]
+  );
+
+  return c.json({ models: modelCosts, daily: dailySeries, projects: projectBreakdown, by_agent_role: byAgentRole, by_agent_role_model: byAgentRoleModel });
 });
