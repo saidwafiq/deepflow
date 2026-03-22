@@ -15,80 +15,15 @@ import { parseStatsCache } from './parsers/stats-cache.js';
 const dbHelpers: DbHelpers = { run, get, all };
 
 /**
- * Post-ingestion: aggregate token_events into sessions and compute costs.
- * This bridges the gap where session JSONLs don't contain token data,
- * but token-history.jsonl files do — linked by session_id.
+ * Post-ingestion: compute costs for sessions where cost = 0 or cost IS NULL.
+ * Only updates sessions.cost — never overwrites tokens_in, tokens_out,
+ * cache_read, or cache_creation (those are set by their respective parsers).
  */
-async function aggregateAndComputeCosts(): Promise<void> {
-  // Aggregate token_events → sessions
-  const updated = run(`
-    UPDATE sessions SET
-      tokens_in = COALESCE((
-        SELECT SUM(te.input_tokens)
-        FROM token_events te WHERE te.session_id = sessions.id
-      ), sessions.tokens_in),
-      tokens_out = COALESCE((
-        SELECT SUM(te.output_tokens)
-        FROM token_events te WHERE te.session_id = sessions.id
-      ), sessions.tokens_out),
-      cache_read = COALESCE((
-        SELECT SUM(te.cache_read_tokens)
-        FROM token_events te WHERE te.session_id = sessions.id
-      ), sessions.cache_read),
-      cache_creation = COALESCE((
-        SELECT SUM(te.cache_creation_tokens)
-        FROM token_events te WHERE te.session_id = sessions.id
-      ), sessions.cache_creation),
-      model = COALESCE((
-        SELECT te.model FROM token_events te WHERE te.session_id = sessions.id
-          AND te.model != 'unknown' LIMIT 1
-      ), sessions.model)
-    WHERE EXISTS (SELECT 1 FROM token_events te WHERE te.session_id = sessions.id)
-  `);
-
-  // Resolve 'unknown' model in token_events by looking up the session's known model
-  run(`
-    UPDATE token_events SET model = (
-      SELECT s.model FROM sessions s WHERE s.id = token_events.session_id
-        AND s.model IS NOT NULL AND s.model != 'unknown'
-    )
-    WHERE token_events.model = 'unknown'
-      AND EXISTS (
-        SELECT 1 FROM sessions s WHERE s.id = token_events.session_id
-          AND s.model IS NOT NULL AND s.model != 'unknown'
-      )
-  `);
-
-  // Resolve model for synthetic sessions (cache-synthetic-*) from their token_events
-  run(`
-    UPDATE sessions SET model = (
-      SELECT te.model FROM token_events te WHERE te.session_id = sessions.id
-        AND te.model IS NOT NULL AND te.model != 'unknown'
-      LIMIT 1
-    )
-    WHERE sessions.id LIKE 'cache-synthetic-%'
-      AND (sessions.model IS NULL OR sessions.model = 'unknown')
-      AND EXISTS (
-        SELECT 1 FROM token_events te WHERE te.session_id = sessions.id
-          AND te.model IS NOT NULL AND te.model != 'unknown'
-      )
-  `);
-
-  // Aggregate tool_usage → sessions.tool_calls
-  run(`
-    UPDATE sessions SET
-      tool_calls = COALESCE((
-        SELECT SUM(tu.call_count)
-        FROM tool_usage tu WHERE tu.session_id = sessions.id
-      ), sessions.tool_calls)
-    WHERE EXISTS (SELECT 1 FROM tool_usage tu WHERE tu.session_id = sessions.id)
-  `);
-
-  // Compute costs using pricing data
+async function computeSessionCosts(): Promise<void> {
   const pricing = await fetchPricing();
   const sessions = all(`
     SELECT id, model, tokens_in, tokens_out, cache_read, cache_creation FROM sessions
-    WHERE cost = 0 AND (tokens_in > 0 OR tokens_out > 0)
+    WHERE (cost = 0 OR cost IS NULL) AND (tokens_in > 0 OR tokens_out > 0)
   `);
 
   let costUpdated = 0;
@@ -108,7 +43,7 @@ async function aggregateAndComputeCosts(): Promise<void> {
     }
   }
 
-  console.log(`[ingest:aggregate] Token aggregation + cost computed for ${costUpdated} sessions`);
+  console.log(`[ingest:costs] Cost computed for ${costUpdated} sessions`);
 }
 
 /**
@@ -226,11 +161,11 @@ export async function runIngestion(deepflowDir?: string): Promise<void> {
     }
   }
 
-  // Post-ingestion: aggregate token data and compute costs
+  // Post-ingestion: compute costs for sessions missing cost data
   try {
-    await aggregateAndComputeCosts();
+    await computeSessionCosts();
   } catch (err) {
-    console.warn('[ingest] Aggregation failed:', err);
+    console.warn('[ingest] Cost computation failed:', err);
   }
 
   console.log('[ingest] Ingestion complete');

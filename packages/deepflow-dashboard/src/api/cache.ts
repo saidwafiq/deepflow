@@ -16,10 +16,12 @@ cacheRouter.get('/', (c) => {
 
   // Overall totals for the period
   const totals = get(
-    `SELECT SUM(tokens_in)      AS total_input,
-            SUM(tokens_out)     AS total_output,
-            SUM(cache_read)     AS total_cache_read,
-            SUM(cache_creation) AS total_cache_creation
+    `SELECT SUM(tokens_in)                                   AS total_input,
+            SUM(tokens_out)                                  AS total_output,
+            SUM(cache_read)                                  AS total_cache_read,
+            SUM(cache_creation)                              AS total_cache_creation,
+            AVG(CASE WHEN cache_hit_ratio IS NOT NULL
+                     THEN cache_hit_ratio END)               AS avg_cache_hit_ratio
      FROM sessions
      WHERE started_at >= datetime('now', ? || ' days')
      ${userFilter}`,
@@ -30,16 +32,17 @@ cacheRouter.get('/', (c) => {
   const totalCacheRead = (totals.total_cache_read as number) ?? 0;
   const totalCacheCreation = (totals.total_cache_creation as number) ?? 0;
 
-  // Hit ratio: cache_read / (total_input + cache_read) — fraction of tokens served from cache
-  const denominator = totalInput + totalCacheRead;
-  const hitRatio = denominator > 0 ? totalCacheRead / denominator : 0;
+  // Hit ratio: use stored cache_hit_ratio column (pre-computed from cache-history data)
+  const hitRatio = (totals.avg_cache_hit_ratio as number) ?? 0;
 
   // Daily trend
   const daily = all(
-    `SELECT date(started_at)  AS day,
-            SUM(tokens_in)    AS input_tokens,
-            SUM(cache_read)   AS cache_read_tokens,
-            SUM(cache_creation) AS cache_creation_tokens
+    `SELECT date(started_at)                                   AS day,
+            SUM(tokens_in)                                     AS input_tokens,
+            SUM(cache_read)                                    AS cache_read_tokens,
+            SUM(cache_creation)                                AS cache_creation_tokens,
+            AVG(CASE WHEN cache_hit_ratio IS NOT NULL
+                     THEN cache_hit_ratio END)                 AS hit_ratio
      FROM sessions
      WHERE started_at >= datetime('now', ? || ' days')
      ${userFilter}

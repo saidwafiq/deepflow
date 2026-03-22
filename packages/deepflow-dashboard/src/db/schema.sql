@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS _meta (
 );
 
 -- Insert schema version on first run; ignored on subsequent runs.
-INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '2');
+INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '3');
 
 CREATE TABLE IF NOT EXISTS sessions (
   id               TEXT PRIMARY KEY,
@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   cost             REAL    NOT NULL DEFAULT 0 CHECK (cost >= 0),
   started_at       TEXT    NOT NULL,   -- ISO-8601
   ended_at         TEXT,
-  agent_role       TEXT    NOT NULL DEFAULT 'unknown'
+  agent_role       TEXT    NOT NULL DEFAULT 'unknown',
+  cache_hit_ratio  REAL    DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS token_events (

@@ -80,6 +80,33 @@ function migrateDatabase(db: Database): void {
     db.run("ALTER TABLE token_events ADD COLUMN agent_role TEXT DEFAULT 'unknown'");
     db.run("CREATE INDEX IF NOT EXISTS idx_sessions_agent_role ON sessions(agent_role)");
     db.run("UPDATE _meta SET value = '2' WHERE key = 'schema_version'");
+    // Fall through to apply v2→v3 as well
+  }
+
+  const currentVersion = (() => {
+    const s = db.prepare("SELECT value FROM _meta WHERE key = 'schema_version'");
+    const v = s.step() ? (s.getAsObject()['value'] as string) : '1';
+    s.free();
+    return v;
+  })();
+
+  if (currentVersion === '2') {
+    // v2 → v3: add cache_hit_ratio column
+    db.run("ALTER TABLE sessions ADD COLUMN cache_hit_ratio REAL DEFAULT NULL");
+    db.run("UPDATE _meta SET value = '3' WHERE key = 'schema_version'");
+  }
+
+  // One-time purge of synthetic sessions (idempotent — gated by _meta key)
+  const purgeKey = 'migration:purge_synthetic_sessions_v1';
+  const purgeStmt = db.prepare("SELECT value FROM _meta WHERE key = ?");
+  purgeStmt.bind([purgeKey]);
+  const purgeExists = purgeStmt.step();
+  purgeStmt.free();
+
+  if (!purgeExists) {
+    db.run("DELETE FROM token_events WHERE session_id LIKE 'cache-synthetic-%'");
+    db.run("DELETE FROM sessions WHERE id LIKE 'cache-synthetic-%'");
+    db.run("INSERT INTO _meta (key, value) VALUES (?, 'done')", [purgeKey]);
   }
 }
 
