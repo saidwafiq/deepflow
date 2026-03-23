@@ -348,7 +348,7 @@ describe('§4.7.3 — collect mini-plans', () => {
   it('documents graceful handling of empty sub-agent output', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('empty') && section.includes('skip that spec'),
+      section.includes('empty') && section.includes('skip spec'),
       'Should gracefully skip specs with empty output'
     );
   });
@@ -356,7 +356,7 @@ describe('§4.7.3 — collect mini-plans', () => {
   it('documents graceful handling of unparseable sub-agent output', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('unparseable') && section.includes('skip that spec'),
+      section.includes('unparseable') && section.includes('skip spec'),
       'Should gracefully skip specs with unparseable output'
     );
   });
@@ -364,7 +364,7 @@ describe('§4.7.3 — collect mini-plans', () => {
   it('does not fail the entire plan on sub-agent failure', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('do not fail the entire plan'),
+      section.includes('Continue processing remaining specs regardless of individual failures'),
       'Must not fail entire plan on individual sub-agent failure'
     );
   });
@@ -992,6 +992,292 @@ describe('§5.5 — monolithic-only scoping', () => {
     assert.ok(
       s55.includes('fan-out path') && s55.includes('consolidator prompt'),
       '§5.5 must note fan-out classification is in consolidator'
+    );
+  });
+});
+
+// ===========================================================================
+// WAVE 3 — §4.7.3 GRACEFUL DEGRADATION & §8/§9 FAN-OUT GUARDS (T6)
+// ===========================================================================
+
+// Helper: extract §8 section
+function getSection8() {
+  const content = fs.readFileSync(planPath, 'utf8');
+  const match = content.match(/### 8\. CLEANUP PLAN\.md[\s\S]*?(?=### 9\.)/);
+  assert.ok(match, 'plan.md must contain §8 CLEANUP PLAN.md section');
+  return match[0];
+}
+
+// Helper: extract §9 section
+function getSection9() {
+  const content = fs.readFileSync(planPath, 'utf8');
+  const match = content.match(/### 9\. OUTPUT & RENAME[\s\S]*?(?=## Rules|$)/);
+  assert.ok(match, 'plan.md must contain §9 OUTPUT & RENAME section');
+  return match[0];
+}
+
+// ---------------------------------------------------------------------------
+// §4.7.3 — Three-Condition Failure Check (AC-11)
+// ---------------------------------------------------------------------------
+
+describe('§4.7.3 graceful degradation — three failure conditions', () => {
+  it('condition 1: sub-agent threw error or returned non-string', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('threw an error or returned a non-string value'),
+      'Must detect error/non-string as failure condition'
+    );
+  });
+
+  it('condition 1 action: log warning and skip spec', () => {
+    const section = getFanOutSection();
+    assert.match(
+      section,
+      /threw an error or returned a non-string value.*log warning.*skip spec/s,
+      'Error condition must log warning and skip spec'
+    );
+  });
+
+  it('condition 2: output is empty (whitespace only)', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('Output is empty (whitespace only)'),
+      'Must detect empty/whitespace-only output as failure condition'
+    );
+  });
+
+  it('condition 2 action: log warning and skip spec', () => {
+    const section = getFanOutSection();
+    assert.match(
+      section,
+      /Output is empty.*log warning.*skip spec/s,
+      'Empty output condition must log warning and skip spec'
+    );
+  });
+
+  it('condition 3: output contains no task items (no T pattern)', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('no task items') && section.includes('no `- [ ] **T` pattern'),
+      'Must detect missing task items as failure condition'
+    );
+  });
+
+  it('condition 3 action: log warning (unparseable) and skip spec', () => {
+    const section = getFanOutSection();
+    assert.match(
+      section,
+      /no task items.*unparseable.*skip spec/s,
+      'No-task-items condition must log warning as unparseable and skip spec'
+    );
+  });
+
+  it('references AC-11', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('AC-11'),
+      'Graceful degradation must reference AC-11'
+    );
+  });
+
+  it('all three conditions are bullet-listed under Graceful degradation', () => {
+    const section = getFanOutSection();
+    const gdBlock = section.match(/Graceful degradation.*?(?=Warning format|$)/s);
+    assert.ok(gdBlock, 'Must have Graceful degradation block');
+    const bullets = gdBlock[0].match(/^- /gm);
+    assert.ok(bullets && bullets.length >= 3, 'Must have at least 3 bullet conditions');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §4.7.3 — Warning Format
+// ---------------------------------------------------------------------------
+
+describe('§4.7.3 graceful degradation — warning format', () => {
+  it('specifies warning format with specName placeholder', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('{specName}'),
+      'Warning format must include {specName} placeholder'
+    );
+  });
+
+  it('specifies warning format with reason placeholder', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('{reason}'),
+      'Warning format must include {reason} placeholder'
+    );
+  });
+
+  it('warning includes "Continuing with remaining specs" message', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('Continuing with remaining specs'),
+      'Warning must indicate processing continues'
+    );
+  });
+
+  it('warning uses ⚠ Warning prefix', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('⚠ Warning: sub-agent for'),
+      'Warning must use ⚠ Warning prefix format'
+    );
+  });
+
+  it('warning format is inside a code block', () => {
+    const section = getFanOutSection();
+    assert.match(
+      section,
+      /```\n⚠ Warning:.*\n```/s,
+      'Warning format must be in a code block'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §4.7.3 — Partial vs Total Failure
+// ---------------------------------------------------------------------------
+
+describe('§4.7.3 graceful degradation — partial success vs total failure', () => {
+  it('partial success (at least 1 succeeds): continues to §5', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('at least 1 succeeds') && section.includes('continue to §5'),
+      'Partial success must continue to §5'
+    );
+  });
+
+  it('total failure (ALL sub-agents fail): aborts plan generation', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('ALL sub-agents fail') && section.includes('abort plan generation'),
+      'Total failure must abort plan generation'
+    );
+  });
+
+  it('only successfully parsed mini-plans are stored', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('successfully parsed only'),
+      'Only successfully parsed mini-plans should be stored'
+    );
+  });
+
+  it('continues processing remaining specs regardless of individual failures', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('Continue processing remaining specs regardless of individual failures'),
+      'Must continue processing after individual failures'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §8 — Fan-Out Guard
+// ---------------------------------------------------------------------------
+
+describe('§8 — fan-out guard', () => {
+  it('§8 has fan-out path guard', () => {
+    const s8 = getSection8();
+    assert.ok(
+      s8.includes('Fan-out path:'),
+      '§8 must have a fan-out path directive'
+    );
+  });
+
+  it('§8 runs ONLY after §5B consolidation is complete', () => {
+    const s8 = getSection8();
+    assert.ok(
+      s8.includes('Run ONLY after §5B consolidation is complete'),
+      '§8 must run only after §5B consolidation'
+    );
+  });
+
+  it('§8 operates on consolidated output only', () => {
+    const s8 = getSection8();
+    assert.ok(
+      s8.includes('Operate on the consolidated output only'),
+      '§8 must operate on consolidated output only'
+    );
+  });
+
+  it('§8 must NOT run inside sub-agents', () => {
+    const s8 = getSection8();
+    assert.ok(
+      s8.includes('do NOT run inside sub-agents'),
+      '§8 must not run inside sub-agents'
+    );
+  });
+
+  it('§8 must NOT run during mini-plan collection', () => {
+    const s8 = getSection8();
+    assert.ok(
+      s8.includes('during mini-plan collection'),
+      '§8 must not run during mini-plan collection'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §9 — Fan-Out Guard
+// ---------------------------------------------------------------------------
+
+describe('§9 — fan-out guard', () => {
+  it('§9 has fan-out path guard', () => {
+    const s9 = getSection9();
+    assert.ok(
+      s9.includes('Fan-out path:'),
+      '§9 must have a fan-out path directive'
+    );
+  });
+
+  it('§9 runs ONLY after §5B consolidation is complete', () => {
+    const s9 = getSection9();
+    assert.ok(
+      s9.includes('Run ONLY after §5B consolidation is complete'),
+      '§9 must run only after §5B consolidation'
+    );
+  });
+
+  it('§9 references AC-13', () => {
+    const s9 = getSection9();
+    assert.ok(
+      s9.includes('AC-13'),
+      '§9 must reference AC-13'
+    );
+  });
+
+  it('§9 excludes failed specs from rename', () => {
+    const s9 = getSection9();
+    assert.ok(
+      s9.includes('successfully planned spec') || s9.includes('successfully planned specs only'),
+      '§9 must rename only successfully planned specs'
+    );
+  });
+
+  it('§9 excludes failed specs from PLAN.md output', () => {
+    const s9 = getSection9();
+    assert.ok(
+      s9.includes('NOT renamed and NOT appended to PLAN.md'),
+      'Failed specs must not be renamed or appended to PLAN.md'
+    );
+  });
+
+  it('§9 specifies failed specs come from §4.7.3', () => {
+    const s9 = getSection9();
+    assert.ok(
+      s9.includes('§4.7.3'),
+      '§9 must reference §4.7.3 for failed spec identification'
+    );
+  });
+
+  it('§9 operates on successfully planned specs only', () => {
+    const s9 = getSection9();
+    assert.ok(
+      s9.includes('Operate on successfully planned specs only'),
+      '§9 must operate on successfully planned specs only'
     );
   });
 });
