@@ -413,3 +413,585 @@ describe('§4.7 — trigger condition', () => {
     );
   });
 });
+
+// ===========================================================================
+// WAVE 2 — §5 TWO-PATH ARCHITECTURE (T5)
+// ===========================================================================
+
+// Helper: extract the full §5 section (from ### 5. up to ### 5.5. or ### 6.)
+function getSection5() {
+  const content = fs.readFileSync(planPath, 'utf8');
+  const match = content.match(/### 5\. COMPARE & PRIORITIZE[\s\S]*?(?=### 5\.5\.|### 6\.)/);
+  assert.ok(match, 'plan.md must contain §5 COMPARE & PRIORITIZE section');
+  return match[0];
+}
+
+// Helper: extract §5A subsection
+function getSection5A() {
+  const s5 = getSection5();
+  const match = s5.match(/#### 5A\. SINGLE-SPEC[\s\S]*?(?=#### 5B\.)/);
+  assert.ok(match, 'plan.md must contain §5A SINGLE-SPEC subsection');
+  return match[0];
+}
+
+// Helper: extract §5B subsection
+function getSection5B() {
+  const s5 = getSection5();
+  const match = s5.match(/#### 5B\. MULTI-SPEC CONSOLIDATOR[\s\S]*/);
+  assert.ok(match, 'plan.md must contain §5B MULTI-SPEC CONSOLIDATOR subsection');
+  return match[0];
+}
+
+// Helper: extract §5.5 section
+function getSection55() {
+  const content = fs.readFileSync(planPath, 'utf8');
+  const match = content.match(/### 5\.5\. CLASSIFY MODEL \+ EFFORT[\s\S]*?(?=### 6\.)/);
+  assert.ok(match, 'plan.md must contain §5.5 section');
+  return match[0];
+}
+
+// ---------------------------------------------------------------------------
+// §5 Two-Path Routing
+// ---------------------------------------------------------------------------
+
+describe('§5 — two-path architecture', () => {
+  it('§5 heading exists', () => {
+    const content = fs.readFileSync(planPath, 'utf8');
+    assert.match(content, /### 5\. COMPARE & PRIORITIZE/);
+  });
+
+  it('declares two paths determined by spec count', () => {
+    const s5 = getSection5();
+    assert.ok(
+      s5.includes('Two paths') && s5.includes('spec count'),
+      '§5 must state two paths determined by spec count'
+    );
+  });
+
+  it('contains §5A subsection', () => {
+    const s5 = getSection5();
+    assert.match(s5, /#### 5A\. SINGLE-SPEC/);
+  });
+
+  it('contains §5B subsection', () => {
+    const s5 = getSection5();
+    assert.match(s5, /#### 5B\. MULTI-SPEC CONSOLIDATOR/);
+  });
+
+  it('§5A appears before §5B', () => {
+    const s5 = getSection5();
+    const idxA = s5.indexOf('5A.');
+    const idxB = s5.indexOf('5B.');
+    assert.ok(idxA < idxB, '§5A must come before §5B');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §5A Monolithic Path Preservation
+// ---------------------------------------------------------------------------
+
+describe('§5A — single-spec monolithic path', () => {
+  it('triggers when exactly 1 plannable spec', () => {
+    const s5a = getSection5A();
+    assert.match(s5a, /\*\*When:\*\*.*[Ee]xactly 1 plannable spec/);
+  });
+
+  it('notes §4.7 was skipped', () => {
+    const s5a = getSection5A();
+    assert.ok(
+      s5a.includes('§4.7 was skipped'),
+      '§5A must note that §4.7 was skipped for single spec'
+    );
+  });
+
+  it('spawns reasoner with opus model', () => {
+    const s5a = getSection5A();
+    assert.ok(
+      s5a.includes('subagent_type="reasoner"') && s5a.includes('model="opus"'),
+      '§5A must spawn Task with reasoner/opus'
+    );
+  });
+
+  it('maps requirements to DONE/PARTIAL/MISSING/CONFLICT', () => {
+    const s5a = getSection5A();
+    assert.ok(s5a.includes('DONE'), 'Must include DONE status');
+    assert.ok(s5a.includes('PARTIAL'), 'Must include PARTIAL status');
+    assert.ok(s5a.includes('MISSING'), 'Must include MISSING status');
+    assert.ok(s5a.includes('CONFLICT'), 'Must include CONFLICT status');
+  });
+
+  it('preserves metric AC detection subsection', () => {
+    const s5a = getSection5A();
+    assert.match(s5a, /Metric AC Detection/);
+  });
+
+  it('metric AC detection scans for operator pattern', () => {
+    const s5a = getSection5A();
+    assert.ok(
+      s5a.includes('{metric}') && s5a.includes('{operator}') && s5a.includes('{number}'),
+      'Metric AC must document the scan pattern'
+    );
+  });
+
+  it('continues to §6 after completion', () => {
+    const s5a = getSection5A();
+    assert.ok(
+      s5a.includes('Continue to §6'),
+      '§5A must direct to §6 after completion'
+    );
+  });
+
+  it('applies §5.5 routing matrix', () => {
+    const s5a = getSection5A();
+    assert.ok(
+      s5a.includes('§5.5 routing matrix'),
+      '§5A must reference §5.5 routing matrix'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §5B Consolidator — Structure
+// ---------------------------------------------------------------------------
+
+describe('§5B — multi-spec consolidator structure', () => {
+  it('triggers when >1 plannable spec', () => {
+    const s5b = getSection5B();
+    assert.match(s5b, /\*\*When:\*\*.*>1 plannable spec/);
+  });
+
+  it('notes §4.7 produced mini-plans', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('§4.7 produced mini-plans'),
+      '§5B must state §4.7 produced mini-plans'
+    );
+  });
+
+  it('spawns single Task with reasoner/opus', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Spawn a single') &&
+      s5b.includes('subagent_type="reasoner"') &&
+      s5b.includes('model="opus"'),
+      '§5B must spawn a single reasoner/opus Task'
+    );
+  });
+
+  it('consolidator prompt starts with role declaration', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('You are the plan consolidator'),
+      'Prompt must start with plan consolidator role'
+    );
+  });
+
+  it('prompt includes input mini-plans template with specName iteration', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('{for each entry in miniPlans array:}') &&
+      s5b.includes('{specName}') &&
+      s5b.includes('{miniPlan content}'),
+      'Prompt must template mini-plan iteration'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §5B Consolidator — 7 Steps
+// ---------------------------------------------------------------------------
+
+describe('§5B consolidator — step completeness', () => {
+  it('contains all 7 instruction steps', () => {
+    const s5b = getSection5B();
+    for (let i = 1; i <= 7; i++) {
+      assert.match(
+        s5b,
+        new RegExp(`### Step ${i}:`),
+        `Consolidator must contain Step ${i}`
+      );
+    }
+  });
+
+  it('Step 1: Spec Priority Ordering', () => {
+    const s5b = getSection5B();
+    assert.ok(s5b.includes('Step 1: Spec Priority Ordering'));
+  });
+
+  it('Step 2: Global T-Number Assignment', () => {
+    const s5b = getSection5B();
+    assert.ok(s5b.includes('Step 2: Global T-Number Assignment'));
+  });
+
+  it('Step 3: Cross-Spec File Conflict Detection', () => {
+    const s5b = getSection5B();
+    assert.ok(s5b.includes('Step 3: Cross-Spec File Conflict Detection'));
+  });
+
+  it('Step 4: Requirement Mapping', () => {
+    const s5b = getSection5B();
+    assert.ok(s5b.includes('Step 4: Requirement Mapping'));
+  });
+
+  it('Step 5: Metric AC Detection', () => {
+    const s5b = getSection5B();
+    assert.ok(s5b.includes('Step 5: Metric AC Detection'));
+  });
+
+  it('Step 6: Model + Effort Classification', () => {
+    const s5b = getSection5B();
+    assert.ok(s5b.includes('Step 6: Model + Effort Classification'));
+  });
+
+  it('Step 7: Output', () => {
+    const s5b = getSection5B();
+    assert.ok(s5b.includes('Step 7: Output'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §5B — Global T-Numbering (Step 2)
+// ---------------------------------------------------------------------------
+
+describe('§5B Step 2 — global T-number assignment', () => {
+  it('assigns sequential T-numbers T1..TN', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('T1, T2, ..., TN'),
+      'Must specify sequential T1..TN numbering'
+    );
+  });
+
+  it('requires NO gaps and NO duplicates', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('NO gaps') && s5b.includes('NO duplicates'),
+      'Must forbid gaps and duplicates'
+    );
+  });
+
+  it('preserves local task ordering within each spec', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('preserve the local task ordering'),
+      'Must preserve local ordering'
+    );
+  });
+
+  it('translates local Blocked-by references to global T-IDs', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Translate all intra-spec') && s5b.includes('global T-IDs'),
+      'Must translate local blocked-by to global IDs'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §5B — Cross-Spec File Conflict Detection (Step 3)
+// ---------------------------------------------------------------------------
+
+describe('§5B Step 3 — cross-spec file conflict detection', () => {
+  it('builds file → [global task IDs] map', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('file → [global task IDs]'),
+      'Must build file-to-task-IDs map'
+    );
+  });
+
+  it('detects files in >1 task across different specs', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('>1 task across different specs'),
+      'Must detect cross-spec file overlaps'
+    );
+  });
+
+  it('adds Blocked by from later task to earlier task', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('later task → the earlier task'),
+      'Must block later task on earlier one'
+    );
+  });
+
+  it('requires [file-conflict: {filename}] annotation', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('[file-conflict: {filename}]'),
+      'Must annotate with [file-conflict: {filename}]'
+    );
+  });
+
+  it('skips if dependency already exists (direct or transitive)', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Skip if a dependency already exists'),
+      'Must skip redundant dependencies'
+    );
+  });
+
+  it('chains only to nearest earlier task (not all earlier)', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Chain only') && s5b.includes('nearest earlier task'),
+      'Must chain to nearest, not all earlier tasks'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §5B — Model/Effort Routing (Step 6)
+// ---------------------------------------------------------------------------
+
+describe('§5B Step 6 — model + effort routing inside consolidator', () => {
+  it('contains routing matrix table', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('| Task type | Model | Effort |'),
+      'Must contain routing matrix table header'
+    );
+  });
+
+  it('includes haiku-level tasks (bootstrap, browse-fetch)', () => {
+    const s5b = getSection5B();
+    assert.ok(s5b.includes('Bootstrap') && s5b.includes('haiku'));
+    assert.ok(s5b.includes('browse-fetch'));
+  });
+
+  it('includes sonnet-level tasks (multi-file, bug fix)', () => {
+    const s5b = getSection5B();
+    assert.ok(s5b.includes('Multi-file with clear specs'));
+    assert.ok(s5b.includes('Bug fix (clear repro)'));
+  });
+
+  it('includes opus-level tasks (optimize, architecture)', () => {
+    const s5b = getSection5B();
+    assert.ok(s5b.includes('Optimize (metric AC)'));
+    assert.ok(s5b.includes('Architecture change'));
+  });
+
+  it('documents retry escalation (raise one level)', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Retried after revert') && s5b.includes('raise one level'),
+      'Must document retry escalation'
+    );
+  });
+
+  it('defaults to sonnet / medium', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Defaults: sonnet / medium'),
+      'Must default to sonnet/medium'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §5B — Summary Table in Output (Step 7)
+// ---------------------------------------------------------------------------
+
+describe('§5B Step 7 — output format', () => {
+  it('output includes Summary table with 4 metrics', () => {
+    const s5b = getSection5B();
+    assert.ok(s5b.includes('Specs analyzed'));
+    assert.ok(s5b.includes('Tasks created'));
+    assert.ok(s5b.includes('Ready (no blockers)'));
+    assert.ok(s5b.includes('Blocked'));
+  });
+
+  it('output includes Spec Gaps section', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('## Spec Gaps'),
+      'Must include Spec Gaps section'
+    );
+  });
+
+  it('groups tasks under ### doing-{spec-name} headers', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('### doing-{spec-name-1}') && s5b.includes('### doing-{spec-name-2}'),
+      'Tasks must be grouped under doing-{spec-name} headers'
+    );
+  });
+
+  it('task format includes Files, Model, Effort, Blocked by fields', () => {
+    const s5b = getSection5B();
+    // Check within the output template
+    assert.ok(s5b.includes('- Files:'));
+    assert.ok(s5b.includes('- Model:'));
+    assert.ok(s5b.includes('- Effort:'));
+    assert.ok(s5b.includes('- Blocked by:'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §5B — Output Rules
+// ---------------------------------------------------------------------------
+
+describe('§5B — output rules', () => {
+  it('T-numbers MUST be globally sequential with no gaps/duplicates', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('T-numbers MUST be globally sequential'),
+      'Must enforce globally sequential T-numbers'
+    );
+  });
+
+  it('requires doing-{spec-name} grouping', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Group tasks under `### doing-{spec-name}` headers'),
+      'Must require spec-name grouping'
+    );
+  });
+
+  it('preserves optional fields from mini-plans', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Preserve all optional fields from mini-plans'),
+      'Must preserve optional fields'
+    );
+  });
+
+  it('requires [file-conflict] annotations for cross-spec overlaps', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('[file-conflict: {filename}] annotations are REQUIRED'),
+      'Must require file-conflict annotations'
+    );
+  });
+
+  it('mandates "Blocked by: none" format (not N/A or empty)', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('"Blocked by: none" is required') &&
+      s5b.includes('not "N/A"') &&
+      s5b.includes('not empty'),
+      'Must mandate Blocked by: none format'
+    );
+  });
+
+  it('spike tasks keep [SPIKE] or [OPTIMIZE] markers', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('[SPIKE]') && s5b.includes('[OPTIMIZE]'),
+      'Must keep spike/optimize markers'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REQ-12: Single Opus Invocation
+// ---------------------------------------------------------------------------
+
+describe('REQ-12 — single Opus invocation in fan-out path', () => {
+  it('§5B states it is the ONLY Opus invocation in fan-out path', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('ONLY Opus invocation in the fan-out path'),
+      'Must declare single Opus invocation constraint'
+    );
+  });
+
+  it('§5B references REQ-12', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('REQ-12'),
+      'Must reference REQ-12'
+    );
+  });
+
+  it('sub-agents in §4.7 use Sonnet (not Opus)', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Sub-agents in §4.7 use Sonnet'),
+      'Must confirm §4.7 sub-agents use Sonnet'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REQ-7: Ephemeral Mini-Plans
+// ---------------------------------------------------------------------------
+
+describe('REQ-7 — ephemeral mini-plans', () => {
+  it('mini-plans are never written to disk', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('never written to disk'),
+      'Mini-plans must be ephemeral, never persisted'
+    );
+  });
+
+  it('mini-plans exist only as sub-agent return values', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('exist only as sub-agent return values'),
+      'Mini-plans must only be in-memory return values'
+    );
+  });
+
+  it('references REQ-7', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('REQ-7'),
+      'Must reference REQ-7'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §8/§9 remain in orchestrator (REQ-13)
+// ---------------------------------------------------------------------------
+
+describe('REQ-13 — §8 cleanup and §9 output remain in orchestrator', () => {
+  it('post-consolidation notes §8 and §9 run in orchestrator', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('§8 cleanup') && s5b.includes('§9 output'),
+      'Must state §8/§9 run after consolidation'
+    );
+  });
+
+  it('references REQ-13', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('REQ-13'),
+      'Must reference REQ-13'
+    );
+  });
+
+  it('§8/§9 run after consolidation step', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('run after this step in the orchestrator'),
+      'Must confirm §8/§9 run after consolidation in orchestrator'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §5.5 Monolithic-Only Scoping
+// ---------------------------------------------------------------------------
+
+describe('§5.5 — monolithic-only scoping', () => {
+  it('§5.5 notes it applies only to monolithic path (§5A)', () => {
+    const s55 = getSection55();
+    assert.ok(
+      s55.includes('applies only to the monolithic path'),
+      '§5.5 must be scoped to monolithic path only'
+    );
+  });
+
+  it('§5.5 notes fan-out path handles classification inside consolidator', () => {
+    const s55 = getSection55();
+    assert.ok(
+      s55.includes('fan-out path') && s55.includes('consolidator prompt'),
+      '§5.5 must note fan-out classification is in consolidator'
+    );
+  });
+});
