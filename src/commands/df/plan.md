@@ -106,13 +106,102 @@ After all tasks have `Files:` lists, detect overlaps requiring sequential execut
 
 **Rules:** Chain only (T5→T3, not T5→T1+T3). Append `(file conflict: {filename})`. Logical deps override conflict edges. Cross-spec conflicts get same treatment.
 
+### 4.7. FAN-OUT ORCHESTRATION (MULTI-SPEC)
+
+**When:** >1 plannable spec found in §1.
+
+**Skip condition:** If exactly 1 plannable spec → skip this section entirely, continue to §5 monolithic path with zero overhead. No fan-out code runs.
+
+#### 4.7.1. Count & Cap
+
+Count plannable specs (no `doing-`/`done-` prefix, passed `validateSpec`).
+
+- **1 spec** → skip to §5 (monolithic path)
+- **2–5 specs** → fan-out all
+- **>5 specs** → select first 5 by filesystem `ls` order. Report to user:
+  ```
+  ⚠ {total} specs found. Planning first 5 now. Queued for next run:
+    - {spec6.md}
+    - {spec7.md}
+    ...
+  Re-run /df:plan to process remaining specs.
+  ```
+
+#### 4.7.2. Spawn Sub-Agents
+
+For each plannable spec (up to 5), spawn a **parallel non-background** `Task(subagent_type="default", model="sonnet")` call. All calls are independent — spawn them simultaneously.
+
+Each sub-agent prompt MUST include:
+
+1. **Layer-gating rules** (from §1.5): The spec's computed layer and which task types are allowed
+2. **Experiment check results** (from §2): Past experiments for this spec's topic — `--passed.md`, `--failed.md`, `--active.md` status and extracted next-hypothesis
+3. **Project context** (from §3): Code style, patterns, integration points detected for this project
+4. **Impact analysis instructions** (from §4, L3 specs only): LSP-first blast radius search for each file in the task's `Files:` list
+5. **Targeted exploration instructions** (from §4.5): Follow `templates/explore-agent.md` spawn rules
+6. **The spec content**: Full text of that spec file
+7. **Format enforcement clause**:
+   ```
+   OUTPUT FORMAT — MANDATORY (no deviations):
+   Return ONLY a markdown task list. Use local T-numbering starting at T1.
+   Each task MUST follow this exact format:
+
+   ### {spec-name}
+
+   - [ ] **T{N}**: {Task description}
+     - Files: {comma-separated file paths}
+     - Blocked by: none | T{N}[, T{M}...]
+
+   Optional fields (add when applicable):
+     - Model: haiku | sonnet | opus
+     - Effort: low | medium | high
+     - Impact: {blast radius details, L3 only}
+     - Optimize: {metric block, for metric ACs only}
+
+   Rules:
+   - "Blocked by: none" is required (not "N/A", not empty)
+   - T-numbers are local to this spec (T1, T2, T3...)
+   - One task = one atomic commit
+   - Spike tasks use: **T{N}** [SPIKE]: {description}
+   - L0-L1 specs: ONLY spike tasks allowed
+   - L2+ specs: spikes + implementation tasks allowed
+   - L3 specs: include Impact: blocks from impact analysis
+   ```
+
+#### 4.7.3. Collect Mini-Plans
+
+Each sub-agent returns a mini-plan string (markdown). Collect all return values.
+
+**Graceful degradation (AC-11):** For each sub-agent result, check for failure conditions:
+- Sub-agent threw an error or returned a non-string value → log warning, skip spec
+- Output is empty (whitespace only) → log warning, skip spec
+- Output contains no task items (no `- [ ] **T` pattern) → log warning (unparseable), skip spec
+
+Warning format:
+```
+⚠ Warning: sub-agent for {specName} failed — {reason}. Continuing with remaining specs.
+```
+
+Continue processing remaining specs regardless of individual failures. Only successfully parsed mini-plans are stored.
+
+- Store results as an array of `{ specName, miniPlan }` objects (successfully parsed only) for consolidation by §5.
+- If ALL sub-agents fail: report error, abort plan generation.
+- If at least 1 succeeds: continue to §5 with successful mini-plans only.
+
+**Flow after fan-out:** The collected mini-plans are passed to §5 for consolidation (global renumbering, cross-spec conflict detection, prioritization). §5 handles both the single-spec monolithic path and the multi-spec consolidation path.
+
 ### 5. COMPARE & PRIORITIZE
+
+**Two paths** — determined by spec count from §1/§4.7:
+
+#### 5A. SINGLE-SPEC (MONOLITHIC PATH)
+
+**When:** Exactly 1 plannable spec (§4.7 was skipped).
 
 Spawn `Task(subagent_type="reasoner", model="opus")`. Map each requirement to DONE/PARTIAL/MISSING/CONFLICT. Check REQ-AC alignment. Flag spec gaps.
 
 Priority: Dependencies → Impact → Risk
 
-#### Metric AC Detection
+##### Metric AC Detection
 
 Scan ACs for pattern `{metric} {operator} {number}[unit]` (e.g., `coverage > 85%`, `latency < 200ms`). Operators: `>`, `<`, `>=`, `<=`, `==`.
 
@@ -120,7 +209,136 @@ Scan ACs for pattern `{metric} {operator} {number}[unit]` (e.g., `coverage > 85%
 - **Non-match:** standard implementation task
 - **Ambiguous** ("fast", "small"): flag as spec gap, request numeric threshold
 
+Then apply §5.5 routing matrix. Continue to §6.
+
+#### 5B. MULTI-SPEC CONSOLIDATOR (FAN-OUT PATH)
+
+**When:** >1 plannable spec (§4.7 produced mini-plans).
+
+**This is the ONLY Opus invocation in the fan-out path** (REQ-12). Sub-agents in §4.7 use Sonnet.
+
+Spawn a single `Task(subagent_type="reasoner", model="opus")` with the following prompt:
+
+```
+You are the plan consolidator. You receive mini-plans from multiple spec-planning agents.
+Your job is to merge them into a single globally-numbered PLAN.md.
+
+## Input mini-plans
+
+{for each entry in miniPlans array:}
+### {specName}
+{miniPlan content}
+{end for}
+
+## Instructions
+
+### Step 1: Spec Priority Ordering
+Sort specs for global numbering. Use this priority:
+1. Specs with no cross-spec file overlaps first (independent work)
+2. Specs with overlaps ordered by dependency direction (depended-on first)
+3. Alphabetical as tiebreaker
+
+### Step 2: Global T-Number Assignment
+Assign sequential global T-numbers (T1, T2, ..., TN) with NO gaps and NO duplicates.
+- Process specs in priority order from Step 1
+- Within each spec, preserve the local task ordering
+- Translate all intra-spec `Blocked by: T{local}` references to global T-IDs
+
+### Step 3: Cross-Spec File Conflict Detection
+Build a map: `file → [global task IDs]`.
+For each file appearing in >1 task across different specs:
+- Add `Blocked by` from the later task → the earlier task
+- Append `[file-conflict: {filename}]` annotation to the Blocked by line
+- Skip if a dependency already exists (direct or transitive)
+- Chain only: T5→T3, not T5→T1+T3 (block on nearest earlier task for that file)
+
+### Step 4: Requirement Mapping
+For each spec, map requirements to DONE/PARTIAL/MISSING/CONFLICT. Flag spec gaps.
+
+### Step 5: Metric AC Detection
+Scan ACs for pattern `{metric} {operator} {number}[unit]`.
+- Match → flag as metric AC (for §6.5 Optimize task generation)
+- Ambiguous ("fast", "small") → flag as spec gap
+
+### Step 6: Model + Effort Classification
+Apply routing matrix to each task:
+
+| Task type | Model | Effort |
+|-----------|-------|--------|
+| Bootstrap (scaffold, config, rename) | haiku | low |
+| browse-fetch (doc retrieval) | haiku | low |
+| Single-file simple addition | haiku | high |
+| Multi-file with clear specs | sonnet | medium |
+| Bug fix (clear repro) | sonnet | medium |
+| Bug fix (unclear cause) | sonnet | high |
+| Spike / validation | sonnet | high |
+| Optimize (metric AC) | opus | high |
+| Feature work (well-specced) | sonnet | medium |
+| Feature work (ambiguous ACs) | opus | medium |
+| Refactor (>5 files, many callers) | opus | medium |
+| Architecture change | opus | high |
+| Unfamiliar API integration | opus | high |
+| Retried after revert | (raise one level) | high |
+
+Defaults: sonnet / medium.
+
+### Step 7: Output
+Return the consolidated plan in this exact format:
+
+## Summary
+
+| Metric | Count |
+|--------|-------|
+| Specs analyzed | {N} |
+| Tasks created | {N} |
+| Ready (no blockers) | {N} |
+| Blocked | {N} |
+
+## Spec Gaps
+
+- [ ] `specs/{name}.md`: {gap description}
+
+## Tasks
+
+### doing-{spec-name-1}
+
+- [ ] **T1**: {Task description}
+  - Files: {files}
+  - Model: {model}
+  - Effort: {effort}
+  - Blocked by: none
+
+- [ ] **T2**: {Task description}
+  - Files: {files}
+  - Model: {model}
+  - Effort: {effort}
+  - Blocked by: T1
+
+### doing-{spec-name-2}
+
+- [ ] **T3**: {Task description}
+  - Files: {files}
+  - Model: {model}
+  - Effort: {effort}
+  - Blocked by: none
+
+Rules:
+- T-numbers MUST be globally sequential (T1...TN), no gaps, no duplicates
+- Group tasks under `### doing-{spec-name}` headers
+- Preserve all optional fields from mini-plans (Impact:, Optimize:, etc.)
+- [file-conflict: {filename}] annotations are REQUIRED for cross-spec file overlaps
+- "Blocked by: none" is required (not "N/A", not empty)
+- Spike tasks keep their [SPIKE] or [OPTIMIZE] markers
+```
+
+**Post-consolidation:**
+- The orchestrator receives the consolidator's output as structured PLAN.md content
+- Mini-plans are ephemeral — they exist only as sub-agent return values, never written to disk (REQ-7)
+- §8 cleanup and §9 output/rename run after this step in the orchestrator (REQ-13)
+
 ### 5.5. CLASSIFY MODEL + EFFORT PER TASK
+
+**Note:** In the fan-out path (§5B), model/effort classification is performed inside the consolidator prompt. This section applies only to the monolithic path (§5A).
 
 #### Routing matrix
 
@@ -199,11 +417,15 @@ Unfamiliar APIs or performance-critical → prototype in scratchpad. Fails → `
 
 ### 8. CLEANUP PLAN.md
 
+**Fan-out path:** Run ONLY after §5B consolidation is complete. Operate on the consolidated output only — do NOT run inside sub-agents or during mini-plan collection.
+
 Prune stale `done-*` sections and orphaned headers. Recalculate Summary. Empty → recreate fresh.
 
 ### 9. OUTPUT & RENAME
 
-Append tasks grouped by `### doing-{spec-name}`. Rename `specs/feature.md` → `specs/doing-feature.md`.
+**Fan-out path:** Run ONLY after §5B consolidation is complete (AC-13). Operate on successfully planned specs only — specs whose sub-agents failed (§4.7.3) are NOT renamed and NOT appended to PLAN.md.
+
+Append tasks grouped by `### doing-{spec-name}`. Rename `specs/feature.md` → `specs/doing-feature.md` for each successfully planned spec only.
 
 Report:
 ```
