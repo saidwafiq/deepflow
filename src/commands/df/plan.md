@@ -171,8 +171,21 @@ Each sub-agent prompt MUST include:
 
 Each sub-agent returns a mini-plan string (markdown). Collect all return values.
 
-- If a sub-agent returns empty or unparseable output, log a warning and skip that spec (do not fail the entire plan).
-- Store results as an array of `{ specName, miniPlan }` objects for consolidation by §5.
+**Graceful degradation (AC-11):** For each sub-agent result, check for failure conditions:
+- Sub-agent threw an error or returned a non-string value → log warning, skip spec
+- Output is empty (whitespace only) → log warning, skip spec
+- Output contains no task items (no `- [ ] **T` pattern) → log warning (unparseable), skip spec
+
+Warning format:
+```
+⚠ Warning: sub-agent for {specName} failed — {reason}. Continuing with remaining specs.
+```
+
+Continue processing remaining specs regardless of individual failures. Only successfully parsed mini-plans are stored.
+
+- Store results as an array of `{ specName, miniPlan }` objects (successfully parsed only) for consolidation by §5.
+- If ALL sub-agents fail: report error, abort plan generation.
+- If at least 1 succeeds: continue to §5 with successful mini-plans only.
 
 **Flow after fan-out:** The collected mini-plans are passed to §5 for consolidation (global renumbering, cross-spec conflict detection, prioritization). §5 handles both the single-spec monolithic path and the multi-spec consolidation path.
 
@@ -404,11 +417,15 @@ Unfamiliar APIs or performance-critical → prototype in scratchpad. Fails → `
 
 ### 8. CLEANUP PLAN.md
 
+**Fan-out path:** Run ONLY after §5B consolidation is complete. Operate on the consolidated output only — do NOT run inside sub-agents or during mini-plan collection.
+
 Prune stale `done-*` sections and orphaned headers. Recalculate Summary. Empty → recreate fresh.
 
 ### 9. OUTPUT & RENAME
 
-Append tasks grouped by `### doing-{spec-name}`. Rename `specs/feature.md` → `specs/doing-feature.md`.
+**Fan-out path:** Run ONLY after §5B consolidation is complete (AC-13). Operate on successfully planned specs only — specs whose sub-agents failed (§4.7.3) are NOT renamed and NOT appended to PLAN.md.
+
+Append tasks grouped by `### doing-{spec-name}`. Rename `specs/feature.md` → `specs/doing-feature.md` for each successfully planned spec only.
 
 Report:
 ```
