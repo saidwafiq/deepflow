@@ -8,7 +8,7 @@ Commit current changes with an intelligent message, then run the release script 
 4. **Release** — Run the release script in a single Bash call:
 
 ```bash
-VERSION=$(npm version patch --no-git-tag-version | tr -d 'v') && git add package.json && git commit -m "$VERSION" && git tag "v$VERSION" && git push && git push origin "v$VERSION" && npm publish && gh release create "v$VERSION" --title "v$VERSION" --generate-notes
+VERSION=$(npm version patch --no-git-tag-version | tr -d 'v') && if npm view "deepflow@$VERSION" version >/dev/null 2>&1; then echo "ERROR: deepflow@$VERSION already exists on npm. Aborting." && exit 1; fi && git add package.json && git commit -m "$VERSION" && git tag "v$VERSION" && git push && git push origin "v$VERSION" && npm publish && gh release create "v$VERSION" --title "v$VERSION" --generate-notes
 ```
 
 5. **Report** — Output one line: `✓ published {name}@{version}`
