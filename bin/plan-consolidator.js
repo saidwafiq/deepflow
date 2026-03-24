@@ -208,7 +208,8 @@ function consolidate(specEntries, fileConflicts) {
 
 /**
  * Render consolidated tasks as PLAN.md-compatible markdown.
- * Groups tasks under ### {specName} headings.
+ * Groups tasks under ### doing-{specName} headings with a details reference line.
+ * One line per task — no sub-bullets. Files omitted (live in mini-plans only).
  * Compatible with wave-runner's parsePlan regex (see wave-runner.js parsePlan).
  */
 function formatConsolidated(consolidated) {
@@ -221,11 +222,15 @@ function formatConsolidated(consolidated) {
 
   for (const task of consolidated) {
     if (task.specName !== lastSpec) {
-      lines.push(`### ${task.specName}\n`);
+      // Close previous spec with trailing blank line (already added after last task)
+      const doingName = `doing-${task.specName}`;
+      const planPath = `.deepflow/plans/${doingName}.md`;
+      lines.push(`### ${doingName}\n`);
+      lines.push(`> Details: [\`${planPath}\`](${planPath})\n`);
       lastSpec = task.specName;
     }
 
-    // Task header line
+    // Task header line — one line, no sub-bullets
     const tagPart = task.tags ? ` ${task.tags}` : '';
     // Append conflict annotations to description if any
     const conflictPart = task.conflictAnnotations.length > 0
@@ -233,22 +238,17 @@ function formatConsolidated(consolidated) {
       : '';
     const descPart = (task.description + conflictPart).trim();
     const headerDesc = descPart ? `: ${descPart}` : '';
-    lines.push(`- [ ] **${task.globalId}**${tagPart}${headerDesc}`);
 
-    // Files annotation
-    if (task.files.length > 0) {
-      lines.push(`  - Files: ${task.files.join(', ')}`);
-    }
+    // Blocked by suffix — omit entirely when empty
+    const blockedSuffix = task.blockedBy.length > 0
+      ? ` | Blocked by: ${task.blockedBy.join(', ')}`
+      : '';
 
-    // Blocked by annotation
-    if (task.blockedBy.length > 0) {
-      lines.push(`  - Blocked by: ${task.blockedBy.join(', ')}`);
-    } else {
-      lines.push('  - Blocked by: none');
-    }
-
-    lines.push('');
+    lines.push(`- [ ] **${task.globalId}**${tagPart}${headerDesc}${blockedSuffix}`);
   }
+
+  // Trailing newline after last task
+  lines.push('');
 
   return lines.join('\n');
 }

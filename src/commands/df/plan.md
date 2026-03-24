@@ -161,28 +161,23 @@ You are a spec planner. Your job is to independently analyze a spec and produce 
 
 ## OUTPUT FORMAT — MANDATORY (no deviations)
 Return ONLY a markdown task list. Use local T-numbering starting at T1.
-Each task MUST follow this exact format:
+Each task is ONE LINE. No sub-bullets in the output.
 
 ### {spec-name}
 
 - [ ] **T{N}**: {Task description}
-  - Files: {comma-separated file paths}
-  - Blocked by: none | T{N}[, T{M}...]
-
-Optional fields (add when applicable):
-  - Model: haiku | sonnet | opus
-  - Effort: low | medium | high
-  - Impact: {blast radius details, L3 only}
-  - Optimize: {metric block, for metric ACs only}
+- [ ] **T{N}** [SPIKE]: {Task description} | Blocked by: T{M}
+- [ ] **T{N}**: {Task description} | Blocked by: T{M}, T{K}
 
 Rules:
-- "Blocked by: none" is required (not "N/A", not empty)
+- No blockers → omit `| Blocked by:` entirely (do NOT write "none")
+- Has blockers → append ` | Blocked by: T{N}[, T{M}...]` to end of line
 - T-numbers are local to this spec (T1, T2, T3...)
 - One task = one atomic commit
 - Spike tasks use: **T{N}** [SPIKE]: {description}
 - L0-L1 specs: ONLY spike tasks allowed
 - L2+ specs: spikes + implementation tasks allowed
-- L3 specs: include Impact: blocks from impact analysis
+- Files, Impact, Model, Effort live ONLY in the mini-plan file (NOT in this output)
 ```
 
 #### 4.7.3. Collect & Persist Mini-Plans
@@ -246,11 +241,13 @@ Shell-inject the consolidator output:
 
 `` !`node "${HOME}/.claude/bin/plan-consolidator.js" --plans-dir .deepflow/plans/ 2>/dev/null || node .claude/bin/plan-consolidator.js --plans-dir .deepflow/plans/ 2>/dev/null || true` ``
 
-This produces the `## Tasks` section with:
+This produces a slim `## Tasks` section with:
 - Globally sequential T-ids (no gaps, no duplicates) — AC-4
-- Remapped `Blocked by` references (local → global)
+- Remapped `Blocked by` references (local → global), inline on task line
 - `[file-conflict: {filename}]` annotations on cross-spec file overlaps
+- Mini-plan reference links (`> Details: ...`) per spec section
 - Mini-plan files left byte-identical (read-only) — AC-5
+- **No Files, Impact, Model, or Effort** — those live only in mini-plans
 
 If the consolidator output is empty or contains `(no mini-plan files found` → abort, report error.
 
@@ -319,14 +316,18 @@ Defaults: sonnet / medium.
 
 ## Tasks
 
-{Insert the consolidated tasks from plan-consolidator verbatim, adding ONLY `Model:` and `Effort:` lines to each task. Do NOT alter T-ids, descriptions, Files, Blocked by, or conflict annotations.}
+{Insert the consolidated tasks from plan-consolidator verbatim, adding ` — model/effort` to each task line per the routing matrix. Do NOT alter T-ids, descriptions, Blocked by, or conflict annotations.}
+
+Example transformation:
+  Input:  `- [ ] **T3**: Create pkg/engine/go.mod | Blocked by: T8`
+  Output: `- [ ] **T3**: Create pkg/engine/go.mod — haiku/low | Blocked by: T8`
 
 Rules:
 - Do NOT renumber T-ids — they are already globally sequential from plan-consolidator
-- Do NOT modify Blocked by lines or conflict annotations — they are mechanical outputs
-- ONLY add Model: and Effort: lines per the routing matrix
-- Preserve all existing fields (Impact:, Optimize:, tags, etc.)
+- Do NOT modify Blocked by or conflict annotations — they are mechanical outputs
+- Insert ` — {model}/{effort}` BEFORE ` | Blocked by:` (or at end if no blocker)
 - Spike tasks keep their [SPIKE] or [OPTIMIZE] markers
+- One line per task — no sub-bullets
 ```
 
 **Post-consolidation:**
@@ -423,7 +424,16 @@ Prune stale `done-*` sections and orphaned headers. Recalculate Summary. Empty �
 
 **Fan-out path:** Run ONLY after §5B consolidation is complete (AC-13). Operate on successfully planned specs only — specs whose sub-agents failed (§4.7.3) are NOT renamed and NOT appended to PLAN.md.
 
-Append tasks grouped by `### doing-{spec-name}`. Rename `specs/feature.md` → `specs/doing-feature.md` for each successfully planned spec only.
+Write PLAN.md as a **slim index** with progressive disclosure:
+- Summary table (counts)
+- Spec Gaps (from Opus output)
+- Cross-Spec Resolution narrative (from Opus output, if >1 spec)
+- Tasks grouped by `### doing-{spec-name}` with `> Details:` reference to mini-plan
+- One line per task: `- [ ] **T{N}**: desc — model/effort [| Blocked by: ...]`
+
+Files, Impact, Steps live ONLY in mini-plans (`.deepflow/plans/doing-{name}.md`).
+
+Rename `specs/feature.md` → `specs/doing-feature.md` for each successfully planned spec only.
 
 Report:
 ```

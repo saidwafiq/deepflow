@@ -83,7 +83,7 @@ Load PLAN.md (required), specs/doing-*.md, .deepflow/config.yaml. Missing → "N
 ```
 PLAN_TASK_FILES=!`ls .deepflow/plans/doing-*.md 2>/dev/null | tr '\n' ' ' || echo 'NOT_FOUND'`
 ```
-When `PLAN_TASK_FILES` is not `NOT_FOUND`, each file `.deepflow/plans/doing-{task_id}.md` contains the full task detail block (Steps, ACs, Impact) for that task. Load a task's detail file on demand when building its agent prompt (§6), falling back to the PLAN.md inline block if the file is absent.
+When `PLAN_TASK_FILES` is not `NOT_FOUND`, each file `.deepflow/plans/doing-{specName}.md` contains the full task detail (Files, Steps, ACs, Impact) for all tasks in that spec. Load a task's detail on demand when building its agent prompt (§6). PLAN.md is a slim index — Files and Impact live only in mini-plans.
 
 ### 2.5. REGISTER NATIVE TASKS
 
@@ -134,7 +134,7 @@ Context ≥50% → checkpoint and exit. Before spawning: `TaskUpdate(status: "in
 
 **Intra-wave isolation:** For standard (non-spike, non-optimize) parallel tasks, use `isolation: "worktree"` so each agent works in its own isolated branch. Spikes use sub-worktrees managed by §5.7. Optimize tasks run one at a time in the shared worktree.
 
-**File conflicts (1 file = 1 writer):** Check `Files:` lists. Overlap → spawn lowest-numbered only; rest stay pending. Log: `"⏳ T{N} deferred — file conflict with T{M} on {filename}"`
+**File conflicts (1 file = 1 writer):** Check `Files:` from wave-runner JSON output or from mini-plan detail files (`.deepflow/plans/doing-{specName}.md`). Overlap → spawn lowest-numbered only; rest stay pending. Log: `"⏳ T{N} deferred — file conflict with T{M} on {filename}"`
 
 **≥2 [SPIKE] tasks same problem →** Parallel Spike Probes (§5.7). **[OPTIMIZE] tasks →** Optimize Cycle (§5.9), one at a time.
 

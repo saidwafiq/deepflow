@@ -85,14 +85,38 @@ function parsePlan(text) {
     // Match pending task header: - [ ] **T{N}**...
     const taskMatch = line.match(/^\s*-\s+\[\s+\]\s+\*\*T(\d+)\*\*(?:\s+\[[^\]]*\])?[:\s]*(.*)/);
     if (taskMatch) {
+      const rest = taskMatch[2].trim();
+
+      // Extract inline blocked-by (from " | Blocked by: T1, T2")
+      let inlineBlockedBy = [];
+      let descPart = rest;
+      const blockedInlineMatch = rest.match(/\s*\|\s*Blocked\s+by:\s+(.+)$/i);
+      if (blockedInlineMatch) {
+        descPart = rest.substring(0, rest.length - blockedInlineMatch[0].length).trim();
+        inlineBlockedBy = blockedInlineMatch[1]
+          .split(/[,\s]+/)
+          .map(s => s.trim())
+          .filter(s => /^T\d+$/.test(s));
+      }
+
+      // Extract inline model/effort (from " — model/effort")
+      let inlineModel = null;
+      let inlineEffort = null;
+      const modelInlineMatch = descPart.match(/\s*\u2014\s*(haiku|sonnet|opus)\/(low|medium|high)\s*$/i);
+      if (modelInlineMatch) {
+        descPart = descPart.substring(0, descPart.length - modelInlineMatch[0].length).trim();
+        inlineModel = modelInlineMatch[1].toLowerCase();
+        inlineEffort = modelInlineMatch[2].toLowerCase();
+      }
+
       current = {
         id: `T${taskMatch[1]}`,
         num: parseInt(taskMatch[1], 10),
-        description: taskMatch[2].trim(),
-        blockedBy: [],
-        model: null,
+        description: descPart,
+        blockedBy: inlineBlockedBy,
+        model: inlineModel,
         files: null,
-        effort: null,
+        effort: inlineEffort,
         spec: currentSpec,
       };
       tasks.push(current);
@@ -107,35 +131,43 @@ function parsePlan(text) {
     }
 
     if (current) {
-      // Match "Blocked by:" annotation
+      // Match "Blocked by:" annotation — only apply if inline parsing found no deps
       const blockedMatch = line.match(/^\s+-\s+Blocked\s+by:\s+(.+)/i);
       if (blockedMatch) {
-        const deps = blockedMatch[1]
-          .split(/[,\s]+/)
-          .map(s => s.trim())
-          .filter(s => /^T\d+$/.test(s));
-        current.blockedBy.push(...deps);
+        if (current.blockedBy.length === 0) {
+          const deps = blockedMatch[1]
+            .split(/[,\s]+/)
+            .map(s => s.trim())
+            .filter(s => /^T\d+$/.test(s));
+          current.blockedBy.push(...deps);
+        }
         continue;
       }
 
-      // Match "Model:" annotation
+      // Match "Model:" annotation — only apply if inline parsing found no model
       const modelMatch = line.match(/^\s+-\s+Model:\s+(.+)/i);
       if (modelMatch) {
-        current.model = modelMatch[1].trim();
+        if (current.model === null) {
+          current.model = modelMatch[1].trim();
+        }
         continue;
       }
 
-      // Match "Files:" annotation
+      // Match "Files:" annotation — always apply (no inline equivalent)
       const filesMatch = line.match(/^\s+-\s+Files:\s+(.+)/i);
       if (filesMatch) {
-        current.files = filesMatch[1].trim();
+        if (current.files === null) {
+          current.files = filesMatch[1].trim();
+        }
         continue;
       }
 
-      // Match "Effort:" annotation
+      // Match "Effort:" annotation — only apply if inline parsing found no effort
       const effortMatch = line.match(/^\s+-\s+Effort:\s+(.+)/i);
       if (effortMatch) {
-        current.effort = effortMatch[1].trim();
+        if (current.effort === null) {
+          current.effort = effortMatch[1].trim();
+        }
         continue;
       }
     }
