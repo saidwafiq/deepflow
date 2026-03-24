@@ -194,7 +194,7 @@ The script handles all health checks internally and outputs structured JSON:
   ```
   (Fall back to text mode if `--json` is unavailable: `node bin/wave-runner.js --plan PLAN.md --recalc --failed T{N}`)
   Report: `"✗ T{n}: reverted"`.
-- **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="haiku")` to fix lint/typecheck issues. Re-run `node bin/ratchet.js`. If still non-zero → revert both commits, set status pending.
+- **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="sonnet")` to fix lint/typecheck issues. Re-run `node bin/ratchet.js`. If still non-zero → revert both commits, set status pending.
 
 **Edit scope validation:** `git diff HEAD~1 --name-only` vs allowed globs. Violation → revert, report.
 **Impact completeness:** diff vs Impact callers/duplicates. Gap → advisory warning (no revert).
@@ -532,7 +532,7 @@ Skills: `atomic-commits`, `browse-fetch`. Agents: Implementation (`general-purpo
 
 | Fields | Agent | Preamble |
 |--------|-------|----------|
-| haiku/low | `Agent(model="haiku")` | `Maximally efficient: skip explanations, minimize tool calls, straight to implementation.` |
+| sonnet/low | `Agent(model="sonnet")` | `Maximally efficient: skip explanations, minimize tool calls, straight to implementation.` |
 | sonnet/medium | `Agent(model="sonnet")` | `Direct and efficient. Explain only non-obvious logic.` |
 | opus/high | `Agent(model="opus")` | _(none)_ |
 

@@ -342,12 +342,12 @@ Rules:
 
 | Task type | Model | Effort |
 |-----------|-------|--------|
-| Bootstrap (scaffold, config, rename) | `haiku` | `low` |
+| Bootstrap (scaffold, config, rename) | `sonnet` | `low` |
 | browse-fetch (doc retrieval) | `haiku` | `low` |
-| Single-file simple addition | `haiku` | `high` |
+| Single-file simple addition | `sonnet` | `medium` |
 | Multi-file with clear specs | `sonnet` | `medium` |
-| Bug fix (clear repro) | `sonnet` | `medium` |
-| Bug fix (unclear cause) | `sonnet` | `high` |
+| Bug fix (clear repro) | `opus` | `medium` |
+| Bug fix (unclear cause) | `opus` | `high` |
 | Spike / validation | `sonnet` | `high` |
 | Optimize (metric AC) | `opus` | `high` |
 | Feature work (well-specced) | `sonnet` | `medium` |
