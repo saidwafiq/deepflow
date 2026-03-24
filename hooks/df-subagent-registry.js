@@ -9,34 +9,53 @@ process.stdin.on('data', d => raw += d);
 process.stdin.on('end', () => {
   try {
     const event = JSON.parse(raw);
+    const { session_id, agent_type, agent_id, agent_transcript_path } = event;
 
-    // Extract required fields from SubagentStop event
-    const { session_id, agent_type, agent_id } = event;
+    // Parse subagent transcript to extract real model and token usage
+    let model = 'unknown';
+    let tokens_in = 0, tokens_out = 0, cache_read = 0, cache_creation = 0;
 
-    // Map agent_type to model (case-sensitive)
-    const MODEL_MAP = {
-      'reasoner': 'claude-opus-4-6',
-      'Explore': 'claude-haiku-4-5'
-    };
-    const model = MODEL_MAP[agent_type] ?? 'claude-sonnet-4-6';
+    if (agent_transcript_path && fs.existsSync(agent_transcript_path)) {
+      const lines = fs.readFileSync(agent_transcript_path, 'utf-8').split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const evt = JSON.parse(trimmed);
+          const msg = evt.message || {};
+          const usage = msg.usage || evt.usage;
+          // Extract model from assistant messages
+          const m = msg.model || evt.model;
+          if (m && m !== 'unknown') model = m;
+          // Accumulate tokens
+          if (usage) {
+            tokens_in += usage.input_tokens || 0;
+            tokens_out += usage.output_tokens || 0;
+            cache_read += usage.cache_read_input_tokens || usage.cache_read_tokens || 0;
+            cache_creation += usage.cache_creation_input_tokens || usage.cache_creation_tokens || 0;
+          }
+        } catch { /* skip malformed lines */ }
+      }
+    }
 
-    // Generate timestamp
-    const timestamp = new Date().toISOString();
+    // Strip version suffix from model (e.g. claude-haiku-4-5-20251001 → claude-haiku-4-5)
+    model = model.replace(/-\d{8}$/, '').replace(/\[\d+[km]\]$/i, '');
 
-    // Build registry entry
     const entry = {
       session_id,
       agent_type,
       agent_id,
       model,
-      timestamp
+      tokens_in,
+      tokens_out,
+      cache_read,
+      cache_creation,
+      timestamp: new Date().toISOString()
     };
 
-    // Append to registry file (fire-and-forget)
     const registryPath = path.join(os.homedir(), '.claude', 'subagent-sessions.jsonl');
     fs.appendFileSync(registryPath, JSON.stringify(entry) + '\n');
   } catch {
-    // Exit 0 on any error (fail-open)
     process.exit(0);
   }
 });

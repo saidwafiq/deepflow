@@ -31,16 +31,22 @@ function projectNameFromDir(dirName: string): string {
   return name;
 }
 
+/** Individual subagent entry from registry */
+interface SubagentEntry {
+  session_id: string;
+  agent_type: string;
+  agent_id: string;
+  model: string;
+  tokens_in: number;
+  tokens_out: number;
+  cache_read: number;
+  cache_creation: number;
+  timestamp: string;
+}
+
 /**
  * Parses per-session JSONL files in ~/.claude/projects/{project}/ → sessions table.
- * Session files are UUID-named .jsonl files directly in each project directory.
- * Each file is a stream of events; we materialise a session row from the aggregate.
- *
- * Event structure (Claude Code JSONL format):
- *   - event.type: 'user' | 'assistant' | 'system' | 'summary'
- *   - event.message: { role, model, usage: { input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens }, content: [...] }
- *   - event.message.content[]: blocks with type 'tool_use' | 'tool_result' | 'text'
- *   - event.model / event.usage: fallback fields (older format)
+ * Also creates virtual sessions for each subagent from the registry.
  */
 export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<void> {
   const projectsDir = resolve(claudeDir, 'projects');
@@ -65,10 +71,11 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
   // Load pricing once for cost computation
   const pricing = await fetchPricing();
 
-  // Load subagent registry: Map<session_id, Set<agent_type>> and Map<session_id, model>
+  // Load subagent registry
   const registryPath = resolve(claudeDir, 'subagent-sessions.jsonl');
-  const registryMap = new Map<string, Set<string>>();
-  const registryModelMap = new Map<string, string>();
+  const registryRoleMap = new Map<string, Set<string>>(); // session_id → Set<agent_type>
+  const subagentEntries: SubagentEntry[] = [];            // individual entries with tokens
+
   if (existsSync(registryPath)) {
     try {
       const registryLines = readFileSync(registryPath, 'utf-8').split('\n');
@@ -79,17 +86,29 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
           const entry = JSON.parse(trimmed) as Record<string, unknown>;
           const sid = entry.session_id as string | undefined;
           const atype = entry.agent_type as string | undefined;
-          const entryModel = entry.model as string | undefined;
+          const agentId = entry.agent_id as string | undefined;
+          const entryModel = (entry.model as string | undefined) ?? 'unknown';
           if (sid && atype) {
-            if (!registryMap.has(sid)) registryMap.set(sid, new Set());
-            registryMap.get(sid)!.add(atype);
+            if (!registryRoleMap.has(sid)) registryRoleMap.set(sid, new Set());
+            registryRoleMap.get(sid)!.add(atype);
           }
-          // Store registry model; last non-empty entry wins (entries are appended chronologically)
-          if (sid && entryModel && entryModel !== 'unknown') {
-            registryModelMap.set(sid, entryModel);
+          // Collect entries that have token data for virtual session creation
+          const hasTokens = typeof entry.tokens_in === 'number' || typeof entry.tokens_out === 'number';
+          if (sid && agentId && atype && hasTokens) {
+            subagentEntries.push({
+              session_id: sid,
+              agent_type: atype,
+              agent_id: agentId,
+              model: entryModel.replace(/-\d{8}$/, '').replace(/\[\d+[km]\]$/i, ''),
+              tokens_in: (entry.tokens_in as number) ?? 0,
+              tokens_out: (entry.tokens_out as number) ?? 0,
+              cache_read: (entry.cache_read as number) ?? 0,
+              cache_creation: (entry.cache_creation as number) ?? 0,
+              timestamp: (entry.timestamp as string) ?? new Date().toISOString(),
+            });
           }
         } catch {
-          console.warn('[ingest:sessions] Skipping malformed registry line:', trimmed);
+          // skip malformed lines
         }
       }
     } catch (err) {
@@ -97,13 +116,6 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
     }
   } else {
     console.warn('[ingest:sessions] subagent-sessions.jsonl not found, all sessions default to orchestrator');
-  }
-
-  function resolveAgentRole(sessionId: string): string {
-    const types = registryMap.get(sessionId);
-    if (!types || types.size === 0) return 'orchestrator';
-    if (types.size === 1) return types.values().next().value as string;
-    return 'mixed';
   }
 
   let totalInserted = 0;
@@ -202,12 +214,7 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         }
       }
 
-      // AC-7 (REQ-4): If event stream did not yield a model, fall back to registry model
-      if (model === 'unknown') {
-        const registryModel = registryModelMap.get(sessionId);
-        if (registryModel) model = registryModel;
-      }
-
+      // Orchestrator session: keep original model from event stream (don't override from registry)
       // Clamp accumulated token values to non-negative before cost computation and DB writes
       if (tokensIn < 0) { console.warn(`[ingest:sessions] Clamping negative tokensIn (${tokensIn}) to 0 for session ${sessionId}`); tokensIn = 0; }
       if (tokensOut < 0) { console.warn(`[ingest:sessions] Clamping negative tokensOut (${tokensOut}) to 0 for session ${sessionId}`); tokensOut = 0; }
@@ -226,6 +233,9 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         if (!isNaN(start) && !isNaN(end)) durationMs = end - start;
       }
 
+      // Orchestrator role: always 'orchestrator' (subagents get their own virtual sessions)
+      const agentRole = 'orchestrator';
+
       if (hasNewData && sessionId) {
         const existing = db.get('SELECT id FROM sessions WHERE id = ?', [sessionId]);
         if (existing) {
@@ -240,7 +250,7 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
                agent_role = ?
                WHERE id = ?`,
               [tokensIn, tokensOut, cacheRead, cacheCreation, messages, toolCalls, cost,
-               durationMs, endedAt, model, project, resolveAgentRole(sessionId), sessionId]
+               durationMs, endedAt, model, project, agentRole, sessionId]
             );
             totalUpdated++;
           } catch (err) {
@@ -249,11 +259,11 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         } else {
           try {
             db.run(
-              `INSERT INTO sessions (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation, duration_ms, messages, tool_calls, cost, started_at, ended_at, agent_role)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              `INSERT INTO sessions (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation, duration_ms, messages, tool_calls, cost, started_at, ended_at, agent_role, parent_session_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
               [sessionId, user, project, model, tokensIn, tokensOut, cacheRead, cacheCreation,
                durationMs, messages, toolCalls, cost,
-               startedAt ?? new Date().toISOString(), endedAt, resolveAgentRole(sessionId)]
+               startedAt ?? new Date().toISOString(), endedAt, agentRole]
             );
             totalInserted++;
           } catch (err) {
@@ -266,7 +276,39 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
     }
   }
 
+  // --- Create virtual sessions for subagents with token data ---
+  let subagentInserted = 0;
+  for (const entry of subagentEntries) {
+    const virtualId = `${entry.session_id}::${entry.agent_id}`;
+
+    // Skip if already ingested
+    const existing = db.get('SELECT id FROM sessions WHERE id = ?', [virtualId]);
+    if (existing) continue;
+
+    // Look up parent session for user/project context
+    const parent = db.get('SELECT user, project, started_at FROM sessions WHERE id = ?', [entry.session_id]);
+    const user = (parent?.user as string) ?? 'unknown';
+    const project = (parent?.project as string) ?? 'unknown';
+
+    const subCost = Math.max(0, computeCost(pricing, entry.model, entry.tokens_in, entry.tokens_out, entry.cache_read, entry.cache_creation));
+
+    try {
+      db.run(
+        `INSERT INTO sessions (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation, duration_ms, messages, tool_calls, cost, started_at, ended_at, agent_role, parent_session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?)`,
+        [virtualId, user, project, entry.model, entry.tokens_in, entry.tokens_out, entry.cache_read, entry.cache_creation,
+         subCost, entry.timestamp, entry.timestamp, entry.agent_type, entry.session_id]
+      );
+      subagentInserted++;
+    } catch (err) {
+      console.warn(`[ingest:sessions] Subagent insert failed for ${virtualId}:`, err);
+    }
+  }
+
   if (totalInserted > 0 || totalUpdated > 0) {
     console.log(`[ingest:sessions] Inserted ${totalInserted}, updated ${totalUpdated} session records`);
+  }
+  if (subagentInserted > 0) {
+    console.log(`[ingest:sessions] Created ${subagentInserted} subagent virtual sessions`);
   }
 }

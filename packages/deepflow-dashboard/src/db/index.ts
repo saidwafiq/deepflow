@@ -99,6 +99,21 @@ function migrateDatabase(db: Database): void {
     db.run("UPDATE _meta SET value = '3' WHERE key = 'schema_version'");
   }
 
+  // v3 → v4: add parent_session_id column for subagent → orchestrator join
+  const v4Check = (() => {
+    const s = db.prepare("SELECT value FROM _meta WHERE key = 'schema_version'");
+    const v = s.step() ? (s.getAsObject()['value'] as string) : '1';
+    s.free();
+    return v;
+  })();
+  if (parseInt(v4Check) < 4) {
+    try {
+      db.run("ALTER TABLE sessions ADD COLUMN parent_session_id TEXT DEFAULT NULL REFERENCES sessions(id)");
+    } catch { /* column may already exist */ }
+    db.run("CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id)");
+    db.run("INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', '4')");
+  }
+
   // One-time purge of synthetic sessions (idempotent — gated by _meta key)
   const purgeKey = 'migration:purge_synthetic_sessions_v1';
   const purgeStmt = db.prepare("SELECT value FROM _meta WHERE key = ?");
@@ -114,16 +129,11 @@ function migrateDatabase(db: Database): void {
 }
 
 /**
- * One-time backfill of dirty agent_role and model data (AC-9, AC-10 — REQ-5).
- * Gated by _meta key 'migration:backfill_agent_role_model_v1' — idempotent.
- *
- * Operations:
- *   (a) Re-resolve agent_role from registry for sessions currently 'orchestrator'
- *   (b) Re-resolve model from registry for sessions with model='unknown'
- *   (c) Delete sessions with model='<synthetic>'
+ * One-time backfill: normalize agent_role and clean up stale data.
+ * With virtual subagent sessions, parent sessions are always 'orchestrator'.
  */
 function backfillAgentRoleModel(db: Database): void {
-  const migrationKey = 'migration:backfill_agent_role_model_v1';
+  const migrationKey = 'migration:backfill_agent_role_model_v4';
   const checkStmt = db.prepare("SELECT value FROM _meta WHERE key = ?");
   checkStmt.bind([migrationKey]);
   const alreadyRan = checkStmt.step();
@@ -131,79 +141,22 @@ function backfillAgentRoleModel(db: Database): void {
 
   if (alreadyRan) return;
 
-  // Load registry: Map<session_id, Set<agent_type>> and Map<session_id, model>
-  const registryPath = resolve(homedir(), '.claude', 'subagent-sessions.jsonl');
-  const registryMap = new Map<string, Set<string>>();
-  const registryModelMap = new Map<string, string>();
-
-  if (existsSync(registryPath)) {
-    try {
-      const lines = readFileSync(registryPath, 'utf-8').split('\n');
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const entry = JSON.parse(trimmed) as Record<string, unknown>;
-          const sid = entry.session_id as string | undefined;
-          const atype = entry.agent_type as string | undefined;
-          const entryModel = entry.model as string | undefined;
-          if (sid && atype) {
-            if (!registryMap.has(sid)) registryMap.set(sid, new Set());
-            registryMap.get(sid)!.add(atype);
-          }
-          if (sid && entryModel && entryModel !== 'unknown') {
-            registryModelMap.set(sid, entryModel);
-          }
-        } catch {
-          // skip malformed lines
-        }
-      }
-    } catch (err) {
-      console.warn('[db:backfill] Cannot read subagent registry:', err);
-    }
-  }
-
-  function resolveAgentRole(sessionId: string): string {
-    const types = registryMap.get(sessionId);
-    if (!types || types.size === 0) return 'orchestrator';
-    if (types.size === 1) return types.values().next().value as string;
-    return 'mixed';
-  }
-
-  // (c) Delete sessions with model='<synthetic>'
+  // Delete sessions with model='<synthetic>'
   db.run("DELETE FROM token_events WHERE session_id IN (SELECT id FROM sessions WHERE model = '<synthetic>')");
   db.run("DELETE FROM sessions WHERE model = '<synthetic>'");
 
-  // (a) Re-resolve agent_role for sessions currently 'orchestrator' that have registry entries
-  // (b) Re-resolve model for sessions with model='unknown' that have registry entries
-  if (registryMap.size > 0 || registryModelMap.size > 0) {
-    const allSids = new Set([...registryMap.keys(), ...registryModelMap.keys()]);
-    for (const sid of allSids) {
-      const role = resolveAgentRole(sid);
-      const registryModel = registryModelMap.get(sid);
+  // All non-virtual sessions (no '::' in id) are orchestrators
+  db.run("UPDATE sessions SET agent_role = 'orchestrator' WHERE id NOT LIKE '%::%' AND agent_role != 'orchestrator'");
 
-      // Build update based on what registry provides
-      if (registryModel) {
-        // Update agent_role where it's 'orchestrator' AND update model where it's 'unknown'
-        db.run(
-          `UPDATE sessions SET
-             agent_role = CASE WHEN agent_role = 'orchestrator' THEN ? ELSE agent_role END,
-             model = CASE WHEN model = 'unknown' OR model IS NULL THEN ? ELSE model END
-           WHERE id = ?`,
-          [role, registryModel, sid]
-        );
-      } else {
-        // Only update agent_role where it's 'orchestrator'
-        db.run(
-          `UPDATE sessions SET agent_role = ? WHERE id = ? AND agent_role = 'orchestrator'`,
-          [role, sid]
-        );
-      }
-    }
-  }
+  // Normalize unknown/null agent_role to orchestrator for non-virtual sessions
+  db.run("UPDATE sessions SET agent_role = 'orchestrator' WHERE id NOT LIKE '%::%' AND (agent_role = 'unknown' OR agent_role IS NULL)");
+
+  // Clean up old virtual sessions that had wrong model from previous backfills
+  // (they'll be recreated correctly by the sessions parser)
+  db.run("DELETE FROM sessions WHERE id LIKE '%::%' AND parent_session_id IS NULL");
 
   db.run("INSERT INTO _meta (key, value) VALUES (?, 'done')", [migrationKey]);
-  console.log('[db:backfill] backfill_agent_role_model_v1 complete');
+  console.log('[db:backfill] backfill_agent_role_model_v4 complete');
 }
 
 /** Get the initialized database instance (throws if not initialized) */
