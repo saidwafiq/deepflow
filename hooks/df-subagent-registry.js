@@ -13,6 +13,13 @@ process.stdin.on('end', () => {
     // Extract required fields from SubagentStop event
     const { session_id, agent_type, agent_id } = event;
 
+    // Map agent_type to model (case-sensitive)
+    const MODEL_MAP = {
+      'reasoner': 'claude-opus-4-6',
+      'Explore': 'claude-haiku-4-5'
+    };
+    const model = MODEL_MAP[agent_type] ?? 'claude-sonnet-4-6';
+
     // Generate timestamp
     const timestamp = new Date().toISOString();
 
@@ -21,6 +28,7 @@ process.stdin.on('end', () => {
       session_id,
       agent_type,
       agent_id,
+      model,
       timestamp
     };
 
