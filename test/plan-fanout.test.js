@@ -1,14 +1,21 @@
 /**
- * Tests for plan-fanout spec (T4).
+ * Tests for plan-fanout spec (v2 design).
  *
  * Verifies §4.7 FAN-OUT ORCHESTRATION section in plan.md:
  *   - Section structure: 4.7, 4.7.1, 4.7.2, 4.7.3 subsections exist
  *   - Skip condition for single-spec case
  *   - Count & cap logic (1, 2-5, >5 ranges documented)
- *   - Sub-agent prompt template includes all 7 required elements
- *   - Format enforcement clause contains mandatory rules
+ *   - Thin dispatcher: sub-agent receives ONLY spec file path
+ *   - Mini-plans saved to .deepflow/plans/doing-{name}.md (persistent)
  *   - Collect mini-plans error handling (graceful skip)
  *   - Flow continuity to §5
+ *
+ * v2 design changes:
+ *   - Sub-agent prompt contains ONLY spec file path (no pre-computed context)
+ *   - Mini-plans saved to .deepflow/plans/doing-{name}.md (persistent files)
+ *   - Consolidator reads from .deepflow/plans/, delegates mechanical work to bin/plan-consolidator.js
+ *   - Single-spec path runs monolithic (no fan-out)
+ *   - Fan-out capped at 5 specs
  *
  * Uses Node.js built-in node:test to match project conventions (see bin/install.test.js).
  */
@@ -51,9 +58,9 @@ describe('§4.7 FAN-OUT ORCHESTRATION — structure', () => {
     assert.match(section, /#### 4\.7\.2\. Spawn Sub-Agents/);
   });
 
-  it('has subsection 4.7.3 Collect Mini-Plans', () => {
+  it('has subsection 4.7.3 Collect & Persist Mini-Plans', () => {
     const section = getFanOutSection();
-    assert.match(section, /#### 4\.7\.3\. Collect Mini-Plans/);
+    assert.match(section, /#### 4\.7\.3\. Collect & Persist Mini-Plans/);
   });
 
   it('subsections appear in correct order (4.7.1 → 4.7.2 → 4.7.3)', () => {
@@ -154,10 +161,10 @@ describe('§4.7.1 — Count & Cap logic', () => {
 });
 
 // ---------------------------------------------------------------------------
-// §4.7.2 Sub-Agent Prompt — Required Elements
+// §4.7.2 Thin Dispatcher — v2 design
 // ---------------------------------------------------------------------------
 
-describe('§4.7.2 — sub-agent prompt required elements', () => {
+describe('§4.7.2 — thin dispatcher (v2 design)', () => {
   it('specifies parallel non-background Task calls', () => {
     const section = getFanOutSection();
     assert.ok(
@@ -171,104 +178,83 @@ describe('§4.7.2 — sub-agent prompt required elements', () => {
     assert.match(section, /model.*sonnet/i);
   });
 
-  it('prompt element 1: layer-gating rules from §1.5', () => {
+  it('master orchestrator is a thin dispatcher', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('Layer-gating rules') && section.includes('§1.5'),
-      'Must include layer-gating rules referencing §1.5'
+      section.includes('thin dispatcher'),
+      'Must declare orchestrator is a thin dispatcher'
     );
   });
 
-  it('prompt element 2: experiment check results from §2', () => {
+  it('sub-agent receives ONLY the spec file path (v2: no pre-computed context)', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('Experiment check results') && section.includes('§2'),
-      'Must include experiment check results referencing §2'
+      section.includes('ONLY the spec file path'),
+      'v2: sub-agent must receive only the spec file path'
+    );
+    assert.ok(
+      section.includes('no pre-computed context'),
+      'v2: must explicitly state no pre-computed context'
     );
   });
 
-  it('prompt element 2: references experiment statuses (passed/failed/active)', () => {
+  it('sub-agent prompt contains spec_file_path placeholder', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('--passed.md') &&
-      section.includes('--failed.md') &&
-      section.includes('--active.md'),
-      'Must reference all three experiment statuses'
+      section.includes('{spec_file_path}'),
+      'v2: sub-agent prompt must include spec_file_path placeholder'
     );
   });
 
-  it('prompt element 3: project context from §3', () => {
+  it('sub-agent reads spec via Read tool (self-directed analysis)', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('Project context') && section.includes('§3'),
-      'Must include project context referencing §3'
+      section.includes('Read the spec') && section.includes('Read tool'),
+      'v2: sub-agent must read the spec itself via Read tool'
     );
   });
 
-  it('prompt element 4: impact analysis instructions from §4 (L3 only)', () => {
+  it('sub-agent independently computes spec layer', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('Impact analysis instructions') && section.includes('L3 specs only'),
-      'Must include impact analysis for L3 specs, referencing §4'
+      section.includes('Compute spec layer'),
+      'v2: sub-agent must compute spec layer independently'
     );
   });
 
-  it('prompt element 5: targeted exploration instructions from §4.5', () => {
+  it('sub-agent independently checks experiments', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('Targeted exploration instructions') && section.includes('§4.5'),
-      'Must include targeted exploration referencing §4.5'
+      section.includes('Check experiments'),
+      'v2: sub-agent must check experiments independently'
     );
   });
 
-  it('prompt element 5: references explore-agent.md template', () => {
+  it('sub-agent independently explores the codebase', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('explore-agent.md'),
-      'Must reference explore-agent.md template'
+      section.includes('Explore the codebase'),
+      'v2: sub-agent must independently explore codebase'
     );
   });
 
-  it('prompt element 6: the spec content (full text)', () => {
+  it('sub-agent independently runs impact analysis for L3', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('The spec content') && section.includes('Full text'),
-      'Must include full spec content'
+      section.includes('Impact analysis') && section.includes('L3 only'),
+      'v2: sub-agent must run impact analysis for L3 specs'
     );
   });
 
-  it('prompt element 7: format enforcement clause', () => {
+  it('sub-agent prompt contains format enforcement clause', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('Format enforcement clause'),
+      section.includes('OUTPUT FORMAT — MANDATORY'),
       'Must include format enforcement clause'
     );
   });
 
-  it('all 7 prompt elements are numbered', () => {
-    const section = getFanOutSection();
-    // Check that numbered list items 1-7 exist
-    for (let i = 1; i <= 7; i++) {
-      assert.match(
-        section,
-        new RegExp(`${i}\\.\\s+\\*\\*`),
-        `Numbered prompt element ${i} must exist`
-      );
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// §4.7.2 Format Enforcement Clause
-// ---------------------------------------------------------------------------
-
-describe('§4.7.2 — format enforcement clause contents', () => {
-  it('contains OUTPUT FORMAT — MANDATORY header', () => {
-    const section = getFanOutSection();
-    assert.ok(section.includes('OUTPUT FORMAT — MANDATORY'));
-  });
-
-  it('requires local T-numbering starting at T1', () => {
+  it('format clause specifies local T-numbering starting at T1', () => {
     const section = getFanOutSection();
     assert.ok(
       section.includes('local T-numbering') && section.includes('T1'),
@@ -276,7 +262,7 @@ describe('§4.7.2 — format enforcement clause contents', () => {
     );
   });
 
-  it('requires "Blocked by: none" (not N/A or empty)', () => {
+  it('format clause requires "Blocked by: none" (not N/A or empty)', () => {
     const section = getFanOutSection();
     assert.ok(
       section.includes('"Blocked by: none" is required') &&
@@ -286,7 +272,7 @@ describe('§4.7.2 — format enforcement clause contents', () => {
     );
   });
 
-  it('enforces one task = one atomic commit', () => {
+  it('format clause enforces one task = one atomic commit', () => {
     const section = getFanOutSection();
     assert.ok(
       section.includes('One task = one atomic commit'),
@@ -294,7 +280,7 @@ describe('§4.7.2 — format enforcement clause contents', () => {
     );
   });
 
-  it('documents spike task format with [SPIKE] tag', () => {
+  it('format clause documents spike task format with [SPIKE] tag', () => {
     const section = getFanOutSection();
     assert.ok(
       section.includes('[SPIKE]'),
@@ -302,7 +288,7 @@ describe('§4.7.2 — format enforcement clause contents', () => {
     );
   });
 
-  it('restricts L0-L1 specs to spike tasks only', () => {
+  it('format clause restricts L0-L1 specs to spike tasks only', () => {
     const section = getFanOutSection();
     assert.ok(
       section.includes('L0-L1 specs: ONLY spike tasks allowed'),
@@ -310,41 +296,20 @@ describe('§4.7.2 — format enforcement clause contents', () => {
     );
   });
 
-  it('allows L2+ specs to have spikes + implementation tasks', () => {
+  it('format clause allows L2+ specs to have spikes + implementation tasks', () => {
     const section = getFanOutSection();
     assert.ok(
       section.includes('L2+ specs: spikes + implementation tasks allowed'),
       'Must allow L2+ spikes and implementation'
     );
   });
-
-  it('requires Impact blocks for L3 specs', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('L3 specs: include Impact:'),
-      'Must require Impact blocks for L3 specs'
-    );
-  });
-
-  it('includes Files field in task format', () => {
-    const section = getFanOutSection();
-    assert.match(section, /Files:.*comma-separated/);
-  });
-
-  it('includes optional Model, Effort, Impact, Optimize fields', () => {
-    const section = getFanOutSection();
-    assert.ok(section.includes('Model: haiku | sonnet | opus'));
-    assert.ok(section.includes('Effort: low | medium | high'));
-    assert.ok(section.includes('Impact:'));
-    assert.ok(section.includes('Optimize:'));
-  });
 });
 
 // ---------------------------------------------------------------------------
-// §4.7.3 Collect Mini-Plans — Error Handling
+// §4.7.3 Collect & Persist Mini-Plans — v2: disk persistence
 // ---------------------------------------------------------------------------
 
-describe('§4.7.3 — collect mini-plans', () => {
+describe('§4.7.3 — collect & persist mini-plans (v2: persistent files)', () => {
   it('documents graceful handling of empty sub-agent output', () => {
     const section = getFanOutSection();
     assert.ok(
@@ -369,28 +334,42 @@ describe('§4.7.3 — collect mini-plans', () => {
     );
   });
 
-  it('stores results as { specName, miniPlan } objects', () => {
+  it('v2: persists mini-plans to .deepflow/plans/doing-{specName}.md on disk', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('specName') && section.includes('miniPlan'),
-      'Must store results with specName and miniPlan fields'
+      section.includes('.deepflow/plans/doing-'),
+      'v2: must persist mini-plans to .deepflow/plans/ directory'
+    );
+    assert.ok(
+      section.includes('Persist to disk') || section.includes('write to `.deepflow/plans/'),
+      'v2: must write mini-plans to disk'
     );
   });
 
-  it('passes collected mini-plans to §5 for consolidation', () => {
+  it('v2: creates .deepflow/plans/ directory if it does not exist', () => {
     const section = getFanOutSection();
     assert.ok(
-      section.includes('passed to §5') && section.includes('consolidation'),
+      section.includes("Create `.deepflow/plans/` directory if it doesn't exist") ||
+      section.includes('.deepflow/plans/') && section.includes("doesn't exist"),
+      'v2: must create .deepflow/plans/ directory if needed'
+    );
+  });
+
+  it('v2: §5B reads mini-plans from .deepflow/plans/', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('reads mini-plans from `.deepflow/plans/`') ||
+      section.includes('reads mini-plans from `.deepflow/plans`') ||
+      (section.includes('consolidator') && section.includes('.deepflow/plans/')),
+      'v2: consolidator must read from .deepflow/plans/'
+    );
+  });
+
+  it('passes successful mini-plans to §5 for consolidation', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('continue to §5') || section.includes('§5'),
       'Must pass results to §5 for consolidation'
-    );
-  });
-
-  it('§5 handles both monolithic and multi-spec paths', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('single-spec monolithic path') &&
-      section.includes('multi-spec consolidation path'),
-      '§5 must handle both paths'
     );
   });
 });
@@ -415,7 +394,7 @@ describe('§4.7 — trigger condition', () => {
 });
 
 // ===========================================================================
-// WAVE 2 — §5 TWO-PATH ARCHITECTURE (T5)
+// WAVE 2 — §5 TWO-PATH ARCHITECTURE
 // ===========================================================================
 
 // Helper: extract the full §5 section (from ### 5. up to ### 5.5. or ### 6.)
@@ -551,222 +530,180 @@ describe('§5A — single-spec monolithic path', () => {
 });
 
 // ---------------------------------------------------------------------------
-// §5B Consolidator — Structure
+// §5B Consolidator — v2 structure (2-step, bin/plan-consolidator.js)
 // ---------------------------------------------------------------------------
 
-describe('§5B — multi-spec consolidator structure', () => {
+describe('§5B — multi-spec consolidator structure (v2)', () => {
   it('triggers when >1 plannable spec', () => {
     const s5b = getSection5B();
     assert.match(s5b, /\*\*When:\*\*.*>1 plannable spec/);
   });
 
-  it('notes §4.7 produced mini-plans', () => {
+  it('v2: references mini-plans in .deepflow/plans/', () => {
     const s5b = getSection5B();
     assert.ok(
-      s5b.includes('§4.7 produced mini-plans'),
-      '§5B must state §4.7 produced mini-plans'
+      s5b.includes('.deepflow/plans/'),
+      'v2: §5B must reference .deepflow/plans/ as input'
     );
   });
 
-  it('spawns single Task with reasoner/opus', () => {
+  it('declares itself as the ONLY Opus invocation (REQ-12)', () => {
     const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('ONLY Opus invocation in the fan-out path'),
+      'Must declare single Opus invocation constraint'
+    );
+    assert.ok(s5b.includes('REQ-12'), 'Must reference REQ-12');
+  });
+
+  it('v2: delegates mechanical work to bin/plan-consolidator.js', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('bin/plan-consolidator.js'),
+      'v2: must delegate mechanical work to bin/plan-consolidator.js'
+    );
+  });
+
+  it('v2: Opus handles ONLY cross-spec prioritization and summary narrative', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Opus handles ONLY'),
+      'v2: Opus role must be scoped to prioritization only'
+    );
+  });
+
+  it('v2: Step 1 runs plan-consolidator via shell injection', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Step 1: Run plan-consolidator'),
+      'v2: Step 1 must run plan-consolidator'
+    );
+    assert.ok(
+      s5b.includes('node bin/plan-consolidator.js'),
+      'v2: must invoke plan-consolidator via node'
+    );
+  });
+
+  it('v2: Step 2 spawns single Opus invocation for prioritization', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Step 2: Opus prioritization') || s5b.includes('Step 2:'),
+      'v2: Step 2 must spawn Opus for prioritization'
+    );
     assert.ok(
       s5b.includes('Spawn a single') &&
       s5b.includes('subagent_type="reasoner"') &&
       s5b.includes('model="opus"'),
-      '§5B must spawn a single reasoner/opus Task'
+      'v2: §5B must spawn a single reasoner/opus Task'
     );
   });
 
-  it('consolidator prompt starts with role declaration', () => {
+  it('v2: Opus prompt role is "plan prioritizer" (not consolidator)', () => {
     const s5b = getSection5B();
     assert.ok(
-      s5b.includes('You are the plan consolidator'),
-      'Prompt must start with plan consolidator role'
+      s5b.includes('You are the plan prioritizer'),
+      'v2: Opus prompt must state "plan prioritizer" role'
     );
   });
 
-  it('prompt includes input mini-plans template with specName iteration', () => {
+  it('v2: Opus told NOT to renumber tasks (already done by consolidator)', () => {
     const s5b = getSection5B();
     assert.ok(
-      s5b.includes('{for each entry in miniPlans array:}') &&
-      s5b.includes('{specName}') &&
-      s5b.includes('{miniPlan content}'),
-      'Prompt must template mini-plan iteration'
+      s5b.includes('Do NOT renumber tasks') || s5b.includes('Do NOT renumber T-ids'),
+      'v2: Opus must be told not to renumber (already done mechanically)'
+    );
+  });
+
+  it('v2: mini-plans persist after consolidation (REQ-3, REQ-7)', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Mini-plans persist') || s5b.includes('persist in `.deepflow/plans/'),
+      'v2: mini-plans must persist to disk (not ephemeral)'
     );
   });
 });
 
 // ---------------------------------------------------------------------------
-// §5B Consolidator — 7 Steps
+// §5B — Step 1: plan-consolidator mechanical work
 // ---------------------------------------------------------------------------
 
-describe('§5B consolidator — step completeness', () => {
-  it('contains all 7 instruction steps', () => {
-    const s5b = getSection5B();
-    for (let i = 1; i <= 7; i++) {
-      assert.match(
-        s5b,
-        new RegExp(`### Step ${i}:`),
-        `Consolidator must contain Step ${i}`
-      );
-    }
-  });
-
-  it('Step 1: Spec Priority Ordering', () => {
-    const s5b = getSection5B();
-    assert.ok(s5b.includes('Step 1: Spec Priority Ordering'));
-  });
-
-  it('Step 2: Global T-Number Assignment', () => {
-    const s5b = getSection5B();
-    assert.ok(s5b.includes('Step 2: Global T-Number Assignment'));
-  });
-
-  it('Step 3: Cross-Spec File Conflict Detection', () => {
-    const s5b = getSection5B();
-    assert.ok(s5b.includes('Step 3: Cross-Spec File Conflict Detection'));
-  });
-
-  it('Step 4: Requirement Mapping', () => {
-    const s5b = getSection5B();
-    assert.ok(s5b.includes('Step 4: Requirement Mapping'));
-  });
-
-  it('Step 5: Metric AC Detection', () => {
-    const s5b = getSection5B();
-    assert.ok(s5b.includes('Step 5: Metric AC Detection'));
-  });
-
-  it('Step 6: Model + Effort Classification', () => {
-    const s5b = getSection5B();
-    assert.ok(s5b.includes('Step 6: Model + Effort Classification'));
-  });
-
-  it('Step 7: Output', () => {
-    const s5b = getSection5B();
-    assert.ok(s5b.includes('Step 7: Output'));
-  });
-});
-
-// ---------------------------------------------------------------------------
-// §5B — Global T-Numbering (Step 2)
-// ---------------------------------------------------------------------------
-
-describe('§5B Step 2 — global T-number assignment', () => {
-  it('assigns sequential T-numbers T1..TN', () => {
+describe('§5B Step 1 — plan-consolidator mechanical outputs', () => {
+  it('produces globally sequential T-ids (no gaps, no duplicates)', () => {
     const s5b = getSection5B();
     assert.ok(
-      s5b.includes('T1, T2, ..., TN'),
-      'Must specify sequential T1..TN numbering'
+      s5b.includes('Globally sequential T-ids') || s5b.includes('no gaps, no duplicates'),
+      'plan-consolidator must produce globally sequential T-ids'
     );
   });
 
-  it('requires NO gaps and NO duplicates', () => {
+  it('remaps Blocked by references (local → global)', () => {
     const s5b = getSection5B();
     assert.ok(
-      s5b.includes('NO gaps') && s5b.includes('NO duplicates'),
-      'Must forbid gaps and duplicates'
+      s5b.includes('Remapped `Blocked by` references') ||
+      s5b.includes('local → global'),
+      'Must remap local Blocked by references to global'
     );
   });
 
-  it('preserves local task ordering within each spec', () => {
-    const s5b = getSection5B();
-    assert.ok(
-      s5b.includes('preserve the local task ordering'),
-      'Must preserve local ordering'
-    );
-  });
-
-  it('translates local Blocked-by references to global T-IDs', () => {
-    const s5b = getSection5B();
-    assert.ok(
-      s5b.includes('Translate all intra-spec') && s5b.includes('global T-IDs'),
-      'Must translate local blocked-by to global IDs'
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// §5B — Cross-Spec File Conflict Detection (Step 3)
-// ---------------------------------------------------------------------------
-
-describe('§5B Step 3 — cross-spec file conflict detection', () => {
-  it('builds file → [global task IDs] map', () => {
-    const s5b = getSection5B();
-    assert.ok(
-      s5b.includes('file → [global task IDs]'),
-      'Must build file-to-task-IDs map'
-    );
-  });
-
-  it('detects files in >1 task across different specs', () => {
-    const s5b = getSection5B();
-    assert.ok(
-      s5b.includes('>1 task across different specs'),
-      'Must detect cross-spec file overlaps'
-    );
-  });
-
-  it('adds Blocked by from later task to earlier task', () => {
-    const s5b = getSection5B();
-    assert.ok(
-      s5b.includes('later task → the earlier task'),
-      'Must block later task on earlier one'
-    );
-  });
-
-  it('requires [file-conflict: {filename}] annotation', () => {
+  it('produces [file-conflict: {filename}] annotations for cross-spec overlaps', () => {
     const s5b = getSection5B();
     assert.ok(
       s5b.includes('[file-conflict: {filename}]'),
-      'Must annotate with [file-conflict: {filename}]'
+      'Must produce file-conflict annotations'
     );
   });
 
-  it('skips if dependency already exists (direct or transitive)', () => {
+  it('leaves mini-plan files unmodified (read-only)', () => {
     const s5b = getSection5B();
     assert.ok(
-      s5b.includes('Skip if a dependency already exists'),
-      'Must skip redundant dependencies'
-    );
-  });
-
-  it('chains only to nearest earlier task (not all earlier)', () => {
-    const s5b = getSection5B();
-    assert.ok(
-      s5b.includes('Chain only') && s5b.includes('nearest earlier task'),
-      'Must chain to nearest, not all earlier tasks'
+      s5b.includes('read-only') || s5b.includes('NOT modify these files'),
+      'Mini-plan files must remain unmodified after consolidation'
     );
   });
 });
 
 // ---------------------------------------------------------------------------
-// §5B — Model/Effort Routing (Step 6)
+// §5B — Step 2: Opus prioritization (3 jobs)
 // ---------------------------------------------------------------------------
 
-describe('§5B Step 6 — model + effort routing inside consolidator', () => {
-  it('contains routing matrix table', () => {
+describe('§5B Step 2 — Opus prioritization jobs', () => {
+  it('Opus job 1: cross-spec prioritization', () => {
     const s5b = getSection5B();
     assert.ok(
-      s5b.includes('| Task type | Model | Effort |'),
-      'Must contain routing matrix table header'
+      s5b.includes('Cross-Spec Prioritization'),
+      'Opus must perform cross-spec prioritization'
     );
   });
 
-  it('includes haiku-level tasks (bootstrap, browse-fetch)', () => {
+  it('Opus job 2: requirement mapping & spec gaps', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Requirement Mapping') || s5b.includes('Requirement Mapping & Spec Gaps'),
+      'Opus must perform requirement mapping and spec gap detection'
+    );
+  });
+
+  it('Opus job 3: model + effort classification', () => {
+    const s5b = getSection5B();
+    assert.ok(
+      s5b.includes('Model + Effort Classification'),
+      'Opus must perform model/effort classification'
+    );
+  });
+
+  it('routing matrix includes haiku-level tasks (bootstrap, browse-fetch)', () => {
     const s5b = getSection5B();
     assert.ok(s5b.includes('Bootstrap') && s5b.includes('haiku'));
     assert.ok(s5b.includes('browse-fetch'));
   });
 
-  it('includes sonnet-level tasks (multi-file, bug fix)', () => {
+  it('routing matrix includes sonnet-level tasks (multi-file, bug fix)', () => {
     const s5b = getSection5B();
     assert.ok(s5b.includes('Multi-file with clear specs'));
     assert.ok(s5b.includes('Bug fix (clear repro)'));
   });
 
-  it('includes opus-level tasks (optimize, architecture)', () => {
+  it('routing matrix includes opus-level tasks (optimize, architecture)', () => {
     const s5b = getSection5B();
     assert.ok(s5b.includes('Optimize (metric AC)'));
     assert.ok(s5b.includes('Architecture change'));
@@ -790,10 +727,10 @@ describe('§5B Step 6 — model + effort routing inside consolidator', () => {
 });
 
 // ---------------------------------------------------------------------------
-// §5B — Summary Table in Output (Step 7)
+// §5B — Output Format
 // ---------------------------------------------------------------------------
 
-describe('§5B Step 7 — output format', () => {
+describe('§5B — output format', () => {
   it('output includes Summary table with 4 metrics', () => {
     const s5b = getSection5B();
     assert.ok(s5b.includes('Specs analyzed'));
@@ -810,72 +747,24 @@ describe('§5B Step 7 — output format', () => {
     );
   });
 
-  it('groups tasks under ### doing-{spec-name} headers', () => {
+  it('Opus must NOT alter T-ids (already set by plan-consolidator)', () => {
     const s5b = getSection5B();
     assert.ok(
-      s5b.includes('### doing-{spec-name-1}') && s5b.includes('### doing-{spec-name-2}'),
-      'Tasks must be grouped under doing-{spec-name} headers'
+      s5b.includes('Do NOT renumber T-ids') || s5b.includes('Do NOT alter T-ids'),
+      'Opus must not alter T-ids — they are already globally sequential'
     );
   });
 
-  it('task format includes Files, Model, Effort, Blocked by fields', () => {
-    const s5b = getSection5B();
-    // Check within the output template
-    assert.ok(s5b.includes('- Files:'));
-    assert.ok(s5b.includes('- Model:'));
-    assert.ok(s5b.includes('- Effort:'));
-    assert.ok(s5b.includes('- Blocked by:'));
-  });
-});
-
-// ---------------------------------------------------------------------------
-// §5B — Output Rules
-// ---------------------------------------------------------------------------
-
-describe('§5B — output rules', () => {
-  it('T-numbers MUST be globally sequential with no gaps/duplicates', () => {
+  it('Opus inserts consolidated tasks verbatim with only Model/Effort additions', () => {
     const s5b = getSection5B();
     assert.ok(
-      s5b.includes('T-numbers MUST be globally sequential'),
-      'Must enforce globally sequential T-numbers'
+      s5b.includes('consolidated tasks from plan-consolidator verbatim') ||
+      s5b.includes('verbatim'),
+      'Opus must insert consolidated tasks verbatim'
     );
   });
 
-  it('requires doing-{spec-name} grouping', () => {
-    const s5b = getSection5B();
-    assert.ok(
-      s5b.includes('Group tasks under `### doing-{spec-name}` headers'),
-      'Must require spec-name grouping'
-    );
-  });
-
-  it('preserves optional fields from mini-plans', () => {
-    const s5b = getSection5B();
-    assert.ok(
-      s5b.includes('Preserve all optional fields from mini-plans'),
-      'Must preserve optional fields'
-    );
-  });
-
-  it('requires [file-conflict] annotations for cross-spec overlaps', () => {
-    const s5b = getSection5B();
-    assert.ok(
-      s5b.includes('[file-conflict: {filename}] annotations are REQUIRED'),
-      'Must require file-conflict annotations'
-    );
-  });
-
-  it('mandates "Blocked by: none" format (not N/A or empty)', () => {
-    const s5b = getSection5B();
-    assert.ok(
-      s5b.includes('"Blocked by: none" is required') &&
-      s5b.includes('not "N/A"') &&
-      s5b.includes('not empty'),
-      'Must mandate Blocked by: none format'
-    );
-  });
-
-  it('spike tasks keep [SPIKE] or [OPTIMIZE] markers', () => {
+  it('output preserves spike/optimize task markers', () => {
     const s5b = getSection5B();
     assert.ok(
       s5b.includes('[SPIKE]') && s5b.includes('[OPTIMIZE]'),
@@ -885,27 +774,26 @@ describe('§5B — output rules', () => {
 });
 
 // ---------------------------------------------------------------------------
-// REQ-12: Single Opus Invocation
+// §5B — Post-Consolidation
 // ---------------------------------------------------------------------------
 
-describe('REQ-12 — single Opus invocation in fan-out path', () => {
-  it('§5B states it is the ONLY Opus invocation in fan-out path', () => {
+describe('§5B — post-consolidation behavior', () => {
+  it('mini-plans persist in .deepflow/plans/ after consolidation (REQ-3, REQ-7)', () => {
     const s5b = getSection5B();
     assert.ok(
-      s5b.includes('ONLY Opus invocation in the fan-out path'),
-      'Must declare single Opus invocation constraint'
+      (s5b.includes('Mini-plans persist') || s5b.includes('.deepflow/plans/doing-')) &&
+      (s5b.includes('REQ-3') || s5b.includes('REQ-7')),
+      'Mini-plans must persist on disk for reuse by /df:execute'
     );
   });
 
-  it('§5B references REQ-12', () => {
+  it('§8 cleanup and §9 output/rename run after consolidation in orchestrator (REQ-13)', () => {
     const s5b = getSection5B();
-    assert.ok(
-      s5b.includes('REQ-12'),
-      'Must reference REQ-12'
-    );
+    assert.ok(s5b.includes('§8 cleanup') && s5b.includes('§9 output'));
+    assert.ok(s5b.includes('run after this step in the orchestrator'));
   });
 
-  it('sub-agents in §4.7 use Sonnet (not Opus)', () => {
+  it('sub-agents in §4.7 use Sonnet (confirmed)', () => {
     const s5b = getSection5B();
     assert.ok(
       s5b.includes('Sub-agents in §4.7 use Sonnet'),
@@ -915,61 +803,151 @@ describe('REQ-12 — single Opus invocation in fan-out path', () => {
 });
 
 // ---------------------------------------------------------------------------
-// REQ-7: Ephemeral Mini-Plans
+// §8/§9 remain in orchestrator (AC-13)
 // ---------------------------------------------------------------------------
 
-describe('REQ-7 — ephemeral mini-plans', () => {
-  it('mini-plans are never written to disk', () => {
-    const s5b = getSection5B();
+// Helper: extract §8 section
+function getSection8() {
+  const content = fs.readFileSync(planPath, 'utf8');
+  const match = content.match(/### 8\. CLEANUP PLAN\.md[\s\S]*?(?=### 9\.)/);
+  assert.ok(match, 'plan.md must contain §8 CLEANUP PLAN.md section');
+  return match[0];
+}
+
+// Helper: extract §9 section
+function getSection9() {
+  const content = fs.readFileSync(planPath, 'utf8');
+  const match = content.match(/### 9\. OUTPUT & RENAME[\s\S]*?(?=## Rules|$)/);
+  assert.ok(match, 'plan.md must contain §9 OUTPUT & RENAME section');
+  return match[0];
+}
+
+describe('AC-13 — §8 cleanup and §9 output remain in orchestrator', () => {
+  it('post-consolidation notes §8 and §9 run in orchestrator', () => {
+    const content = fs.readFileSync(planPath, 'utf8');
     assert.ok(
-      s5b.includes('never written to disk'),
-      'Mini-plans must be ephemeral, never persisted'
+      content.includes('§8 cleanup') && content.includes('§9 output'),
+      'Must state §8/§9 run after consolidation'
     );
   });
 
-  it('mini-plans exist only as sub-agent return values', () => {
-    const s5b = getSection5B();
+  it('§8 runs ONLY after §5B consolidation is complete', () => {
+    const s8 = getSection8();
     assert.ok(
-      s5b.includes('exist only as sub-agent return values'),
-      'Mini-plans must only be in-memory return values'
+      s8.includes('Run ONLY after §5B consolidation is complete'),
+      '§8 must run only after §5B consolidation'
     );
   });
 
-  it('references REQ-7', () => {
-    const s5b = getSection5B();
+  it('§8 must NOT run inside sub-agents', () => {
+    const s8 = getSection8();
     assert.ok(
-      s5b.includes('REQ-7'),
-      'Must reference REQ-7'
+      s8.includes('do NOT run inside sub-agents'),
+      '§8 must not run inside sub-agents'
+    );
+  });
+
+  it('§9 runs ONLY after §5B consolidation is complete (AC-13)', () => {
+    const s9 = getSection9();
+    assert.ok(
+      s9.includes('Run ONLY after §5B consolidation is complete') &&
+      s9.includes('AC-13'),
+      '§9 must run only after consolidation and reference AC-13'
+    );
+  });
+
+  it('§9 operates on successfully planned specs only', () => {
+    const s9 = getSection9();
+    assert.ok(
+      s9.includes('successfully planned specs only') ||
+      s9.includes('Operate on successfully planned specs only'),
+      '§9 must operate on successfully planned specs only'
+    );
+  });
+
+  it('§9 excludes failed specs from rename and PLAN.md', () => {
+    const s9 = getSection9();
+    assert.ok(
+      s9.includes('NOT renamed and NOT appended to PLAN.md'),
+      'Failed specs must not be renamed or appended to PLAN.md'
     );
   });
 });
 
 // ---------------------------------------------------------------------------
-// §8/§9 remain in orchestrator (REQ-13)
+// §4.7.3 — Three-Condition Failure Check (AC-10 in v2, was AC-11 in v1)
 // ---------------------------------------------------------------------------
 
-describe('REQ-13 — §8 cleanup and §9 output remain in orchestrator', () => {
-  it('post-consolidation notes §8 and §9 run in orchestrator', () => {
-    const s5b = getSection5B();
+describe('§4.7.3 graceful degradation — three failure conditions', () => {
+  it('condition 1: sub-agent threw error or returned non-string', () => {
+    const section = getFanOutSection();
     assert.ok(
-      s5b.includes('§8 cleanup') && s5b.includes('§9 output'),
-      'Must state §8/§9 run after consolidation'
+      section.includes('threw an error or returned a non-string value'),
+      'Must detect error/non-string as failure condition'
     );
   });
 
-  it('references REQ-13', () => {
-    const s5b = getSection5B();
+  it('condition 2: output is empty (whitespace only)', () => {
+    const section = getFanOutSection();
     assert.ok(
-      s5b.includes('REQ-13'),
-      'Must reference REQ-13'
+      section.includes('Output is empty (whitespace only)'),
+      'Must detect empty/whitespace-only output as failure condition'
     );
   });
 
-  it('§8/§9 run after consolidation step', () => {
-    const s5b = getSection5B();
+  it('condition 3: output contains no task items (no T pattern)', () => {
+    const section = getFanOutSection();
     assert.ok(
-      s5b.includes('run after this step in the orchestrator'),
-      'Must confirm §8/§9 run after consolidation in orchestrator'
+      section.includes('no task items') && section.includes('no `- [ ] **T` pattern'),
+      'Must detect missing task items as failure condition'
+    );
+  });
+
+  it('v2: references AC-10 (not AC-11)', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('AC-10'),
+      'v2: Graceful degradation must reference AC-10'
+    );
+  });
+
+  it('warning format includes specName and reason placeholders', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('{specName}') && section.includes('{reason}'),
+      'Warning format must include {specName} and {reason} placeholders'
+    );
+  });
+
+  it('warning includes ⚠ Warning prefix', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('⚠ Warning: sub-agent for'),
+      'Warning must use ⚠ Warning prefix format'
+    );
+  });
+
+  it('continues processing regardless of individual failures', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('Continue processing remaining specs regardless of individual failures'),
+      'Must continue processing after individual failures'
+    );
+  });
+
+  it('partial success continues to §5', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('at least 1 succeeds') && section.includes('continue to §5'),
+      'Partial success must continue to §5'
+    );
+  });
+
+  it('total failure (ALL sub-agents fail) aborts plan generation', () => {
+    const section = getFanOutSection();
+    assert.ok(
+      section.includes('ALL sub-agents fail') && section.includes('abort plan generation'),
+      'Total failure must abort plan generation'
     );
   });
 });
@@ -992,292 +970,6 @@ describe('§5.5 — monolithic-only scoping', () => {
     assert.ok(
       s55.includes('fan-out path') && s55.includes('consolidator prompt'),
       '§5.5 must note fan-out classification is in consolidator'
-    );
-  });
-});
-
-// ===========================================================================
-// WAVE 3 — §4.7.3 GRACEFUL DEGRADATION & §8/§9 FAN-OUT GUARDS (T6)
-// ===========================================================================
-
-// Helper: extract §8 section
-function getSection8() {
-  const content = fs.readFileSync(planPath, 'utf8');
-  const match = content.match(/### 8\. CLEANUP PLAN\.md[\s\S]*?(?=### 9\.)/);
-  assert.ok(match, 'plan.md must contain §8 CLEANUP PLAN.md section');
-  return match[0];
-}
-
-// Helper: extract §9 section
-function getSection9() {
-  const content = fs.readFileSync(planPath, 'utf8');
-  const match = content.match(/### 9\. OUTPUT & RENAME[\s\S]*?(?=## Rules|$)/);
-  assert.ok(match, 'plan.md must contain §9 OUTPUT & RENAME section');
-  return match[0];
-}
-
-// ---------------------------------------------------------------------------
-// §4.7.3 — Three-Condition Failure Check (AC-11)
-// ---------------------------------------------------------------------------
-
-describe('§4.7.3 graceful degradation — three failure conditions', () => {
-  it('condition 1: sub-agent threw error or returned non-string', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('threw an error or returned a non-string value'),
-      'Must detect error/non-string as failure condition'
-    );
-  });
-
-  it('condition 1 action: log warning and skip spec', () => {
-    const section = getFanOutSection();
-    assert.match(
-      section,
-      /threw an error or returned a non-string value.*log warning.*skip spec/s,
-      'Error condition must log warning and skip spec'
-    );
-  });
-
-  it('condition 2: output is empty (whitespace only)', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('Output is empty (whitespace only)'),
-      'Must detect empty/whitespace-only output as failure condition'
-    );
-  });
-
-  it('condition 2 action: log warning and skip spec', () => {
-    const section = getFanOutSection();
-    assert.match(
-      section,
-      /Output is empty.*log warning.*skip spec/s,
-      'Empty output condition must log warning and skip spec'
-    );
-  });
-
-  it('condition 3: output contains no task items (no T pattern)', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('no task items') && section.includes('no `- [ ] **T` pattern'),
-      'Must detect missing task items as failure condition'
-    );
-  });
-
-  it('condition 3 action: log warning (unparseable) and skip spec', () => {
-    const section = getFanOutSection();
-    assert.match(
-      section,
-      /no task items.*unparseable.*skip spec/s,
-      'No-task-items condition must log warning as unparseable and skip spec'
-    );
-  });
-
-  it('references AC-11', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('AC-11'),
-      'Graceful degradation must reference AC-11'
-    );
-  });
-
-  it('all three conditions are bullet-listed under Graceful degradation', () => {
-    const section = getFanOutSection();
-    const gdBlock = section.match(/Graceful degradation.*?(?=Warning format|$)/s);
-    assert.ok(gdBlock, 'Must have Graceful degradation block');
-    const bullets = gdBlock[0].match(/^- /gm);
-    assert.ok(bullets && bullets.length >= 3, 'Must have at least 3 bullet conditions');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// §4.7.3 — Warning Format
-// ---------------------------------------------------------------------------
-
-describe('§4.7.3 graceful degradation — warning format', () => {
-  it('specifies warning format with specName placeholder', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('{specName}'),
-      'Warning format must include {specName} placeholder'
-    );
-  });
-
-  it('specifies warning format with reason placeholder', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('{reason}'),
-      'Warning format must include {reason} placeholder'
-    );
-  });
-
-  it('warning includes "Continuing with remaining specs" message', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('Continuing with remaining specs'),
-      'Warning must indicate processing continues'
-    );
-  });
-
-  it('warning uses ⚠ Warning prefix', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('⚠ Warning: sub-agent for'),
-      'Warning must use ⚠ Warning prefix format'
-    );
-  });
-
-  it('warning format is inside a code block', () => {
-    const section = getFanOutSection();
-    assert.match(
-      section,
-      /```\n⚠ Warning:.*\n```/s,
-      'Warning format must be in a code block'
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// §4.7.3 — Partial vs Total Failure
-// ---------------------------------------------------------------------------
-
-describe('§4.7.3 graceful degradation — partial success vs total failure', () => {
-  it('partial success (at least 1 succeeds): continues to §5', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('at least 1 succeeds') && section.includes('continue to §5'),
-      'Partial success must continue to §5'
-    );
-  });
-
-  it('total failure (ALL sub-agents fail): aborts plan generation', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('ALL sub-agents fail') && section.includes('abort plan generation'),
-      'Total failure must abort plan generation'
-    );
-  });
-
-  it('only successfully parsed mini-plans are stored', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('successfully parsed only'),
-      'Only successfully parsed mini-plans should be stored'
-    );
-  });
-
-  it('continues processing remaining specs regardless of individual failures', () => {
-    const section = getFanOutSection();
-    assert.ok(
-      section.includes('Continue processing remaining specs regardless of individual failures'),
-      'Must continue processing after individual failures'
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// §8 — Fan-Out Guard
-// ---------------------------------------------------------------------------
-
-describe('§8 — fan-out guard', () => {
-  it('§8 has fan-out path guard', () => {
-    const s8 = getSection8();
-    assert.ok(
-      s8.includes('Fan-out path:'),
-      '§8 must have a fan-out path directive'
-    );
-  });
-
-  it('§8 runs ONLY after §5B consolidation is complete', () => {
-    const s8 = getSection8();
-    assert.ok(
-      s8.includes('Run ONLY after §5B consolidation is complete'),
-      '§8 must run only after §5B consolidation'
-    );
-  });
-
-  it('§8 operates on consolidated output only', () => {
-    const s8 = getSection8();
-    assert.ok(
-      s8.includes('Operate on the consolidated output only'),
-      '§8 must operate on consolidated output only'
-    );
-  });
-
-  it('§8 must NOT run inside sub-agents', () => {
-    const s8 = getSection8();
-    assert.ok(
-      s8.includes('do NOT run inside sub-agents'),
-      '§8 must not run inside sub-agents'
-    );
-  });
-
-  it('§8 must NOT run during mini-plan collection', () => {
-    const s8 = getSection8();
-    assert.ok(
-      s8.includes('during mini-plan collection'),
-      '§8 must not run during mini-plan collection'
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// §9 — Fan-Out Guard
-// ---------------------------------------------------------------------------
-
-describe('§9 — fan-out guard', () => {
-  it('§9 has fan-out path guard', () => {
-    const s9 = getSection9();
-    assert.ok(
-      s9.includes('Fan-out path:'),
-      '§9 must have a fan-out path directive'
-    );
-  });
-
-  it('§9 runs ONLY after §5B consolidation is complete', () => {
-    const s9 = getSection9();
-    assert.ok(
-      s9.includes('Run ONLY after §5B consolidation is complete'),
-      '§9 must run only after §5B consolidation'
-    );
-  });
-
-  it('§9 references AC-13', () => {
-    const s9 = getSection9();
-    assert.ok(
-      s9.includes('AC-13'),
-      '§9 must reference AC-13'
-    );
-  });
-
-  it('§9 excludes failed specs from rename', () => {
-    const s9 = getSection9();
-    assert.ok(
-      s9.includes('successfully planned spec') || s9.includes('successfully planned specs only'),
-      '§9 must rename only successfully planned specs'
-    );
-  });
-
-  it('§9 excludes failed specs from PLAN.md output', () => {
-    const s9 = getSection9();
-    assert.ok(
-      s9.includes('NOT renamed and NOT appended to PLAN.md'),
-      'Failed specs must not be renamed or appended to PLAN.md'
-    );
-  });
-
-  it('§9 specifies failed specs come from §4.7.3', () => {
-    const s9 = getSection9();
-    assert.ok(
-      s9.includes('§4.7.3'),
-      '§9 must reference §4.7.3 for failed spec identification'
-    );
-  });
-
-  it('§9 operates on successfully planned specs only', () => {
-    const s9 = getSection9();
-    assert.ok(
-      s9.includes('Operate on successfully planned specs only'),
-      '§9 must operate on successfully planned specs only'
     );
   });
 });

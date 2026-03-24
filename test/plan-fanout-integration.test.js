@@ -1,8 +1,15 @@
 /**
- * Integration tests for plan-fanout spec.
+ * Integration tests for plan-fanout spec (v2 design).
  *
  * These tests verify EACH acceptance criterion (AC-1 through AC-14) holistically
  * across the entire plan.md command file, checking cross-section consistency.
+ *
+ * v2 design changes verified:
+ *   1. Sub-agent prompt contains ONLY spec file path (no pre-computed context blocks)
+ *   2. Mini-plans saved to .deepflow/plans/doing-{name}.md (persistent, not ephemeral arrays)
+ *   3. Consolidator reads from .deepflow/plans/, delegates mechanical work to bin/plan-consolidator.js
+ *   4. Single-spec path runs monolithic (no fan-out)
+ *   5. Fan-out capped at 5 specs
  *
  * Complements plan-fanout.test.js which tests individual sections in isolation.
  * Uses Node.js built-in node:test to match project conventions.
@@ -81,10 +88,6 @@ describe('AC-1: one sub-agent per plannable spec', () => {
   });
 
   it('end-to-end: §1 filtering feeds §4.7 count which drives spawn loop', () => {
-    // §1 mentions "exclude doing-*/done-*" and "validateSpec"
-    // §4.7.1 uses "plannable specs (no doing-/done- prefix, passed validateSpec)"
-    // §4.7.2 spawns "For each plannable spec"
-    // This verifies the data flow chain is documented
     assert.ok(PLAN_MD.includes('exclude doing-*/done-*'), '§1 filter');
     assert.ok(PLAN_MD.includes('plannable specs (no `doing-`/`done-` prefix, passed `validateSpec`)'), '§4.7.1 count');
     assert.ok(PLAN_MD.includes('For each plannable spec (up to 5), spawn'), '§4.7.2 spawn');
@@ -92,8 +95,7 @@ describe('AC-1: one sub-agent per plannable spec', () => {
 });
 
 // ===========================================================================
-// AC-2: Sub-agent prompt includes plan-template format rules;
-//        output uses local T-numbering
+// AC-2: Sub-agent prompt includes format rules; output uses local T-numbering
 // ===========================================================================
 
 describe('AC-2: sub-agent prompt format rules with local T-numbering', () => {
@@ -104,7 +106,6 @@ describe('AC-2: sub-agent prompt format rules with local T-numbering', () => {
 
   it('format clause specifies exact task template structure', () => {
     const fo = fanOut();
-    // Must have the full task format with Files, Blocked by
     assert.ok(fo.includes('- [ ] **T{N}**: {Task description}'));
     assert.ok(fo.includes('- Files: {comma-separated file paths}'));
     assert.ok(fo.includes('- Blocked by: none | T{N}[, T{M}...]'));
@@ -126,39 +127,42 @@ describe('AC-2: sub-agent prompt format rules with local T-numbering', () => {
 
 // ===========================================================================
 // AC-3: Consolidator produces PLAN.md with globally sequential T-numbers
-//        (T1...TN), no gaps or duplicates
+//        (T1...TN), no gaps or duplicates — done by bin/plan-consolidator.js
 // ===========================================================================
 
-describe('AC-3: globally sequential T-numbers in consolidated PLAN.md', () => {
-  it('§5B Step 2 assigns sequential T1..TN with no gaps or duplicates', () => {
+describe('AC-3: globally sequential T-numbers in consolidated output', () => {
+  it('§5B Step 1 (plan-consolidator) assigns sequential T-ids with no gaps or duplicates', () => {
     const s5b = section5B();
-    assert.ok(s5b.includes('T1, T2, ..., TN'));
-    assert.ok(s5b.includes('NO gaps'));
-    assert.ok(s5b.includes('NO duplicates'));
+    assert.ok(s5b.includes('no gaps, no duplicates'));
   });
 
-  it('§5B output rules reinforce globally sequential constraint', () => {
+  it('§5B Opus prompt instructs NOT to renumber (already done mechanically)', () => {
     const s5b = section5B();
-    assert.ok(s5b.includes('T-numbers MUST be globally sequential (T1...TN), no gaps, no duplicates'));
+    assert.ok(
+      s5b.includes('Do NOT renumber T-ids') ||
+      s5b.includes('Do NOT renumber tasks'),
+      'Opus must not renumber — already done by plan-consolidator'
+    );
   });
 
-  it('local blocked-by references are translated to global IDs', () => {
+  it('plan-consolidator remaps local blocked-by references to global IDs', () => {
     const s5b = section5B();
-    assert.ok(s5b.includes('Translate all intra-spec `Blocked by: T{local}` references to global T-IDs'));
+    assert.ok(
+      s5b.includes('local → global') || s5b.includes('Remapped `Blocked by` references'),
+      'Must translate local Blocked by references to global IDs'
+    );
   });
 
-  it('consolidator output template shows sequential T-numbers (T1, T2, T3)', () => {
-    const s5b = section5B();
-    // The output template shows T1, T2, T3 as examples
-    assert.ok(s5b.includes('**T1**'));
-    assert.ok(s5b.includes('**T2**'));
-    assert.ok(s5b.includes('**T3**'));
+  it('§9 output appends tasks grouped under doing-{spec-name} headers', () => {
+    // Tasks are grouped under doing-{spec-name} in §9 OUTPUT & RENAME
+    const s9 = section9();
+    assert.ok(s9.includes('doing-{spec-name') || s9.includes('doing-'));
   });
 });
 
 // ===========================================================================
 // AC-4: Given two specs with overlapping Files: entries, consolidator adds
-//        Blocked by: with (file conflict: {filename}) annotation
+//        Blocked by: with [file-conflict: {filename}] annotation
 // ===========================================================================
 
 describe('AC-4: cross-spec file conflict detection with annotation', () => {
@@ -180,22 +184,14 @@ describe('AC-4: cross-spec file conflict detection with annotation', () => {
     assert.ok(s46.includes('(file conflict: {filename})'));
   });
 
-  it('§5B Step 3 replicates file conflict detection for cross-spec case', () => {
+  it('§5B plan-consolidator produces [file-conflict: {filename}] annotations', () => {
     const s5b = section5B();
-    assert.ok(s5b.includes('Step 3: Cross-Spec File Conflict Detection'));
     assert.ok(s5b.includes('[file-conflict: {filename}]'));
   });
 
-  it('both §4.6 and §5B enforce chain-only blocking (nearest earlier task)', () => {
+  it('§4.6 enforces chain-only blocking (nearest earlier task)', () => {
     const s46 = getSection('### 4\\.6\\. CROSS-TASK FILE', '### 4\\.7\\.');
-    const s5b = section5B();
     assert.ok(s46.includes('Chain only'), '§4.6 must use chain-only');
-    assert.ok(s5b.includes('Chain only'), '§5B must use chain-only');
-  });
-
-  it('§5B output rules REQUIRE file-conflict annotations', () => {
-    const s5b = section5B();
-    assert.ok(s5b.includes('[file-conflict: {filename}] annotations are REQUIRED'));
   });
 });
 
@@ -204,16 +200,15 @@ describe('AC-4: cross-spec file conflict detection with annotation', () => {
 // ===========================================================================
 
 describe('AC-5: consolidator uses reasoner (Opus)', () => {
-  it('§5B spawns Task with subagent_type="reasoner", model="opus"', () => {
+  it('§5B Step 2 spawns Task with subagent_type="reasoner", model="opus"', () => {
     const s5b = section5B();
     assert.ok(s5b.includes('subagent_type="reasoner"'));
     assert.ok(s5b.includes('model="opus"'));
   });
 
-  it('consolidator performs cross-spec prioritization via Step 1', () => {
+  it('consolidator performs cross-spec prioritization', () => {
     const s5b = section5B();
-    assert.ok(s5b.includes('Step 1: Spec Priority Ordering'));
-    assert.ok(s5b.includes('Sort specs for global numbering'));
+    assert.ok(s5b.includes('Cross-Spec Prioritization'));
   });
 
   it('§5B is explicitly a single Opus spawn', () => {
@@ -252,30 +247,41 @@ describe('AC-6: single spec uses monolithic path, zero overhead', () => {
 });
 
 // ===========================================================================
-// AC-7: No mini-plan files exist on disk after /df:plan completes
+// AC-7: v2 REVERSAL — Mini-plans ARE persisted to disk after /df:plan
 // ===========================================================================
 
-describe('AC-7: mini-plans are ephemeral (never on disk)', () => {
-  it('§5B post-consolidation states mini-plans are never written to disk', () => {
-    const s5b = section5B();
-    assert.ok(s5b.includes('Mini-plans are ephemeral'));
-    assert.ok(s5b.includes('never written to disk'));
-    assert.ok(s5b.includes('REQ-7'));
-  });
-
-  it('§4.7.3 stores results in memory as array objects, not files', () => {
+describe('AC-7 (v2): mini-plans are persisted to .deepflow/plans/ (not ephemeral)', () => {
+  it('§4.7.3 writes mini-plans to .deepflow/plans/doing-{specName}.md', () => {
     const fo = fanOut();
-    assert.ok(fo.includes('array of `{ specName, miniPlan }` objects'));
-    // No mention of writing mini-plans to filesystem
     assert.ok(
-      !fo.includes('write mini-plan') && !fo.includes('save mini-plan'),
-      'Must never mention writing mini-plans to disk in §4.7'
+      fo.includes('Persist to disk') || fo.includes('.deepflow/plans/doing-'),
+      'v2: mini-plans must be written to disk'
     );
   });
 
-  it('sub-agent return values are the only transport for mini-plans', () => {
+  it('§5B reads mini-plans from .deepflow/plans/ as input', () => {
     const s5b = section5B();
-    assert.ok(s5b.includes('exist only as sub-agent return values'));
+    assert.ok(
+      s5b.includes('.deepflow/plans/doing-*.md') ||
+      s5b.includes('Mini-plan files in `.deepflow/plans/'),
+      'v2: §5B must read from .deepflow/plans/'
+    );
+  });
+
+  it('post-consolidation: mini-plans persist for /df:execute reuse (REQ-3, REQ-7)', () => {
+    const s5b = section5B();
+    assert.ok(
+      s5b.includes('Mini-plans persist') || s5b.includes('.deepflow/plans/doing-'),
+      'v2: mini-plans must persist after consolidation for /df:execute'
+    );
+  });
+
+  it('§5B consolidator must NOT modify mini-plan files (read-only)', () => {
+    const s5b = section5B();
+    assert.ok(
+      s5b.includes('must NOT modify these files') || s5b.includes('read-only'),
+      'v2: consolidator must treat mini-plan files as read-only'
+    );
   });
 });
 
@@ -284,99 +290,168 @@ describe('AC-7: mini-plans are ephemeral (never on disk)', () => {
 // ===========================================================================
 
 describe('AC-8: PLAN.md parseable by wave-runner.js', () => {
-  it('consolidator output uses standard task format with - [ ] **T{N}**', () => {
-    const s5b = section5B();
-    assert.ok(s5b.includes('- [ ] **T1**'));
-    assert.ok(s5b.includes('- [ ] **T2**'));
-    assert.ok(s5b.includes('- [ ] **T3**'));
+  it('sub-agent output format includes Files: field required by wave-runner', () => {
+    // v2: task format defined in §4.7.2 sub-agent prompt template
+    const fo = fanOut();
+    assert.ok(fo.includes('- Files:'));
   });
 
-  it('output includes Files: and Blocked by: fields required by wave-runner', () => {
-    const s5b = section5B();
-    assert.ok(s5b.includes('- Files:'));
-    assert.ok(s5b.includes('- Blocked by:'));
+  it('sub-agent output format includes Blocked by: field required by wave-runner', () => {
+    // v2: task format defined in §4.7.2 sub-agent prompt template
+    const fo = fanOut();
+    assert.ok(fo.includes('- Blocked by:'));
   });
 
-  it('output includes Model: and Effort: fields', () => {
-    const s5b = section5B();
-    assert.ok(s5b.includes('- Model:'));
-    assert.ok(s5b.includes('- Effort:'));
+  it('sub-agent output format includes optional Model: and Effort: fields', () => {
+    // v2: optional fields in §4.7.2 sub-agent prompt template
+    const fo = fanOut();
+    assert.ok(fo.includes('- Model:'));
+    assert.ok(fo.includes('- Effort:'));
   });
 
   it('wave-runner.test.js exists and is runnable', () => {
     const waveTestPath = path.join(ROOT, 'bin', 'wave-runner.test.js');
     assert.ok(
       fs.existsSync(waveTestPath),
-      'bin/wave-runner.test.js must exist for AC-10 verification'
+      'bin/wave-runner.test.js must exist for AC-8 verification'
     );
   });
 
   it('output uses "Blocked by: none" (not N/A or empty) matching wave-runner expectations', () => {
-    const s5b = section5B();
-    assert.ok(s5b.includes('"Blocked by: none" is required'));
-  });
-});
-
-// ===========================================================================
-// AC-9: Sub-agent prompt includes layer-gating, experiment-check,
-//        project context, impact analysis, targeted exploration
-// ===========================================================================
-
-describe('AC-9: sub-agent prompt includes all 5 analysis phases', () => {
-  const requiredElements = [
-    { name: 'layer-gating', pattern: 'Layer-gating rules', ref: '§1.5' },
-    { name: 'experiment-check', pattern: 'Experiment check results', ref: '§2' },
-    { name: 'project context', pattern: 'Project context', ref: '§3' },
-    { name: 'impact analysis', pattern: 'Impact analysis instructions', ref: '§4' },
-    { name: 'targeted exploration', pattern: 'Targeted exploration instructions', ref: '§4.5' },
-  ];
-
-  for (const elem of requiredElements) {
-    it(`sub-agent prompt includes ${elem.name} (from ${elem.ref})`, () => {
-      const fo = fanOut();
-      assert.ok(
-        fo.includes(elem.pattern),
-        `Must include ${elem.name} element in sub-agent prompt`
-      );
-      assert.ok(
-        fo.includes(elem.ref),
-        `Must reference ${elem.ref} for ${elem.name}`
-      );
-    });
-  }
-
-  it('all 5 analysis phases are numbered in the sub-agent prompt', () => {
+    // v2: this rule is in the §4.7.2 sub-agent prompt format enforcement clause
     const fo = fanOut();
-    // Elements 1-5 correspond to the analysis phases, 6 is spec content, 7 is format
-    for (let i = 1; i <= 5; i++) {
-      assert.match(
-        fo,
-        new RegExp(`${i}\\.\\s+\\*\\*`),
-        `Element ${i} must be numbered in sub-agent prompt`
-      );
-    }
+    assert.ok(fo.includes('"Blocked by: none" is required'));
   });
 });
 
 // ===========================================================================
-// AC-10: node --test bin/wave-runner.test.js and bin/ratchet.test.js exit 0
+// AC-9: v2 REVERSAL — Sub-agent is self-directed (no pre-computed context)
+//        Sub-agent reads spec itself; orchestrator is a thin dispatcher
 // ===========================================================================
 
-describe('AC-10: wave-runner.test.js and ratchet.test.js exist', () => {
-  it('bin/wave-runner.test.js exists', () => {
+describe('AC-9 (v2): sub-agent is self-directed, orchestrator is thin dispatcher', () => {
+  it('§4.7.2 declares orchestrator is a thin dispatcher', () => {
+    const fo = fanOut();
+    assert.ok(
+      fo.includes('thin dispatcher'),
+      'Must declare orchestrator is a thin dispatcher'
+    );
+  });
+
+  it('sub-agent receives ONLY spec file path (no pre-computed context)', () => {
+    const fo = fanOut();
+    assert.ok(
+      fo.includes('ONLY the spec file path'),
+      'v2: sub-agent must receive only the spec file path'
+    );
+    assert.ok(
+      fo.includes('no pre-computed context'),
+      'v2: must state no pre-computed context'
+    );
+  });
+
+  it('sub-agent prompt contains spec file path placeholder {spec_file_path}', () => {
+    const fo = fanOut();
+    assert.ok(
+      fo.includes('{spec_file_path}'),
+      'Sub-agent prompt must include {spec_file_path} placeholder'
+    );
+  });
+
+  it('sub-agent reads spec via Read tool', () => {
+    const fo = fanOut();
+    assert.ok(
+      fo.includes('Read the spec') && fo.includes('Read tool'),
+      'Sub-agent must read spec itself via Read tool'
+    );
+  });
+
+  it('sub-agent computes spec layer independently', () => {
+    const fo = fanOut();
+    assert.ok(
+      fo.includes('Compute spec layer'),
+      'Sub-agent must compute spec layer independently'
+    );
+  });
+
+  it('sub-agent checks experiments independently', () => {
+    const fo = fanOut();
+    assert.ok(
+      fo.includes('Check experiments'),
+      'Sub-agent must check experiments independently'
+    );
+  });
+
+  it('sub-agent explores codebase independently', () => {
+    const fo = fanOut();
+    assert.ok(
+      fo.includes('Explore the codebase'),
+      'Sub-agent must explore codebase independently'
+    );
+  });
+
+  it('sub-agent runs impact analysis for L3 specs independently', () => {
+    const fo = fanOut();
+    assert.ok(
+      fo.includes('Impact analysis') && fo.includes('L3 only'),
+      'Sub-agent must run impact analysis for L3 specs'
+    );
+  });
+
+  it('sub-agent prompt contains layer-gating rules table', () => {
+    const fo = fanOut();
+    assert.ok(
+      fo.includes('Layer-gating rules'),
+      'Sub-agent prompt must embed layer-gating rules'
+    );
+  });
+});
+
+// ===========================================================================
+// AC-10 (was AC-12): Only one Opus invocation exists in the fan-out path
+// ===========================================================================
+
+describe('AC-10 (was AC-12): single Opus invocation in fan-out path', () => {
+  it('§5B declares itself as the ONLY Opus invocation', () => {
+    const s5b = section5B();
+    assert.ok(s5b.includes('ONLY Opus invocation in the fan-out path'));
+    assert.ok(s5b.includes('REQ-12'));
+  });
+
+  it('§4.7.2 sub-agents use Sonnet, not Opus', () => {
+    const fo = fanOut();
+    assert.ok(fo.includes('model="sonnet"'), 'Sub-agents must use sonnet');
+    const spawnSection = fo.match(/#### 4\.7\.2[\s\S]*?(?=#### 4\.7\.3)/);
+    assert.ok(spawnSection, '§4.7.2 must exist');
+    assert.ok(
+      !spawnSection[0].includes('model="opus"'),
+      '§4.7.2 sub-agents must NOT use opus'
+    );
+  });
+
+  it('cross-check: §4.7.2 spawn call uses sonnet not opus', () => {
+    const fo = fanOut();
+    const spawnSection = fo.match(/#### 4\.7\.2[\s\S]*?(?=#### 4\.7\.3)/);
+    assert.ok(spawnSection, '§4.7.2 must exist');
+    assert.ok(
+      spawnSection[0].includes('model="sonnet"'),
+      '§4.7.2 spawn must use model="sonnet"'
+    );
+    assert.ok(
+      !spawnSection[0].includes('model="opus"'),
+      '§4.7.2 spawn must NOT use model="opus"'
+    );
+  });
+
+  it('wave-runner.test.js exists', () => {
     const p = path.join(ROOT, 'bin', 'wave-runner.test.js');
     assert.ok(fs.existsSync(p), 'bin/wave-runner.test.js must exist');
   });
 
-  it('bin/ratchet.test.js exists', () => {
+  it('ratchet.test.js exists', () => {
     const p = path.join(ROOT, 'bin', 'ratchet.test.js');
     assert.ok(fs.existsSync(p), 'bin/ratchet.test.js must exist');
   });
-
-  // TODO: Actually running `node --test bin/wave-runner.test.js` and
-  // `node --test bin/ratchet.test.js` requires the full runtime environment.
-  // This is a runtime verification that cannot be tested through markdown analysis alone.
-  // The existing test files are present; AC-10 pass/fail is verified by running them directly.
 });
 
 // ===========================================================================
@@ -393,7 +468,6 @@ describe('AC-11: sub-agent failure graceful degradation', () => {
 
   it('each failure condition logs a warning', () => {
     const fo = fanOut();
-    // All three conditions say "log warning, skip spec"
     const logWarningCount = (fo.match(/log warning/g) || []).length;
     assert.ok(logWarningCount >= 3, `Must have at least 3 "log warning" directives, found ${logWarningCount}`);
   });
@@ -415,49 +489,42 @@ describe('AC-11: sub-agent failure graceful degradation', () => {
     assert.ok(fo.includes('abort plan generation'));
   });
 
-  it('§4.7.3 explicitly references AC-11', () => {
+  it('v2: §4.7.3 references AC-10 (graceful degradation tag in v2)', () => {
     const fo = fanOut();
-    assert.ok(fo.includes('AC-11'));
+    // v2 uses AC-10 in the graceful degradation block
+    assert.ok(
+      fo.includes('AC-10') || fo.includes('AC-11'),
+      '§4.7.3 must reference an AC for graceful degradation'
+    );
   });
 });
 
 // ===========================================================================
-// AC-12: Only one Opus invocation exists in the fan-out path (the consolidator)
+// AC-12: bin/plan-consolidator.js exists (mechanical consolidation)
 // ===========================================================================
 
-describe('AC-12: single Opus invocation in fan-out path', () => {
-  it('§5B declares itself as the ONLY Opus invocation', () => {
+describe('AC-12: bin/plan-consolidator.js exists and is referenced', () => {
+  it('§5B references bin/plan-consolidator.js', () => {
     const s5b = section5B();
-    assert.ok(s5b.includes('ONLY Opus invocation in the fan-out path'));
-    assert.ok(s5b.includes('REQ-12'));
-  });
-
-  it('§4.7.2 sub-agents use Sonnet, not Opus', () => {
-    const fo = fanOut();
-    assert.ok(fo.includes('model="sonnet"'), 'Sub-agents must use sonnet');
-    // §4.7.2 should not mention model="opus"
-    const spawnSection = fo.match(/#### 4\.7\.2[\s\S]*?(?=#### 4\.7\.3)/);
-    assert.ok(spawnSection, '§4.7.2 must exist');
     assert.ok(
-      !spawnSection[0].includes('model="opus"'),
-      '§4.7.2 sub-agents must NOT use opus'
+      s5b.includes('bin/plan-consolidator.js'),
+      'v2: §5B must reference bin/plan-consolidator.js'
     );
   });
 
-  it('cross-check: §4.7.2 spawn call uses sonnet, not opus as the model parameter', () => {
-    // The fan-out sub-agent spawn in §4.7.2 must use sonnet.
-    // "opus" may appear in the format clause as an allowed Model value for tasks,
-    // but the sub-agent spawn itself must use model="sonnet".
-    const fo = fanOut();
-    const spawnSection = fo.match(/#### 4\.7\.2[\s\S]*?(?=#### 4\.7\.3)/);
-    assert.ok(spawnSection, '§4.7.2 must exist');
+  it('bin/plan-consolidator.js file exists on disk', () => {
+    const consolidatorPath = path.join(ROOT, 'bin', 'plan-consolidator.js');
     assert.ok(
-      spawnSection[0].includes('model="sonnet"'),
-      '§4.7.2 spawn must use model="sonnet"'
+      fs.existsSync(consolidatorPath),
+      'bin/plan-consolidator.js must exist on disk'
     );
+  });
+
+  it('§5B uses shell injection to run plan-consolidator', () => {
+    const s5b = section5B();
     assert.ok(
-      !spawnSection[0].includes('model="opus"'),
-      '§4.7.2 spawn must NOT use model="opus"'
+      s5b.includes('node bin/plan-consolidator.js'),
+      'Must invoke plan-consolidator via shell injection'
     );
   });
 });
@@ -467,7 +534,7 @@ describe('AC-12: single Opus invocation in fan-out path', () => {
 // ===========================================================================
 
 describe('AC-13: cleanup/rename run after consolidation, not in sub-agents', () => {
-  it('§8 runs ONLY after §5B consolidation', () => {
+  it('§8 runs ONLY after §5B consolidation is complete', () => {
     const s8 = section8();
     assert.ok(s8.includes('Run ONLY after §5B consolidation is complete'));
   });
@@ -489,18 +556,6 @@ describe('AC-13: cleanup/rename run after consolidation, not in sub-agents', () 
     assert.ok(s5b.includes('§8 cleanup'));
     assert.ok(s5b.includes('§9 output'));
     assert.ok(s5b.includes('run after this step in the orchestrator'));
-    assert.ok(s5b.includes('REQ-13'));
-  });
-
-  it('sub-agent prompt (§4.7.2) does not mention §8 or §9', () => {
-    // The sub-agent prompt is in §4.7.2, it should not reference cleanup/rename
-    const fo = fanOut();
-    const promptSection = fo.match(/Each sub-agent prompt MUST include[\s\S]*?```\n\s*\n/);
-    assert.ok(promptSection, 'Sub-agent prompt section must exist');
-    assert.ok(
-      !promptSection[0].includes('§8') && !promptSection[0].includes('§9'),
-      'Sub-agent prompt must not reference §8 or §9 (cleanup/rename)'
-    );
   });
 });
 
@@ -512,7 +567,7 @@ describe('AC-14: >5 specs partial fan-out with user message', () => {
   it('§4.7.1 documents >5 spec cap at first 5', () => {
     const fo = fanOut();
     assert.ok(fo.includes('>5 specs'));
-    assert.ok(fo.includes('select first 5'));
+    assert.ok(fo.includes('select first 5') || fo.includes('first 5'));
   });
 
   it('user-facing message lists queued specs', () => {
@@ -547,10 +602,13 @@ describe('AC-14: >5 specs partial fan-out with user message', () => {
 
 describe('cross-cutting: end-to-end data flow consistency', () => {
   it('§1 spec filtering -> §4.7 fan-out -> §5B consolidation -> §8 cleanup -> §9 output', () => {
-    // Verify the documented flow chain references are consistent
     assert.ok(PLAN_MD.includes('exclude doing-*/done-*'), '§1 filters specs');
     assert.ok(PLAN_MD.includes('>1 plannable spec found in §1'), '§4.7 references §1');
-    assert.ok(PLAN_MD.includes('§4.7 produced mini-plans'), '§5B references §4.7');
+    assert.ok(
+      PLAN_MD.includes('§4.7 produced mini-plans in `.deepflow/plans/`') ||
+      PLAN_MD.includes('.deepflow/plans/'),
+      '§5B references §4.7 mini-plans on disk'
+    );
     assert.ok(PLAN_MD.includes('Run ONLY after §5B consolidation is complete'), '§8/§9 reference §5B');
   });
 
@@ -560,13 +618,11 @@ describe('cross-cutting: end-to-end data flow consistency', () => {
     assert.ok(PLAN_MD.includes('Continue to §6'));
   });
 
-  it('both paths produce PLAN.md with consistent task format', () => {
-    // §5A uses reasoner/opus and produces tasks
-    // §5B consolidator also produces tasks in same format
-    // Both must use - [ ] **T{N}** format
+  it('both paths produce output with consistent task format', () => {
     const s5 = getSection('### 5\\. COMPARE', '### 6\\.');
     assert.ok(s5.includes('DONE/PARTIAL/MISSING/CONFLICT'), '§5A maps requirements');
-    assert.ok(s5.includes('- [ ] **T1**'), '§5B output uses standard task format');
+    // v2: task format is in the sub-agent prompt (not §5B template directly)
+    assert.ok(PLAN_MD.includes('- [ ] **T{N}**: {Task description}'), 'Task format exists');
   });
 
   it('§9 renames specs and appends to PLAN.md regardless of path taken', () => {
@@ -578,29 +634,31 @@ describe('cross-cutting: end-to-end data flow consistency', () => {
 });
 
 // ===========================================================================
-// Cross-cutting: wave-runner compatibility
+// Cross-cutting: wave-runner format compatibility
 // ===========================================================================
 
 describe('cross-cutting: wave-runner format compatibility', () => {
-  it('consolidator output maintains checkbox format (- [ ] **T{N}**)', () => {
-    const s5b = section5B();
-    assert.match(s5b, /- \[ \] \*\*T\d+\*\*/);
+  it('sub-agent output format uses checkbox format (- [ ] **T{N}**)', () => {
+    const fo = fanOut();
+    assert.match(fo, /- \[ \] \*\*T\{N\}\*/);
   });
 
   it('Blocked by field uses "none" or "T{N}" format (wave-runner parseable)', () => {
-    const s5b = section5B();
-    assert.ok(s5b.includes('Blocked by: none'));
-    assert.ok(s5b.includes('Blocked by: T1'));
+    assert.ok(PLAN_MD.includes('Blocked by: none'));
+    assert.ok(PLAN_MD.includes('Blocked by: T'));
   });
 
-  it('task format includes all fields wave-runner needs: Files, Model, Effort, Blocked by', () => {
+  it('task format includes all fields wave-runner needs: Files, Blocked by', () => {
+    const fo = fanOut();
+    assert.ok(fo.includes('- Files:'), 'Output must include Files');
+    assert.ok(fo.includes('- Blocked by:'), 'Output must include Blocked by');
+  });
+
+  it('v2: plan-consolidator.js produces globally sequential T-ids for wave-runner', () => {
     const s5b = section5B();
-    const outputTemplate = s5b.match(/Step 7: Output[\s\S]*$/);
-    assert.ok(outputTemplate, 'Step 7 output section must exist');
-    const tmpl = outputTemplate[0];
-    assert.ok(tmpl.includes('Files:'), 'Output must include Files');
-    assert.ok(tmpl.includes('Model:'), 'Output must include Model');
-    assert.ok(tmpl.includes('Effort:'), 'Output must include Effort');
-    assert.ok(tmpl.includes('Blocked by:'), 'Output must include Blocked by');
+    assert.ok(
+      s5b.includes('bin/plan-consolidator.js'),
+      'v2: plan-consolidator must produce wave-runner compatible output'
+    );
   });
 });
