@@ -127,51 +127,69 @@ Count plannable specs (no `doing-`/`done-` prefix, passed `validateSpec`).
   Re-run /df:plan to process remaining specs.
   ```
 
-#### 4.7.2. Spawn Sub-Agents
+#### 4.7.2. Spawn Sub-Agents (Thin Dispatcher)
 
 For each plannable spec (up to 5), spawn a **parallel non-background** `Task(subagent_type="default", model="sonnet")` call. All calls are independent — spawn them simultaneously.
 
-Each sub-agent prompt MUST include:
+**The master orchestrator is a thin dispatcher.** Each sub-agent receives ONLY the spec file path — no pre-computed context, no spec content, no impact analysis, no experiment results.
 
-1. **Layer-gating rules** (from §1.5): The spec's computed layer and which task types are allowed
-2. **Experiment check results** (from §2): Past experiments for this spec's topic — `--passed.md`, `--failed.md`, `--active.md` status and extracted next-hypothesis
-3. **Project context** (from §3): Code style, patterns, integration points detected for this project
-4. **Impact analysis instructions** (from §4, L3 specs only): LSP-first blast radius search for each file in the task's `Files:` list
-5. **Targeted exploration instructions** (from §4.5): Follow `templates/explore-agent.md` spawn rules
-6. **The spec content**: Full text of that spec file
-7. **Format enforcement clause**:
-   ```
-   OUTPUT FORMAT — MANDATORY (no deviations):
-   Return ONLY a markdown task list. Use local T-numbering starting at T1.
-   Each task MUST follow this exact format:
+Each sub-agent prompt:
 
-   ### {spec-name}
+```
+You are a spec planner. Your job is to independently analyze a spec and produce a mini-plan.
 
-   - [ ] **T{N}**: {Task description}
-     - Files: {comma-separated file paths}
-     - Blocked by: none | T{N}[, T{M}...]
+## Spec file
+{spec_file_path}
 
-   Optional fields (add when applicable):
-     - Model: haiku | sonnet | opus
-     - Effort: low | medium | high
-     - Impact: {blast radius details, L3 only}
-     - Optimize: {metric block, for metric ACs only}
+## Instructions
 
-   Rules:
-   - "Blocked by: none" is required (not "N/A", not empty)
-   - T-numbers are local to this spec (T1, T2, T3...)
-   - One task = one atomic commit
-   - Spike tasks use: **T{N}** [SPIKE]: {description}
-   - L0-L1 specs: ONLY spike tasks allowed
-   - L2+ specs: spikes + implementation tasks allowed
-   - L3 specs: include Impact: blocks from impact analysis
-   ```
+1. **Read the spec** — use Read tool on the spec file path above
+2. **Compute spec layer** — determine L0–L3 based on sections present (see layer rules below)
+3. **Check experiments** — glob `.deepflow/experiments/{topic}--*` for past spikes
+4. **Explore the codebase** — detect code style, patterns, integration points relevant to this spec
+5. **Impact analysis** (L3 only) — LSP-first blast radius for files in scope
+6. **Targeted exploration** — follow `templates/explore-agent.md` spawn rules for post-LSP gaps
+7. **Generate tasks** — produce a mini-plan following the output format below
 
-#### 4.7.3. Collect Mini-Plans
+## Layer-gating rules
+| Layer | Sections present | Allowed task types |
+|-------|------------------|--------------------|
+| L0 | Objective | Spikes only |
+| L1 | + Requirements | Spikes only (better targeted) |
+| L2 | + Acceptance Criteria | Spikes + Implementation |
+| L3 | + Constraints, Out of Scope, Technical Notes | Spikes + Implementation + Impact analysis + Optimize |
+
+## OUTPUT FORMAT — MANDATORY (no deviations)
+Return ONLY a markdown task list. Use local T-numbering starting at T1.
+Each task MUST follow this exact format:
+
+### {spec-name}
+
+- [ ] **T{N}**: {Task description}
+  - Files: {comma-separated file paths}
+  - Blocked by: none | T{N}[, T{M}...]
+
+Optional fields (add when applicable):
+  - Model: haiku | sonnet | opus
+  - Effort: low | medium | high
+  - Impact: {blast radius details, L3 only}
+  - Optimize: {metric block, for metric ACs only}
+
+Rules:
+- "Blocked by: none" is required (not "N/A", not empty)
+- T-numbers are local to this spec (T1, T2, T3...)
+- One task = one atomic commit
+- Spike tasks use: **T{N}** [SPIKE]: {description}
+- L0-L1 specs: ONLY spike tasks allowed
+- L2+ specs: spikes + implementation tasks allowed
+- L3 specs: include Impact: blocks from impact analysis
+```
+
+#### 4.7.3. Collect & Persist Mini-Plans
 
 Each sub-agent returns a mini-plan string (markdown). Collect all return values.
 
-**Graceful degradation (AC-11):** For each sub-agent result, check for failure conditions:
+**Graceful degradation (AC-10):** For each sub-agent result, check for failure conditions:
 - Sub-agent threw an error or returned a non-string value → log warning, skip spec
 - Output is empty (whitespace only) → log warning, skip spec
 - Output contains no task items (no `- [ ] **T` pattern) → log warning (unparseable), skip spec
@@ -183,11 +201,12 @@ Warning format:
 
 Continue processing remaining specs regardless of individual failures. Only successfully parsed mini-plans are stored.
 
-- Store results as an array of `{ specName, miniPlan }` objects (successfully parsed only) for consolidation by §5.
-- If ALL sub-agents fail: report error, abort plan generation.
-- If at least 1 succeeds: continue to §5 with successful mini-plans only.
+**Persist to disk (REQ-3):** For each successful mini-plan, write to `.deepflow/plans/doing-{specName}.md`. Create `.deepflow/plans/` directory if it doesn't exist.
 
-**Flow after fan-out:** The collected mini-plans are passed to §5 for consolidation (global renumbering, cross-spec conflict detection, prioritization). §5 handles both the single-spec monolithic path and the multi-spec consolidation path.
+- If ALL sub-agents fail: report error, abort plan generation.
+- If at least 1 succeeds: continue to §5 with successful mini-plans on disk.
+
+**Flow after fan-out:** The consolidator (§5B) reads mini-plans from `.deepflow/plans/` for consolidation (global renumbering, cross-spec conflict detection, prioritization). §5 handles both the single-spec monolithic path and the multi-spec consolidation path.
 
 ### 5. COMPARE & PRIORITIZE
 
@@ -213,9 +232,11 @@ Then apply §5.5 routing matrix. Continue to §6.
 
 #### 5B. MULTI-SPEC CONSOLIDATOR (FAN-OUT PATH)
 
-**When:** >1 plannable spec (§4.7 produced mini-plans).
+**When:** >1 plannable spec (§4.7 produced mini-plans in `.deepflow/plans/`).
 
 **This is the ONLY Opus invocation in the fan-out path** (REQ-12). Sub-agents in §4.7 use Sonnet.
+
+**Input:** Read all mini-plan files from `.deepflow/plans/doing-*.md`. The consolidator must NOT modify these files (REQ-5).
 
 Spawn a single `Task(subagent_type="reasoner", model="opus")` with the following prompt:
 
@@ -225,9 +246,9 @@ Your job is to merge them into a single globally-numbered PLAN.md.
 
 ## Input mini-plans
 
-{for each entry in miniPlans array:}
-### {specName}
-{miniPlan content}
+{for each file in .deepflow/plans/doing-*.md:}
+### {specName from filename}
+{file content}
 {end for}
 
 ## Instructions
@@ -333,8 +354,8 @@ Rules:
 
 **Post-consolidation:**
 - The orchestrator receives the consolidator's output as structured PLAN.md content
-- Mini-plans are ephemeral — they exist only as sub-agent return values, never written to disk (REQ-7)
-- §8 cleanup and §9 output/rename run after this step in the orchestrator (REQ-13)
+- Mini-plans persist in `.deepflow/plans/doing-{name}.md` for reuse by `/df:execute` (REQ-3, REQ-7)
+- §8 cleanup and §9 output/rename run after this step in the orchestrator
 
 ### 5.5. CLASSIFY MODEL + EFFORT PER TASK
 
