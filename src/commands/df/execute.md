@@ -95,7 +95,7 @@ Warn if unplanned `specs/*.md` (excluding doing-/done-) exist (non-blocking).
 
 **Wave computation (shell injection — do NOT compute manually):**
 ```
-WAVE_JSON=!`node bin/wave-runner.js --json --plan PLAN.md 2>/dev/null || echo 'WAVE_ERROR'`
+WAVE_JSON=!`node "${HOME}/.claude/bin/wave-runner.js" --json --plan PLAN.md 2>/dev/null || echo 'WAVE_ERROR'`
 ```
 `WAVE_JSON` is structured JSON (produced by T1's `--json` flag). Parse it to determine the current wave and scheduling decisions:
 ```json
@@ -112,7 +112,7 @@ Use `waves[0].tasks` as the ready set for the current wave. Use `isolation` fiel
 
 **Fallback (text mode):** If `WAVE_JSON` is `WAVE_ERROR` or cannot be parsed as JSON, fall back to text mode:
 ```
-WAVE_PLAN=!`node bin/wave-runner.js --plan PLAN.md 2>/dev/null || echo 'WAVE_ERROR'`
+WAVE_PLAN=!`node "${HOME}/.claude/bin/wave-runner.js" --plan PLAN.md 2>/dev/null || echo 'WAVE_ERROR'`
 ```
 Text output format:
 ```
@@ -165,9 +165,9 @@ Spawn Agent(model="haiku", isolation: "none", run_in_background=false):
 
 ### 5.5. RATCHET CHECK
 
-Run `node bin/ratchet.js` in the worktree directory after each agent completes:
+Run `node "${HOME}/.claude/bin/ratchet.js"` in the worktree directory after each agent completes:
 ```bash
-node bin/ratchet.js --worktree ${WORKTREE_PATH} --snapshot .deepflow/auto-snapshot.txt --task T{N}
+node "${HOME}/.claude/bin/ratchet.js" --worktree ${WORKTREE_PATH} --snapshot .deepflow/auto-snapshot.txt --task T{N}
 ```
 
 The script handles all health checks internally and outputs structured JSON:
@@ -190,11 +190,11 @@ The script handles all health checks internally and outputs structured JSON:
 - **Exit 0 (PASS):** Commit stands. Proceed to §5.6 wave test agent.
 - **Exit 1 (FAIL):** Script already reverted. Set `TaskUpdate(status: "pending")`. Recompute remaining waves:
   ```
-  WAVE_JSON=!`node bin/wave-runner.js --json --plan PLAN.md --recalc --failed T{N} 2>/dev/null || echo 'WAVE_ERROR'`
+  WAVE_JSON=!`node "${HOME}/.claude/bin/wave-runner.js" --json --plan PLAN.md --recalc --failed T{N} 2>/dev/null || echo 'WAVE_ERROR'`
   ```
-  (Fall back to text mode if `--json` is unavailable: `node bin/wave-runner.js --plan PLAN.md --recalc --failed T{N}`)
+  (Fall back to text mode if `--json` is unavailable: `node "${HOME}/.claude/bin/wave-runner.js" --plan PLAN.md --recalc --failed T{N}`)
   Report: `"✗ T{n}: reverted"`.
-- **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="sonnet")` to fix lint/typecheck issues. Re-run `node bin/ratchet.js`. If still non-zero → revert both commits, set status pending.
+- **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="sonnet")` to fix lint/typecheck issues. Re-run `node "${HOME}/.claude/bin/ratchet.js"`. If still non-zero → revert both commits, set status pending.
 
 **Edit scope validation:** `git diff HEAD~1 --name-only` vs allowed globs. Violation → revert, report.
 **Impact completeness:** diff vs Impact callers/duplicates. Gap → advisory warning (no revert).

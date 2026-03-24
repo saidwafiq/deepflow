@@ -134,6 +134,17 @@ async function main() {
   );
   log('Agents installed');
 
+  // Copy bin utilities (plan-consolidator, wave-runner, ratchet)
+  const binDest = path.join(CLAUDE_DIR, 'bin');
+  fs.mkdirSync(binDest, { recursive: true });
+  for (const script of ['plan-consolidator.js', 'wave-runner.js', 'ratchet.js']) {
+    const src = path.join(PACKAGE_DIR, 'bin', script);
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(binDest, script));
+    }
+  }
+  log('Bin utilities installed');
+
   // Copy hooks (global only - statusline requires global settings)
   if (level === 'global') {
     const hooksDir = path.join(PACKAGE_DIR, 'hooks');
@@ -186,6 +197,7 @@ async function main() {
   console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:auto, /df:update');
   console.log('  skills/          — gap-discovery, atomic-commits, code-completeness, browse-fetch, browse-verify, auto-cycle');
   console.log('  agents/          — reasoner (/df:auto — autonomous execution via /loop)');
+  console.log('  bin/             — plan-consolidator, wave-runner, ratchet');
   if (level === 'global') {
     console.log('  hooks/           — statusline, update checker, invariant checker, worktree guard');
   }
@@ -592,7 +604,10 @@ async function uninstall() {
     'skills/gap-discovery',
     'skills/browse-fetch',
     'skills/browse-verify',
-    'agents/reasoner.md'
+    'agents/reasoner.md',
+    'bin/plan-consolidator.js',
+    'bin/wave-runner.js',
+    'bin/ratchet.js'
   ];
 
   if (level === 'global') {
