@@ -60,7 +60,7 @@ export async function parseCacheHistory(db: DbHelpers, claudeDir: string): Promi
   for (const [sessionId, data] of enrichmentMap) {
     try {
       db.run(
-        `UPDATE sessions SET cache_hit_ratio = ?, agent_role = ?, model = ? WHERE id = ?`,
+        `UPDATE sessions SET cache_hit_ratio = ?, agent_role = COALESCE(?, agent_role), model = COALESCE(NULLIF(?, 'unknown'), model) WHERE id = ?`,
         [data.cache_hit_ratio, data.agent_role, data.model, sessionId]
       );
       updated++;
