@@ -244,7 +244,7 @@ Then apply §5.5 routing matrix. Continue to §6.
 
 Shell-inject the consolidator output:
 
-`` !`node bin/plan-consolidator.js --plans-dir .deepflow/plans/ 2>/dev/null` ``
+`` !`node bin/plan-consolidator.js --plans-dir .deepflow/plans/ 2>/dev/null || true` ``
 
 This produces the `## Tasks` section with:
 - Globally sequential T-ids (no gaps, no duplicates) — AC-4

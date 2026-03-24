@@ -268,8 +268,7 @@ function main() {
   const plansDir = path.resolve(process.cwd(), args.plansDir);
 
   if (!fs.existsSync(plansDir)) {
-    process.stderr.write(`plan-consolidator: plans directory not found: ${plansDir}\n`);
-    process.exit(1);
+    process.exit(0);
   }
 
   // Collect mini-plan files: doing-{name}.md, sorted alphabetically for determinism
