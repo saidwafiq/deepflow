@@ -4,12 +4,14 @@
  * Parses PLAN.md, resolves dependency DAG, outputs tasks grouped by execution wave.
  *
  * Usage:
- *   node bin/wave-runner.js [--plan <path>] [--recalc --failed T{N}[,T{N}...]]
+ *   node bin/wave-runner.js [--plan <path>] [--recalc --failed T{N}[,T{N}...]] [--json]
  *
  * Output (plain text):
  *   Wave 1: T1 — description, T4 — description
  *   Wave 2: T2 — description
  *   ...
+ *
+ * Output (--json): JSON array of task objects with wave number included.
  *
  * Exit codes: 0=success, 1=parse error
  */
@@ -24,7 +26,7 @@ const path = require('path');
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const args = { plan: 'PLAN.md', recalc: false, failed: [] };
+  const args = { plan: 'PLAN.md', recalc: false, failed: [], json: false };
   let i = 2;
   while (i < argv.length) {
     const arg = argv[i];
@@ -36,6 +38,8 @@ function parseArgs(argv) {
       // Accept comma-separated: --failed T3,T5 or space-separated: --failed T3 --failed T5
       const raw = argv[++i];
       args.failed.push(...raw.split(',').map(s => s.trim()).filter(Boolean));
+    } else if (arg === '--json') {
+      args.json = true;
     }
     i++;
   }
@@ -48,23 +52,35 @@ function parseArgs(argv) {
 
 /**
  * Extract pending tasks from PLAN.md text.
- * Returns array of { id, description, blockedBy: string[] }
+ * Returns array of { id, description, blockedBy: string[], model, files, effort, spec }
  *
  * Recognises lines like:
  *   - [ ] **T5**: Some description
  *   - [ ] **T5** [TAG]: Some description
  *
- * And subsequent annotation lines:
+ * And subsequent annotation lines (order-independent):
  *   - Blocked by: T3, T7
- *   - Blocked by: T3
+ *   - Model: sonnet
+ *   - Files: path/to/file.js, other/file.ts
+ *   - Effort: high
+ *
+ * Spec name is extracted from the nearest preceding `### {spec-name}` header.
  */
 function parsePlan(text) {
   const lines = text.split('\n');
   const tasks = [];
   let current = null;
+  let currentSpec = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    // Track ### section headers as spec names
+    const specMatch = line.match(/^###\s+(.+)/);
+    if (specMatch) {
+      currentSpec = specMatch[1].trim();
+      continue;
+    }
 
     // Match pending task header: - [ ] **T{N}**...
     const taskMatch = line.match(/^\s*-\s+\[\s+\]\s+\*\*T(\d+)\*\*(?:\s+\[[^\]]*\])?[:\s]*(.*)/);
@@ -74,6 +90,10 @@ function parsePlan(text) {
         num: parseInt(taskMatch[1], 10),
         description: taskMatch[2].trim(),
         blockedBy: [],
+        model: null,
+        files: null,
+        effort: null,
+        spec: currentSpec,
       };
       tasks.push(current);
       continue;
@@ -86,8 +106,8 @@ function parsePlan(text) {
       continue;
     }
 
-    // Match "Blocked by:" annotation under current pending task
     if (current) {
+      // Match "Blocked by:" annotation
       const blockedMatch = line.match(/^\s+-\s+Blocked\s+by:\s+(.+)/i);
       if (blockedMatch) {
         const deps = blockedMatch[1]
@@ -95,6 +115,28 @@ function parsePlan(text) {
           .map(s => s.trim())
           .filter(s => /^T\d+$/.test(s));
         current.blockedBy.push(...deps);
+        continue;
+      }
+
+      // Match "Model:" annotation
+      const modelMatch = line.match(/^\s+-\s+Model:\s+(.+)/i);
+      if (modelMatch) {
+        current.model = modelMatch[1].trim();
+        continue;
+      }
+
+      // Match "Files:" annotation
+      const filesMatch = line.match(/^\s+-\s+Files:\s+(.+)/i);
+      if (filesMatch) {
+        current.files = filesMatch[1].trim();
+        continue;
+      }
+
+      // Match "Effort:" annotation
+      const effortMatch = line.match(/^\s+-\s+Effort:\s+(.+)/i);
+      if (effortMatch) {
+        current.effort = effortMatch[1].trim();
+        continue;
       }
     }
   }
@@ -196,8 +238,32 @@ function buildWaves(tasks, stuckIds) {
 }
 
 // ---------------------------------------------------------------------------
-// Output formatter
+// Output formatters
 // ---------------------------------------------------------------------------
+
+/**
+ * Format waves as a JSON array of task objects, each with a `wave` field.
+ * Fields: id, description, model, files, effort, blockedBy, spec, wave
+ */
+function formatWavesJson(waves) {
+  const result = [];
+  for (let i = 0; i < waves.length; i++) {
+    const waveNum = i + 1;
+    for (const t of waves[i]) {
+      result.push({
+        id: t.id,
+        description: t.description || null,
+        model: t.model || null,
+        files: t.files || null,
+        effort: t.effort || null,
+        blockedBy: t.blockedBy,
+        spec: t.spec || null,
+        wave: waveNum,
+      });
+    }
+  }
+  return JSON.stringify(result, null, 2);
+}
 
 function formatWaves(waves) {
   if (waves.length === 0) {
@@ -250,7 +316,7 @@ function main() {
   const stuckIds = new Set(args.recalc ? args.failed : []);
 
   const waves = buildWaves(tasks, stuckIds);
-  const output = formatWaves(waves);
+  const output = args.json ? formatWavesJson(waves) : formatWaves(waves);
 
   process.stdout.write(output + '\n');
   process.exit(0);

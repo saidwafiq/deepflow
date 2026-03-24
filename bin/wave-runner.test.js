@@ -49,14 +49,14 @@ const extractedFns = (() => {
 
   const wrapped = `
     ${modifiedSrc}
-    return { parseArgs, parsePlan, buildWaves, formatWaves };
+    return { parseArgs, parsePlan, buildWaves, formatWaves, formatWavesJson };
   `;
 
   const factory = new Function('require', 'process', '__dirname', '__filename', 'module', 'exports', wrapped);
   return factory(require, process, __dirname, __filename, module, exports);
 })();
 
-const { parseArgs, parsePlan, buildWaves, formatWaves } = extractedFns;
+const { parseArgs, parsePlan, buildWaves, formatWaves, formatWavesJson } = extractedFns;
 
 // ---------------------------------------------------------------------------
 // CLI runner helper
@@ -549,6 +549,533 @@ describe('CLI — wave-runner.js subprocess', () => {
       const { code, stdout } = runWaveRunner([], { cwd: tmpDir });
       assert.equal(code, 0);
       assert.ok(stdout.includes('(no pending tasks)'));
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. parseArgs — --json flag
+// ---------------------------------------------------------------------------
+
+describe('parseArgs — --json flag', () => {
+  test('--json defaults to false', () => {
+    const args = parseArgs(['node', 'wave-runner.js']);
+    assert.equal(args.json, false);
+  });
+
+  test('--json flag enables JSON mode', () => {
+    const args = parseArgs(['node', 'wave-runner.js', '--json']);
+    assert.equal(args.json, true);
+  });
+
+  test('--json combined with other flags', () => {
+    const args = parseArgs(['node', 'wave-runner.js', '--recalc', '--failed', 'T1', '--json']);
+    assert.equal(args.json, true);
+    assert.equal(args.recalc, true);
+    assert.deepEqual(args.failed, ['T1']);
+  });
+
+  test('--json before other flags', () => {
+    const args = parseArgs(['node', 'wave-runner.js', '--json', '--plan', 'custom.md']);
+    assert.equal(args.json, true);
+    assert.equal(args.plan, 'custom.md');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. parsePlan — metadata annotations (model, files, effort, spec)
+// ---------------------------------------------------------------------------
+
+describe('parsePlan — metadata annotations', () => {
+  test('extracts Model annotation', () => {
+    const text = `
+- [ ] **T1**: Build parser
+  - Model: opus
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].model, 'opus');
+  });
+
+  test('extracts Files annotation', () => {
+    const text = `
+- [ ] **T1**: Build parser
+  - Files: src/parser.js, src/util.js
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].files, 'src/parser.js, src/util.js');
+  });
+
+  test('extracts Effort annotation', () => {
+    const text = `
+- [ ] **T1**: Build parser
+  - Effort: high
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].effort, 'high');
+  });
+
+  test('extracts spec name from ### header', () => {
+    const text = `
+### my-feature
+- [ ] **T1**: Build parser
+- [ ] **T2**: Wire CLI
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].spec, 'my-feature');
+    assert.equal(tasks[1].spec, 'my-feature');
+  });
+
+  test('spec changes when a new ### header appears', () => {
+    const text = `
+### feature-a
+- [ ] **T1**: Task in feature-a
+
+### feature-b
+- [ ] **T2**: Task in feature-b
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].spec, 'feature-a');
+    assert.equal(tasks[1].spec, 'feature-b');
+  });
+
+  test('spec is null when no ### header precedes a task', () => {
+    const text = `
+- [ ] **T1**: No spec header above
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].spec, null);
+  });
+
+  test('metadata defaults to null when annotations are absent', () => {
+    const text = `
+- [ ] **T1**: Bare task
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].model, null);
+    assert.equal(tasks[0].files, null);
+    assert.equal(tasks[0].effort, null);
+    assert.equal(tasks[0].spec, null);
+  });
+
+  test('all annotations on one task', () => {
+    const text = `
+### my-spec
+- [ ] **T1**: Full task
+  - Blocked by: T0
+  - Model: sonnet
+  - Files: a.js, b.js
+  - Effort: low
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks.length, 1);
+    assert.deepEqual(tasks[0].blockedBy, ['T0']);
+    assert.equal(tasks[0].model, 'sonnet');
+    assert.equal(tasks[0].files, 'a.js, b.js');
+    assert.equal(tasks[0].effort, 'low');
+    assert.equal(tasks[0].spec, 'my-spec');
+  });
+
+  test('annotations are case-insensitive', () => {
+    const text = `
+- [ ] **T1**: Test case
+  - model: OPUS
+  - files: x.ts
+  - effort: Medium
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].model, 'OPUS');
+    assert.equal(tasks[0].files, 'x.ts');
+    assert.equal(tasks[0].effort, 'Medium');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. formatWavesJson — JSON output formatting
+// ---------------------------------------------------------------------------
+
+describe('formatWavesJson — JSON output formatting', () => {
+  test('returns valid JSON array', () => {
+    const waves = [
+      [{ id: 'T1', description: 'Build parser', model: 'opus', files: 'a.js', effort: 'high', blockedBy: [], spec: 'my-spec' }],
+    ];
+    const output = formatWavesJson(waves);
+    const parsed = JSON.parse(output);
+    assert.ok(Array.isArray(parsed));
+  });
+
+  test('includes wave number for each task', () => {
+    const waves = [
+      [{ id: 'T1', description: 'First', model: null, files: null, effort: null, blockedBy: [], spec: null }],
+      [{ id: 'T2', description: 'Second', model: null, files: null, effort: null, blockedBy: ['T1'], spec: null }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    assert.equal(parsed[0].wave, 1);
+    assert.equal(parsed[1].wave, 2);
+  });
+
+  test('preserves all metadata fields', () => {
+    const waves = [
+      [{ id: 'T1', description: 'Do stuff', model: 'opus', files: 'src/a.js', effort: 'high', blockedBy: ['T0'], spec: 'my-spec' }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    const t = parsed[0];
+    assert.equal(t.id, 'T1');
+    assert.equal(t.description, 'Do stuff');
+    assert.equal(t.model, 'opus');
+    assert.equal(t.files, 'src/a.js');
+    assert.equal(t.effort, 'high');
+    assert.deepEqual(t.blockedBy, ['T0']);
+    assert.equal(t.spec, 'my-spec');
+    assert.equal(t.wave, 1);
+  });
+
+  test('null fields for missing metadata', () => {
+    const waves = [
+      [{ id: 'T1', description: '', model: null, files: null, effort: null, blockedBy: [], spec: null }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    const t = parsed[0];
+    assert.equal(t.description, null); // empty string becomes null
+    assert.equal(t.model, null);
+    assert.equal(t.files, null);
+    assert.equal(t.effort, null);
+    assert.equal(t.spec, null);
+  });
+
+  test('multiple tasks across multiple waves', () => {
+    const waves = [
+      [
+        { id: 'T1', description: 'A', model: null, files: null, effort: null, blockedBy: [], spec: null },
+        { id: 'T2', description: 'B', model: null, files: null, effort: null, blockedBy: [], spec: null },
+      ],
+      [
+        { id: 'T3', description: 'C', model: null, files: null, effort: null, blockedBy: ['T1'], spec: null },
+      ],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    assert.equal(parsed.length, 3);
+    assert.equal(parsed[0].wave, 1);
+    assert.equal(parsed[1].wave, 1);
+    assert.equal(parsed[2].wave, 2);
+  });
+
+  test('empty waves returns empty JSON array', () => {
+    const parsed = JSON.parse(formatWavesJson([]));
+    assert.deepEqual(parsed, []);
+  });
+
+  test('output is pretty-printed with 2-space indent', () => {
+    const waves = [
+      [{ id: 'T1', description: 'X', model: null, files: null, effort: null, blockedBy: [], spec: null }],
+    ];
+    const output = formatWavesJson(waves);
+    // Pretty-printed JSON starts with [\n  {
+    assert.ok(output.startsWith('[\n  {'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 11. formatWavesJson — additional edge cases
+// ---------------------------------------------------------------------------
+
+describe('formatWavesJson — edge cases and field completeness', () => {
+  test('output contains exactly the required 8 fields per task', () => {
+    const waves = [
+      [{ id: 'T1', description: 'Desc', model: 'opus', files: 'a.js', effort: 'low', blockedBy: ['T0'], spec: 'my-spec' }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    const keys = Object.keys(parsed[0]).sort();
+    assert.deepEqual(keys, ['blockedBy', 'description', 'effort', 'files', 'id', 'model', 'spec', 'wave']);
+  });
+
+  test('empty string description is coerced to null', () => {
+    const waves = [
+      [{ id: 'T1', description: '', model: null, files: null, effort: null, blockedBy: [], spec: null }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    assert.equal(parsed[0].description, null);
+  });
+
+  test('non-empty string fields pass through as-is (only empty string and null become null)', () => {
+    // formatWavesJson uses `t.X || null` — only falsy values (null, undefined, '') become null
+    // Non-empty strings like 'haiku' are preserved
+    const waves = [
+      [{ id: 'T5', description: 'desc', model: 'haiku', files: 'src/x.js', effort: 'low', blockedBy: [], spec: 'my-spec' }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    assert.equal(parsed[0].model, 'haiku');
+    assert.equal(parsed[0].files, 'src/x.js');
+    assert.equal(parsed[0].effort, 'low');
+    assert.equal(parsed[0].spec, 'my-spec');
+  });
+
+  test('blockedBy array is preserved intact', () => {
+    const waves = [
+      [{ id: 'T4', description: 'D', model: null, files: null, effort: null, blockedBy: ['T1', 'T2', 'T3'], spec: null }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    assert.deepEqual(parsed[0].blockedBy, ['T1', 'T2', 'T3']);
+  });
+
+  test('wave numbers are 1-indexed and sequential', () => {
+    const waves = [
+      [{ id: 'T1', description: 'A', model: null, files: null, effort: null, blockedBy: [], spec: null }],
+      [{ id: 'T2', description: 'B', model: null, files: null, effort: null, blockedBy: [], spec: null }],
+      [{ id: 'T3', description: 'C', model: null, files: null, effort: null, blockedBy: [], spec: null }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    assert.equal(parsed[0].wave, 1);
+    assert.equal(parsed[1].wave, 2);
+    assert.equal(parsed[2].wave, 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. parsePlan — doing-{name} spec header extraction
+// ---------------------------------------------------------------------------
+
+describe('parsePlan — doing-{name} spec header extraction', () => {
+  test('extracts spec from ### doing-{name} header verbatim', () => {
+    const text = `
+### doing-plan-fanout-v2
+- [ ] **T1**: First task
+- [ ] **T2**: Second task
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].spec, 'doing-plan-fanout-v2');
+    assert.equal(tasks[1].spec, 'doing-plan-fanout-v2');
+  });
+
+  test('extracts spec from ### done-{name} header', () => {
+    const text = `
+### done-my-feature
+- [ ] **T1**: Leftover task
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].spec, 'done-my-feature');
+  });
+
+  test('spec switches from doing- to another spec mid-file', () => {
+    const text = `
+### doing-spec-a
+- [ ] **T1**: In spec-a
+
+### doing-spec-b
+- [ ] **T2**: In spec-b
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].spec, 'doing-spec-a');
+    assert.equal(tasks[1].spec, 'doing-spec-b');
+  });
+
+  test('spec header with extra whitespace is trimmed', () => {
+    const text = `
+###   my-spec-with-spaces
+- [ ] **T1**: Task
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].spec, 'my-spec-with-spaces');
+  });
+
+  test('mixed pending and completed tasks under same spec header', () => {
+    const text = `
+### doing-mixed
+- [x] **T1**: Done
+- [ ] **T2**: Pending
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].id, 'T2');
+    assert.equal(tasks[0].spec, 'doing-mixed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 13. parsePlan — metadata not leaked across task boundaries
+// ---------------------------------------------------------------------------
+
+describe('parsePlan — metadata isolation across task boundaries', () => {
+  test('model annotation not leaked to subsequent task', () => {
+    const text = `
+- [ ] **T1**: First
+  - Model: opus
+- [ ] **T2**: Second
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].model, 'opus');
+    assert.equal(tasks[1].model, null);
+  });
+
+  test('files annotation not leaked to subsequent task', () => {
+    const text = `
+- [ ] **T1**: First
+  - Files: a.js
+- [ ] **T2**: Second
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].files, 'a.js');
+    assert.equal(tasks[1].files, null);
+  });
+
+  test('effort annotation not leaked to subsequent task', () => {
+    const text = `
+- [ ] **T1**: First
+  - Effort: high
+- [ ] **T2**: Second
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].effort, 'high');
+    assert.equal(tasks[1].effort, null);
+  });
+
+  test('completed task between two pending tasks resets annotation context', () => {
+    const text = `
+- [ ] **T1**: Pending
+  - Model: opus
+- [x] **T2**: Completed with model
+  - Model: sonnet
+- [ ] **T3**: Next pending
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks.length, 2);
+    assert.equal(tasks[0].id, 'T1');
+    assert.equal(tasks[0].model, 'opus');
+    assert.equal(tasks[1].id, 'T3');
+    assert.equal(tasks[1].model, null);
+  });
+
+  test('annotations in non-standard order are all captured', () => {
+    const text = `
+- [ ] **T1**: Task
+  - Effort: medium
+  - Blocked by: T0
+  - Files: x.js
+  - Model: haiku
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].effort, 'medium');
+    assert.deepEqual(tasks[0].blockedBy, ['T0']);
+    assert.equal(tasks[0].files, 'x.js');
+    assert.equal(tasks[0].model, 'haiku');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 15. CLI — --json subprocess tests
+// ---------------------------------------------------------------------------
+
+describe('CLI — --json flag subprocess', () => {
+  test('--json outputs valid JSON array', () => {
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, 'PLAN.md'),
+        '- [ ] **T1**: First task\n- [ ] **T2**: Second task\n  - Blocked by: T1\n'
+      );
+      const { code, stdout } = runWaveRunner(['--json'], { cwd: tmpDir });
+      assert.equal(code, 0);
+      const parsed = JSON.parse(stdout);
+      assert.ok(Array.isArray(parsed));
+      assert.equal(parsed.length, 2);
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+
+  test('--json includes wave numbers', () => {
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, 'PLAN.md'),
+        '- [ ] **T1**: First\n- [ ] **T2**: Second\n  - Blocked by: T1\n'
+      );
+      const { code, stdout } = runWaveRunner(['--json'], { cwd: tmpDir });
+      assert.equal(code, 0);
+      const parsed = JSON.parse(stdout);
+      assert.equal(parsed[0].id, 'T1');
+      assert.equal(parsed[0].wave, 1);
+      assert.equal(parsed[1].id, 'T2');
+      assert.equal(parsed[1].wave, 2);
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+
+  test('--json includes metadata annotations', () => {
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, 'PLAN.md'),
+        '### my-spec\n- [ ] **T1**: Task with metadata\n  - Model: opus\n  - Files: src/a.js\n  - Effort: high\n'
+      );
+      const { code, stdout } = runWaveRunner(['--json'], { cwd: tmpDir });
+      assert.equal(code, 0);
+      const parsed = JSON.parse(stdout);
+      assert.equal(parsed[0].model, 'opus');
+      assert.equal(parsed[0].files, 'src/a.js');
+      assert.equal(parsed[0].effort, 'high');
+      assert.equal(parsed[0].spec, 'my-spec');
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+
+  test('--json with --recalc --failed excludes stuck tasks', () => {
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, 'PLAN.md'),
+        '- [ ] **T1**: Base\n- [ ] **T2**: Depends\n  - Blocked by: T1\n- [ ] **T3**: Independent\n'
+      );
+      const { code, stdout } = runWaveRunner(['--json', '--recalc', '--failed', 'T1'], { cwd: tmpDir });
+      assert.equal(code, 0);
+      const parsed = JSON.parse(stdout);
+      assert.equal(parsed.length, 1);
+      assert.equal(parsed[0].id, 'T3');
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+
+  test('--json with no pending tasks returns empty array', () => {
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, 'PLAN.md'),
+        '- [x] **T1**: Done\n- [x] **T2**: Also done\n'
+      );
+      const { code, stdout } = runWaveRunner(['--json'], { cwd: tmpDir });
+      assert.equal(code, 0);
+      const parsed = JSON.parse(stdout);
+      assert.deepEqual(parsed, []);
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+
+  test('--json still exits 1 when PLAN.md not found', () => {
+    const tmpDir = makeTmpDir();
+    try {
+      const { code } = runWaveRunner(['--json'], { cwd: tmpDir });
+      assert.equal(code, 1);
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+
+  test('without --json flag, output is plain text (not JSON)', () => {
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, 'PLAN.md'),
+        '- [ ] **T1**: Task\n'
+      );
+      const { code, stdout } = runWaveRunner([], { cwd: tmpDir });
+      assert.equal(code, 0);
+      assert.ok(stdout.includes('Wave 1:'));
+      assert.throws(() => JSON.parse(stdout));
     } finally {
       rmrf(tmpDir);
     }
