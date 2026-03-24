@@ -10,7 +10,7 @@ description: Execute tasks from PLAN.md with agent spawning, ratchet health chec
 You are a coordinator. Spawn agents, run ratchet checks, update PLAN.md. Never implement code yourself.
 
 **NEVER:** Read source files, edit code, use TaskOutput, use EnterPlanMode, use ExitPlanMode
-**ONLY:** Read PLAN.md, read specs/doing-*.md, spawn background agents, run ratchet health checks, update PLAN.md, write `.deepflow/decisions.md`
+**ONLY:** Read PLAN.md, read specs/doing-*.md, read `.deepflow/plans/doing-*.md` for task detail, spawn background agents, run ratchet health checks, update PLAN.md, write `.deepflow/decisions.md`
 
 ## Core Loop (Notification-Driven)
 
@@ -79,6 +79,12 @@ If `SNAPSHOT_COUNT` is `0` (zero test files found), MUST spawn bootstrap agent b
 
 Load PLAN.md (required), specs/doing-*.md, .deepflow/config.yaml. Missing → "No PLAN.md found. Run /df:plan first."
 
+**Per-task detail files** (shell injection — load once after PLAN.md):
+```
+PLAN_TASK_FILES=!`ls .deepflow/plans/doing-*.md 2>/dev/null | tr '\n' ' ' || echo 'NOT_FOUND'`
+```
+When `PLAN_TASK_FILES` is not `NOT_FOUND`, each file `.deepflow/plans/doing-{task_id}.md` contains the full task detail block (Steps, ACs, Impact) for that task. Load a task's detail file on demand when building its agent prompt (§6), falling back to the PLAN.md inline block if the file is absent.
+
 ### 2.5. REGISTER NATIVE TASKS
 
 For each `[ ]` task: `TaskCreate(subject: "{task_id}: {description}", activeForm: "{gerund}", description: full block)`. Store task_id → native ID. Set deps via `TaskUpdate(addBlockedBy: [...])`. `--continue` → only remaining `[ ]` items.
@@ -89,17 +95,34 @@ Warn if unplanned `specs/*.md` (excluding doing-/done-) exist (non-blocking).
 
 **Wave computation (shell injection — do NOT compute manually):**
 ```
+WAVE_JSON=!`node bin/wave-runner.js --json --plan PLAN.md 2>/dev/null || echo 'WAVE_ERROR'`
+```
+`WAVE_JSON` is structured JSON (produced by T1's `--json` flag). Parse it to determine the current wave and scheduling decisions:
+```json
+{
+  "waves": [
+    {"wave": 1, "tasks": [{"id": "T1", "description": "...", "files": ["..."], "isolation": "worktree"}, ...]},
+    {"wave": 2, "tasks": [...]}
+  ],
+  "blocked": [{"id": "T3", "blockedBy": ["T2"]}],
+  "done": ["T0"]
+}
+```
+Use `waves[0].tasks` as the ready set for the current wave. Use `isolation` field from each task entry (if present) to determine `isolation:` mode when spawning agents. Use `blocked` to identify tasks not yet ready.
+
+**Fallback (text mode):** If `WAVE_JSON` is `WAVE_ERROR` or cannot be parsed as JSON, fall back to text mode:
+```
 WAVE_PLAN=!`node bin/wave-runner.js --plan PLAN.md 2>/dev/null || echo 'WAVE_ERROR'`
 ```
-Parse the output to determine the current wave. Output format:
+Text output format:
 ```
 Wave 1: T1 — description, T4 — description
 Wave 2: T2 — description
 ...
 ```
-If output is `WAVE_ERROR` or `(no pending tasks)`, fall back to TaskList where status: "pending" AND blockedBy: empty for wave 1.
+In text fallback: if output is `WAVE_ERROR` or `(no pending tasks)`, fall back to TaskList where status: "pending" AND blockedBy: empty for wave 1.
 
-Ready = tasks listed in Wave 1 of the wave-runner output (cross-referenced with TaskList status: "pending").
+Ready = tasks listed in Wave 1 (cross-referenced with TaskList status: "pending").
 
 ### 5. SPAWN AGENTS
 
@@ -167,8 +190,9 @@ The script handles all health checks internally and outputs structured JSON:
 - **Exit 0 (PASS):** Commit stands. Proceed to §5.6 wave test agent.
 - **Exit 1 (FAIL):** Script already reverted. Set `TaskUpdate(status: "pending")`. Recompute remaining waves:
   ```
-  WAVE_PLAN=!`node bin/wave-runner.js --plan PLAN.md --recalc --failed T{N} 2>/dev/null || echo 'WAVE_ERROR'`
+  WAVE_JSON=!`node bin/wave-runner.js --json --plan PLAN.md --recalc --failed T{N} 2>/dev/null || echo 'WAVE_ERROR'`
   ```
+  (Fall back to text mode if `--json` is unavailable: `node bin/wave-runner.js --plan PLAN.md --recalc --failed T{N}`)
   Report: `"✗ T{n}: reverted"`.
 - **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="haiku")` to fix lint/typecheck issues. Re-run `node bin/ratchet.js`. If still non-zero → revert both commits, set status pending.
 
@@ -329,6 +353,12 @@ REPEAT:
 
 **Common preamble (all):** `Working directory: {worktree_absolute_path}. All file ops use this path. Commit format: {type}({spec}): {desc}`
 
+**Task detail loading (before building agent prompt):** Check for `.deepflow/plans/doing-{task_id}.md` (shell injection):
+```
+TASK_DETAIL=!`cat .deepflow/plans/doing-{task_id}.md 2>/dev/null || echo 'NOT_FOUND'`
+```
+If `TASK_DETAIL` is not `NOT_FOUND`, use it as the full Middle section (Steps, ACs, Impact) in the agent prompt, overriding the inline PLAN.md block. If `NOT_FOUND`, fall back to the inline PLAN.md task block.
+
 **Standard Task** (`Agent(model="{Model}", ...)`):
 ```
 --- START ---
@@ -343,6 +373,7 @@ spike_results:
 }
 Success criteria: {ACs from spec relevant to this task}
 --- MIDDLE (omit for low effort; omit deps for medium) ---
+{TASK_DETAIL if available, else inline block:}
 Impact: Callers: {file} ({why}) | Duplicates: [active→consolidate] [dead→DELETE] | Data flow: {consumers}
 Prior tasks: {dep_id}: {summary}
 Steps: 1. chub search/get for APIs 2. LSP findReferences, add unlisted callers 3. Read all Impact files 4. Implement 5. Commit
