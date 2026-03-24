@@ -143,7 +143,7 @@ describe('df-subagent-registry — valid SubagentStop event', () => {
     assert.equal(entries[1].session_id, 'sess-2');
   });
 
-  test('entry only contains session_id, agent_type, agent_id, and timestamp', () => {
+  test('entry only contains session_id, agent_type, agent_id, model, and timestamp', () => {
     const event = {
       session_id: 'sess-fields',
       agent_type: 'qa',
@@ -158,7 +158,7 @@ describe('df-subagent-registry — valid SubagentStop event', () => {
     const entries = readRegistry(tmpHome);
     assert.equal(entries.length, 1);
     const keys = Object.keys(entries[0]).sort();
-    assert.deepEqual(keys, ['agent_id', 'agent_type', 'session_id', 'timestamp']);
+    assert.deepEqual(keys, ['agent_id', 'agent_type', 'model', 'session_id', 'timestamp']);
   });
 });
 
@@ -285,7 +285,114 @@ describe('df-subagent-registry — invalid JSON stdin', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. Edge cases
+// 5. Model mapping from agent_type
+// ---------------------------------------------------------------------------
+
+describe('df-subagent-registry — model mapping from agent_type', () => {
+  let tmpHome;
+
+  beforeEach(() => {
+    tmpHome = makeTmpDir();
+    fs.mkdirSync(path.join(tmpHome, '.claude'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmrf(tmpHome);
+  });
+
+  test('agent_type "reasoner" maps to claude-opus-4-6', () => {
+    const event = { session_id: 's1', agent_type: 'reasoner', agent_id: 'a1' };
+    runHook(event, { home: tmpHome });
+
+    const entries = readRegistry(tmpHome);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].model, 'claude-opus-4-6');
+  });
+
+  test('agent_type "Explore" maps to claude-haiku-4-5', () => {
+    const event = { session_id: 's1', agent_type: 'Explore', agent_id: 'a1' };
+    runHook(event, { home: tmpHome });
+
+    const entries = readRegistry(tmpHome);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].model, 'claude-haiku-4-5');
+  });
+
+  test('unknown agent_type defaults to claude-sonnet-4-6', () => {
+    const event = { session_id: 's1', agent_type: 'worker', agent_id: 'a1' };
+    runHook(event, { home: tmpHome });
+
+    const entries = readRegistry(tmpHome);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].model, 'claude-sonnet-4-6');
+  });
+
+  test('mapping is case-sensitive — "Reasoner" is not "reasoner"', () => {
+    const event = { session_id: 's1', agent_type: 'Reasoner', agent_id: 'a1' };
+    runHook(event, { home: tmpHome });
+
+    const entries = readRegistry(tmpHome);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].model, 'claude-sonnet-4-6',
+      '"Reasoner" (capital R) should not match "reasoner" — should get default');
+  });
+
+  test('mapping is case-sensitive — "explore" is not "Explore"', () => {
+    const event = { session_id: 's1', agent_type: 'explore', agent_id: 'a1' };
+    runHook(event, { home: tmpHome });
+
+    const entries = readRegistry(tmpHome);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].model, 'claude-sonnet-4-6',
+      '"explore" (lowercase) should not match "Explore" — should get default');
+  });
+
+  test('undefined agent_type gets default model', () => {
+    const event = { session_id: 's1', agent_id: 'a1' };
+    runHook(event, { home: tmpHome });
+
+    const entries = readRegistry(tmpHome);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].model, 'claude-sonnet-4-6');
+  });
+
+  test('empty string agent_type gets default model', () => {
+    const event = { session_id: 's1', agent_type: '', agent_id: 'a1' };
+    runHook(event, { home: tmpHome });
+
+    const entries = readRegistry(tmpHome);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].model, 'claude-sonnet-4-6');
+  });
+
+  test('model field is present in entry alongside other fields', () => {
+    const event = { session_id: 's1', agent_type: 'reasoner', agent_id: 'a1' };
+    runHook(event, { home: tmpHome });
+
+    const entries = readRegistry(tmpHome);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].session_id, 's1');
+    assert.equal(entries[0].agent_type, 'reasoner');
+    assert.equal(entries[0].agent_id, 'a1');
+    assert.equal(entries[0].model, 'claude-opus-4-6');
+    assert.ok(entries[0].timestamp);
+  });
+
+  test('each entry gets its own model based on its agent_type', () => {
+    runHook({ session_id: 's1', agent_type: 'reasoner', agent_id: 'a1' }, { home: tmpHome });
+    runHook({ session_id: 's2', agent_type: 'Explore', agent_id: 'a2' }, { home: tmpHome });
+    runHook({ session_id: 's3', agent_type: 'custom', agent_id: 'a3' }, { home: tmpHome });
+
+    const entries = readRegistry(tmpHome);
+    assert.equal(entries.length, 3);
+    assert.equal(entries[0].model, 'claude-opus-4-6');
+    assert.equal(entries[1].model, 'claude-haiku-4-5');
+    assert.equal(entries[2].model, 'claude-sonnet-4-6');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Edge cases
 // ---------------------------------------------------------------------------
 
 describe('df-subagent-registry — edge cases', () => {
