@@ -65,9 +65,10 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
   // Load pricing once for cost computation
   const pricing = await fetchPricing();
 
-  // Load subagent registry: Map<session_id, Set<agent_type>>
+  // Load subagent registry: Map<session_id, Set<agent_type>> and Map<session_id, model>
   const registryPath = resolve(claudeDir, 'subagent-sessions.jsonl');
   const registryMap = new Map<string, Set<string>>();
+  const registryModelMap = new Map<string, string>();
   if (existsSync(registryPath)) {
     try {
       const registryLines = readFileSync(registryPath, 'utf-8').split('\n');
@@ -78,9 +79,14 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
           const entry = JSON.parse(trimmed) as Record<string, unknown>;
           const sid = entry.session_id as string | undefined;
           const atype = entry.agent_type as string | undefined;
+          const entryModel = entry.model as string | undefined;
           if (sid && atype) {
             if (!registryMap.has(sid)) registryMap.set(sid, new Set());
             registryMap.get(sid)!.add(atype);
+          }
+          // Store registry model; last non-empty entry wins (entries are appended chronologically)
+          if (sid && entryModel && entryModel !== 'unknown') {
+            registryModelMap.set(sid, entryModel);
           }
         } catch {
           console.warn('[ingest:sessions] Skipping malformed registry line:', trimmed);
@@ -194,6 +200,12 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
           cacheCreation += usage.cache_creation_tokens ?? usage.cache_creation_input_tokens ?? 0;
 
         }
+      }
+
+      // AC-7 (REQ-4): If event stream did not yield a model, fall back to registry model
+      if (model === 'unknown') {
+        const registryModel = registryModelMap.get(sessionId);
+        if (registryModel) model = registryModel;
       }
 
       // Clamp accumulated token values to non-negative before cost computation and DB writes
