@@ -777,7 +777,193 @@ describe('formatWavesJson — JSON output formatting', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 11. CLI — --json subprocess tests
+// 11. formatWavesJson — additional edge cases
+// ---------------------------------------------------------------------------
+
+describe('formatWavesJson — edge cases and field completeness', () => {
+  test('output contains exactly the required 8 fields per task', () => {
+    const waves = [
+      [{ id: 'T1', description: 'Desc', model: 'opus', files: 'a.js', effort: 'low', blockedBy: ['T0'], spec: 'my-spec' }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    const keys = Object.keys(parsed[0]).sort();
+    assert.deepEqual(keys, ['blockedBy', 'description', 'effort', 'files', 'id', 'model', 'spec', 'wave']);
+  });
+
+  test('empty string description is coerced to null', () => {
+    const waves = [
+      [{ id: 'T1', description: '', model: null, files: null, effort: null, blockedBy: [], spec: null }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    assert.equal(parsed[0].description, null);
+  });
+
+  test('non-empty string fields pass through as-is (only empty string and null become null)', () => {
+    // formatWavesJson uses `t.X || null` — only falsy values (null, undefined, '') become null
+    // Non-empty strings like 'haiku' are preserved
+    const waves = [
+      [{ id: 'T5', description: 'desc', model: 'haiku', files: 'src/x.js', effort: 'low', blockedBy: [], spec: 'my-spec' }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    assert.equal(parsed[0].model, 'haiku');
+    assert.equal(parsed[0].files, 'src/x.js');
+    assert.equal(parsed[0].effort, 'low');
+    assert.equal(parsed[0].spec, 'my-spec');
+  });
+
+  test('blockedBy array is preserved intact', () => {
+    const waves = [
+      [{ id: 'T4', description: 'D', model: null, files: null, effort: null, blockedBy: ['T1', 'T2', 'T3'], spec: null }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    assert.deepEqual(parsed[0].blockedBy, ['T1', 'T2', 'T3']);
+  });
+
+  test('wave numbers are 1-indexed and sequential', () => {
+    const waves = [
+      [{ id: 'T1', description: 'A', model: null, files: null, effort: null, blockedBy: [], spec: null }],
+      [{ id: 'T2', description: 'B', model: null, files: null, effort: null, blockedBy: [], spec: null }],
+      [{ id: 'T3', description: 'C', model: null, files: null, effort: null, blockedBy: [], spec: null }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    assert.equal(parsed[0].wave, 1);
+    assert.equal(parsed[1].wave, 2);
+    assert.equal(parsed[2].wave, 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. parsePlan — doing-{name} spec header extraction
+// ---------------------------------------------------------------------------
+
+describe('parsePlan — doing-{name} spec header extraction', () => {
+  test('extracts spec from ### doing-{name} header verbatim', () => {
+    const text = `
+### doing-plan-fanout-v2
+- [ ] **T1**: First task
+- [ ] **T2**: Second task
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].spec, 'doing-plan-fanout-v2');
+    assert.equal(tasks[1].spec, 'doing-plan-fanout-v2');
+  });
+
+  test('extracts spec from ### done-{name} header', () => {
+    const text = `
+### done-my-feature
+- [ ] **T1**: Leftover task
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].spec, 'done-my-feature');
+  });
+
+  test('spec switches from doing- to another spec mid-file', () => {
+    const text = `
+### doing-spec-a
+- [ ] **T1**: In spec-a
+
+### doing-spec-b
+- [ ] **T2**: In spec-b
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].spec, 'doing-spec-a');
+    assert.equal(tasks[1].spec, 'doing-spec-b');
+  });
+
+  test('spec header with extra whitespace is trimmed', () => {
+    const text = `
+###   my-spec-with-spaces
+- [ ] **T1**: Task
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].spec, 'my-spec-with-spaces');
+  });
+
+  test('mixed pending and completed tasks under same spec header', () => {
+    const text = `
+### doing-mixed
+- [x] **T1**: Done
+- [ ] **T2**: Pending
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].id, 'T2');
+    assert.equal(tasks[0].spec, 'doing-mixed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 13. parsePlan — metadata not leaked across task boundaries
+// ---------------------------------------------------------------------------
+
+describe('parsePlan — metadata isolation across task boundaries', () => {
+  test('model annotation not leaked to subsequent task', () => {
+    const text = `
+- [ ] **T1**: First
+  - Model: opus
+- [ ] **T2**: Second
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].model, 'opus');
+    assert.equal(tasks[1].model, null);
+  });
+
+  test('files annotation not leaked to subsequent task', () => {
+    const text = `
+- [ ] **T1**: First
+  - Files: a.js
+- [ ] **T2**: Second
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].files, 'a.js');
+    assert.equal(tasks[1].files, null);
+  });
+
+  test('effort annotation not leaked to subsequent task', () => {
+    const text = `
+- [ ] **T1**: First
+  - Effort: high
+- [ ] **T2**: Second
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].effort, 'high');
+    assert.equal(tasks[1].effort, null);
+  });
+
+  test('completed task between two pending tasks resets annotation context', () => {
+    const text = `
+- [ ] **T1**: Pending
+  - Model: opus
+- [x] **T2**: Completed with model
+  - Model: sonnet
+- [ ] **T3**: Next pending
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks.length, 2);
+    assert.equal(tasks[0].id, 'T1');
+    assert.equal(tasks[0].model, 'opus');
+    assert.equal(tasks[1].id, 'T3');
+    assert.equal(tasks[1].model, null);
+  });
+
+  test('annotations in non-standard order are all captured', () => {
+    const text = `
+- [ ] **T1**: Task
+  - Effort: medium
+  - Blocked by: T0
+  - Files: x.js
+  - Model: haiku
+    `;
+    const tasks = parsePlan(text);
+    assert.equal(tasks[0].effort, 'medium');
+    assert.deepEqual(tasks[0].blockedBy, ['T0']);
+    assert.equal(tasks[0].files, 'x.js');
+    assert.equal(tasks[0].model, 'haiku');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 15. CLI — --json subprocess tests
 // ---------------------------------------------------------------------------
 
 describe('CLI — --json flag subprocess', () => {
