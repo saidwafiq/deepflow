@@ -580,4 +580,303 @@ describe('CLI integration', () => {
       rmrf(tmpDir);
     }
   });
+
+  test('derives spec name correctly from hyphenated filename', () => {
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(path.join(tmpDir, 'doing-my-feature-name.md'), `- [ ] **T1**: Some task\n`);
+      const result = runConsolidator(['--plans-dir', tmpDir]);
+      assert.equal(result.code, 0);
+      assert.ok(result.stdout.includes('### my-feature-name'), 'spec name should preserve hyphens');
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+
+  test('handles mini-plan with mixed completed and pending tasks', () => {
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(path.join(tmpDir, 'doing-mixed.md'), `## Tasks
+
+- [x] **T1**: Already done
+  - Files: src/done.js
+- [ ] **T2**: Still pending
+  - Files: src/pending.js
+  - Blocked by: T1
+- [x] **T3**: Also done
+- [ ] **T4**: Last pending
+  - Blocked by: T2
+`);
+      const result = runConsolidator(['--plans-dir', tmpDir]);
+      assert.equal(result.code, 0);
+      // Only pending tasks included; T2 and T4 renumbered to T1 and T2
+      assert.ok(result.stdout.includes('**T1**: Still pending'), 'T2 becomes global T1');
+      assert.ok(result.stdout.includes('**T2**: Last pending'), 'T4 becomes global T2');
+      assert.ok(!result.stdout.includes('Already done'), 'completed tasks excluded');
+      assert.ok(!result.stdout.includes('Also done'), 'completed tasks excluded');
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+
+  test('blocked-by remapping skips completed task ids correctly', () => {
+    // T4 is blocked by T2 in the local plan; T1 and T3 are completed.
+    // After parsing, only T2→globalT1, T4→globalT2 remain. T4's dep on T2 → globalT1.
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(path.join(tmpDir, 'doing-partial.md'), `## Tasks
+
+- [x] **T1**: Completed first
+- [ ] **T2**: Pending second
+- [x] **T3**: Completed third
+- [ ] **T4**: Pending fourth
+  - Blocked by: T2
+`);
+      const result = runConsolidator(['--plans-dir', tmpDir]);
+      assert.equal(result.code, 0);
+      assert.ok(result.stdout.includes('**T1**: Pending second'));
+      assert.ok(result.stdout.includes('**T2**: Pending fourth'));
+      assert.ok(result.stdout.includes('Blocked by: T1'), 'T4 dep on T2 remapped to global T1');
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. parseMiniPlan — additional edge cases
+// ---------------------------------------------------------------------------
+
+describe('parseMiniPlan — edge cases', () => {
+  test('parses task with large T-number (T100)', () => {
+    const text = '- [ ] **T100**: Big numbered task\n';
+    const tasks = parseMiniPlan(text);
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].localId, 'T100');
+    assert.equal(tasks[0].num, 100);
+    assert.equal(tasks[0].description, 'Big numbered task');
+  });
+
+  test('parses task with both tags and files+blocked-by annotations', () => {
+    const text = `- [ ] **T1** [spike]: Explore caching
+  - Files: src/cache.js, src/utils.js
+  - Blocked by: T0
+`;
+    const tasks = parseMiniPlan(text);
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].tags, '[spike]');
+    assert.equal(tasks[0].description, 'Explore caching');
+    assert.deepEqual(tasks[0].files, ['src/cache.js', 'src/utils.js']);
+    assert.deepEqual(tasks[0].blockedBy, ['T0']);
+  });
+
+  test('File: singular form is also parsed', () => {
+    const text = `- [ ] **T1**: Single file task
+  - File: src/only.js
+`;
+    const tasks = parseMiniPlan(text);
+    assert.equal(tasks.length, 1);
+    assert.deepEqual(tasks[0].files, ['src/only.js']);
+  });
+
+  test('ignores whitespace-only file entries in files list', () => {
+    // If someone writes "Files: src/a.js,  , src/b.js" — empty segments filtered out
+    const text = `- [ ] **T1**: Task
+  - Files: src/a.js,  , src/b.js
+`;
+    const tasks = parseMiniPlan(text);
+    assert.equal(tasks.length, 1);
+    // filter(Boolean) removes empty strings after trim
+    assert.ok(!tasks[0].files.includes(''), 'no empty string in files');
+    assert.ok(tasks[0].files.includes('src/a.js'));
+    assert.ok(tasks[0].files.includes('src/b.js'));
+  });
+
+  test('multiple pending tasks with non-contiguous numbers', () => {
+    // Mini-plan might have T1, T3, T5 if someone manually edited it
+    const text = `- [ ] **T1**: First
+- [ ] **T3**: Third (T2 was removed)
+- [ ] **T5**: Fifth
+`;
+    const tasks = parseMiniPlan(text);
+    assert.equal(tasks.length, 3);
+    assert.equal(tasks[0].localId, 'T1');
+    assert.equal(tasks[1].localId, 'T3');
+    assert.equal(tasks[2].localId, 'T5');
+  });
+
+  test('malformed blocked-by line with no valid T-refs is parsed as empty', () => {
+    const text = `- [ ] **T1**: Task
+  - Blocked by: none
+`;
+    const tasks = parseMiniPlan(text);
+    assert.equal(tasks.length, 1);
+    // "none" does not match /^T\d+$/ so blockedBy stays empty
+    assert.deepEqual(tasks[0].blockedBy, []);
+  });
+
+  test('case-insensitive blocked by', () => {
+    const text = `- [ ] **T1**: A
+- [ ] **T2**: B
+  - blocked by: T1
+`;
+    const tasks = parseMiniPlan(text);
+    assert.deepEqual(tasks[1].blockedBy, ['T1']);
+  });
+
+  test('case-insensitive completed task marker [X]', () => {
+    const text = `- [X] **T1**: Done uppercase X
+- [ ] **T2**: Pending
+`;
+    const tasks = parseMiniPlan(text);
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].localId, 'T2');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. consolidate — additional edge cases
+// ---------------------------------------------------------------------------
+
+describe('consolidate — additional edge cases', () => {
+  test('renumbers large task set with correct global offset', () => {
+    // First spec has T1..T10, second spec has T1..T5
+    const firstSpec = {
+      specName: 'big',
+      tasks: Array.from({ length: 10 }, (_, i) => ({
+        localId: `T${i + 1}`, num: i + 1,
+        description: `Task ${i + 1}`, tags: '', blockedBy: [], files: [],
+      })),
+    };
+    const secondSpec = {
+      specName: 'small',
+      tasks: Array.from({ length: 5 }, (_, i) => ({
+        localId: `T${i + 1}`, num: i + 1,
+        description: `Small ${i + 1}`, tags: '', blockedBy: [], files: [],
+      })),
+    };
+    const result = consolidate([firstSpec, secondSpec], new Map());
+    assert.equal(result.length, 15);
+    assert.equal(result[9].globalId, 'T10');  // last of first spec
+    assert.equal(result[10].globalId, 'T11'); // first of second spec
+    assert.equal(result[14].globalId, 'T15'); // last of second spec
+  });
+
+  test('task with multiple files where only some conflict gets all conflict annotations', () => {
+    const specEntries = [
+      {
+        specName: 'alpha',
+        tasks: [{
+          localId: 'T1', num: 1, description: 'Mixed files', tags: '',
+          blockedBy: [], files: ['shared.js', 'mine-only.js', 'also-shared.js'],
+        }],
+      },
+    ];
+    const fileConflicts = new Map([
+      ['shared.js', ['alpha', 'beta']],
+      ['also-shared.js', ['alpha', 'gamma']],
+    ]);
+    const result = consolidate(specEntries, fileConflicts);
+    assert.equal(result[0].conflictAnnotations.length, 2);
+    assert.ok(result[0].conflictAnnotations.includes('[file-conflict: shared.js]'));
+    assert.ok(result[0].conflictAnnotations.includes('[file-conflict: also-shared.js]'));
+  });
+
+  test('chain-only: blocked-by ref to a non-local T-id is dropped silently', () => {
+    // T2 tries to block on T5 which doesn't exist in this spec
+    const specEntries = [
+      {
+        specName: 'solo',
+        tasks: [
+          { localId: 'T1', num: 1, description: 'A', tags: '', blockedBy: [], files: [] },
+          { localId: 'T2', num: 2, description: 'B', tags: '', blockedBy: ['T1', 'T5'], files: [] },
+        ],
+      },
+    ];
+    const result = consolidate(specEntries, new Map());
+    // T5 doesn't exist in this spec — should be silently dropped
+    assert.deepEqual(result[1].blockedBy, ['T1']);
+  });
+
+  test('spec with all completed tasks contributes nothing to consolidated output', () => {
+    // parseMiniPlan skips completed tasks; simulate a spec that had all tasks done
+    const specEntries = [
+      { specName: 'done-spec', tasks: [] },
+      {
+        specName: 'active-spec',
+        tasks: [{ localId: 'T1', num: 1, description: 'Active', tags: '', blockedBy: [], files: [] }],
+      },
+    ];
+    const result = consolidate(specEntries, new Map());
+    assert.equal(result.length, 1);
+    assert.equal(result[0].globalId, 'T1');
+    assert.equal(result[0].specName, 'active-spec');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. formatConsolidated — additional edge cases
+// ---------------------------------------------------------------------------
+
+describe('formatConsolidated — additional edge cases', () => {
+  test('task with both tags and conflict annotations renders correctly', () => {
+    const tasks = [
+      {
+        globalId: 'T1', specName: 'x', description: 'Risky spike',
+        tags: '[spike]', blockedBy: [], files: ['shared.js'],
+        conflictAnnotations: ['[file-conflict: shared.js]'],
+      },
+    ];
+    const output = formatConsolidated(tasks);
+    assert.ok(output.includes('**T1** [spike]: Risky spike [file-conflict: shared.js]'));
+  });
+
+  test('task with no description but has conflict annotation', () => {
+    const tasks = [
+      {
+        globalId: 'T1', specName: 'x', description: '',
+        tags: '', blockedBy: [], files: ['shared.js'],
+        conflictAnnotations: ['[file-conflict: shared.js]'],
+      },
+    ];
+    const output = formatConsolidated(tasks);
+    // descPart = ('' + ' [file-conflict: shared.js]').trim() = '[file-conflict: shared.js]'
+    assert.ok(output.includes(': [file-conflict: shared.js]'));
+  });
+
+  test('multiple specs produce separate section headings each time spec changes', () => {
+    const tasks = [
+      { globalId: 'T1', specName: 'alpha', description: 'A1', tags: '', blockedBy: [], files: [], conflictAnnotations: [] },
+      { globalId: 'T2', specName: 'beta', description: 'B1', tags: '', blockedBy: [], files: [], conflictAnnotations: [] },
+      { globalId: 'T3', specName: 'alpha', description: 'A2', tags: '', blockedBy: [], files: [], conflictAnnotations: [] },
+    ];
+    const output = formatConsolidated(tasks);
+    // alpha appears twice (tasks interleaved) — two ### alpha headings
+    const headingMatches = output.match(/### alpha/g);
+    assert.equal(headingMatches.length, 2, 'alpha heading appears twice when tasks interleave');
+  });
+
+  test('multiple files are joined with comma-space in output', () => {
+    const tasks = [
+      {
+        globalId: 'T1', specName: 'x', description: 'Multi-file',
+        tags: '', blockedBy: [], files: ['a.js', 'b.js', 'c.js'],
+        conflictAnnotations: [],
+      },
+    ];
+    const output = formatConsolidated(tasks);
+    assert.ok(output.includes('Files: a.js, b.js, c.js'));
+  });
+
+  test('multiple blocked-by refs are joined with comma-space', () => {
+    const tasks = [
+      {
+        globalId: 'T3', specName: 'x', description: 'Multi-dep',
+        tags: '', blockedBy: ['T1', 'T2'], files: [],
+        conflictAnnotations: [],
+      },
+    ];
+    const output = formatConsolidated(tasks);
+    assert.ok(output.includes('Blocked by: T1, T2'));
+  });
 });
