@@ -236,52 +236,51 @@ Then apply §5.5 routing matrix. Continue to §6.
 
 **This is the ONLY Opus invocation in the fan-out path** (REQ-12). Sub-agents in §4.7 use Sonnet.
 
-**Input:** Read all mini-plan files from `.deepflow/plans/doing-*.md`. The consolidator must NOT modify these files (REQ-5).
+**Input:** Mini-plan files in `.deepflow/plans/doing-*.md`. The consolidator must NOT modify these files (REQ-5).
 
-Spawn a single `Task(subagent_type="reasoner", model="opus")` with the following prompt:
+**Architecture:** Mechanical work (T-id renumbering, file-conflict detection) is delegated to `bin/plan-consolidator.js`. Opus handles ONLY cross-spec prioritization and summary narrative.
+
+##### Step 1: Run plan-consolidator (mechanical — no LLM)
+
+Shell-inject the consolidator output:
+
+`` !`node bin/plan-consolidator.js --plans-dir .deepflow/plans/ 2>/dev/null` ``
+
+This produces the `## Tasks` section with:
+- Globally sequential T-ids (no gaps, no duplicates) — AC-4
+- Remapped `Blocked by` references (local → global)
+- `[file-conflict: {filename}]` annotations on cross-spec file overlaps
+- Mini-plan files left byte-identical (read-only) — AC-5
+
+If the consolidator output is empty or contains `(no mini-plan files found` → abort, report error.
+
+##### Step 2: Opus prioritization & summary (single invocation)
+
+Spawn a single `Task(subagent_type="reasoner", model="opus")` with the consolidated tasks from Step 1:
 
 ```
-You are the plan consolidator. You receive mini-plans from multiple spec-planning agents.
-Your job is to merge them into a single globally-numbered PLAN.md.
+You are the plan prioritizer. The mechanical consolidation (global T-numbering, file-conflict detection) is already done. Do NOT renumber tasks or modify T-ids.
 
-## Input mini-plans
+## Consolidated tasks (from plan-consolidator)
 
-{for each file in .deepflow/plans/doing-*.md:}
-### {specName from filename}
-{file content}
-{end for}
+{paste consolidator stdout here}
 
-## Instructions
+## Spec files
 
-### Step 1: Spec Priority Ordering
-Sort specs for global numbering. Use this priority:
-1. Specs with no cross-spec file overlaps first (independent work)
-2. Specs with overlaps ordered by dependency direction (depended-on first)
-3. Alphabetical as tiebreaker
+{for each plannable spec: spec filename and its Requirements + Acceptance Criteria sections}
 
-### Step 2: Global T-Number Assignment
-Assign sequential global T-numbers (T1, T2, ..., TN) with NO gaps and NO duplicates.
-- Process specs in priority order from Step 1
-- Within each spec, preserve the local task ordering
-- Translate all intra-spec `Blocked by: T{local}` references to global T-IDs
+## Your job — THREE things only
 
-### Step 3: Cross-Spec File Conflict Detection
-Build a map: `file → [global task IDs]`.
-For each file appearing in >1 task across different specs:
-- Add `Blocked by` from the later task → the earlier task
-- Append `[file-conflict: {filename}]` annotation to the Blocked by line
-- Skip if a dependency already exists (direct or transitive)
-- Chain only: T5→T3, not T5→T1+T3 (block on nearest earlier task for that file)
+### 1. Cross-Spec Prioritization
+Review the task ordering across specs. If a different spec ordering would reduce blocked tasks or improve parallelism, suggest reordering. Otherwise confirm the current ordering is optimal.
 
-### Step 4: Requirement Mapping
+If reordering is needed, output the recommended spec order. The orchestrator will reorder the mini-plan files in `.deepflow/plans/` (alphabetical prefix rename) and re-run the consolidator.
+
+### 2. Requirement Mapping & Spec Gaps
 For each spec, map requirements to DONE/PARTIAL/MISSING/CONFLICT. Flag spec gaps.
+Scan ACs for metric patterns `{metric} {operator} {number}[unit]` — flag matches for §6.5 Optimize tasks, flag ambiguous thresholds ("fast", "small") as spec gaps.
 
-### Step 5: Metric AC Detection
-Scan ACs for pattern `{metric} {operator} {number}[unit]`.
-- Match → flag as metric AC (for §6.5 Optimize task generation)
-- Ambiguous ("fast", "small") → flag as spec gap
-
-### Step 6: Model + Effort Classification
+### 3. Model + Effort Classification
 Apply routing matrix to each task:
 
 | Task type | Model | Effort |
@@ -303,8 +302,7 @@ Apply routing matrix to each task:
 
 Defaults: sonnet / medium.
 
-### Step 7: Output
-Return the consolidated plan in this exact format:
+## OUTPUT FORMAT — MANDATORY
 
 ## Summary
 
@@ -321,39 +319,18 @@ Return the consolidated plan in this exact format:
 
 ## Tasks
 
-### doing-{spec-name-1}
-
-- [ ] **T1**: {Task description}
-  - Files: {files}
-  - Model: {model}
-  - Effort: {effort}
-  - Blocked by: none
-
-- [ ] **T2**: {Task description}
-  - Files: {files}
-  - Model: {model}
-  - Effort: {effort}
-  - Blocked by: T1
-
-### doing-{spec-name-2}
-
-- [ ] **T3**: {Task description}
-  - Files: {files}
-  - Model: {model}
-  - Effort: {effort}
-  - Blocked by: none
+{Insert the consolidated tasks from plan-consolidator verbatim, adding ONLY `Model:` and `Effort:` lines to each task. Do NOT alter T-ids, descriptions, Files, Blocked by, or conflict annotations.}
 
 Rules:
-- T-numbers MUST be globally sequential (T1...TN), no gaps, no duplicates
-- Group tasks under `### doing-{spec-name}` headers
-- Preserve all optional fields from mini-plans (Impact:, Optimize:, etc.)
-- [file-conflict: {filename}] annotations are REQUIRED for cross-spec file overlaps
-- "Blocked by: none" is required (not "N/A", not empty)
+- Do NOT renumber T-ids — they are already globally sequential from plan-consolidator
+- Do NOT modify Blocked by lines or conflict annotations — they are mechanical outputs
+- ONLY add Model: and Effort: lines per the routing matrix
+- Preserve all existing fields (Impact:, Optimize:, tags, etc.)
 - Spike tasks keep their [SPIKE] or [OPTIMIZE] markers
 ```
 
 **Post-consolidation:**
-- The orchestrator receives the consolidator's output as structured PLAN.md content
+- The orchestrator receives the Opus output as structured PLAN.md content
 - Mini-plans persist in `.deepflow/plans/doing-{name}.md` for reuse by `/df:execute` (REQ-3, REQ-7)
 - §8 cleanup and §9 output/rename run after this step in the orchestrator
 
