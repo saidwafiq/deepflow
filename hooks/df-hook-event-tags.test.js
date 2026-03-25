@@ -56,6 +56,7 @@ const EXPECTED_TAGS = {
   'df-snapshot-guard.js': 'PostToolUse',
   'df-invariant-check.js': 'PostToolUse',
   'df-subagent-registry.js': 'SubagentStop',
+  'df-explore-protocol.js': 'PreToolUse',
   'df-statusline.js': 'statusLine',
 };
 
