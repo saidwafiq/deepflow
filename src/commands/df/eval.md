@@ -11,8 +11,9 @@ Run a benchmark suite against a skill/command, or scaffold a new benchmark direc
 ## Usage
 
 ```
-/df:eval --scaffold benchmarks/<name>/   # Create benchmark directory structure
-/df:eval benchmarks/<name>/              # Run benchmark suite (wired in T9)
+/df:eval --scaffold benchmarks/<name>/                        # Create benchmark directory structure
+/df:eval benchmarks/<name>/                                   # Run benchmark suite (reads hypotheses.md)
+/df:eval benchmarks/<name>/ --hypothesis "reduce token use"   # Override hypothesis explicitly
 ```
 
 ## Subcommands
@@ -73,20 +74,40 @@ cp -r "$TEMPLATE/" "$TARGET"
 echo "Created benchmark scaffold at $TARGET"
 ```
 
+### `--hypothesis <text>`
+
+Overrides the mutation hypothesis for the eval session. Without this flag the
+loop reads `{benchDir}/hypotheses.md` and uses the first list item it finds.
+
+**Hypothesis resolution order:**
+
+1. `--hypothesis "<text>"` flag value — used as-is.
+2. `{benchDir}/hypotheses.md` first list item (ordered or unordered markdown list).
+3. Error if neither source is available.
+
+**Module:** `src/eval/hypothesis.js` — `loadHypothesis({ flag, benchDir })`
+
 ---
 
-## Main Eval Loop (T9 — not yet implemented)
+## Main Eval Loop (T9 — implemented)
 
-Running `/df:eval benchmarks/<name>/` without `--scaffold` will:
+Running `/df:eval benchmarks/<name>/` without `--scaffold` runs the Karpathy loop:
 
 1. Load `benchmarks/<name>/config.yaml` — skill under test, thresholds, iteration count
-2. Load `benchmarks/<name>/spec.md` — acceptance criteria to measure against
-3. Run the skill N times against `benchmarks/<name>/fixture/`
-4. Score each run against the ACs
-5. Aggregate pass rate, latency, token cost
-6. Report results with pass/fail verdict against configured thresholds
+2. Resolve hypothesis via `--hypothesis` flag or `benchmarks/<name>/hypotheses.md` (first list item)
+3. Create a worktree-isolated branch for the session (`eval/<skill>/<timestamp>`)
+4. **Loop** (until Ctrl+C or `--loop N`):
+   a. Mutate skill file via agent prompt built from current content + history
+   b. Commit experiment (`status:pending`)
+   c. Run guard check (build + test commands from config)
+      - Guard fail → `git revert`, log `status:guard_fail`, next iteration
+   d. Collect metrics from `.deepflow/` JSONL files
+   e. Compare target metric against baseline
+      - Improved → log `status:kept`, update baseline
+      - Regression → `git revert`, log `status:reverted`
+   f. Record secondary metrics in commit message (never influence keep/revert)
 
-**Placeholder — implementation pending T9.**
+**Implementation:** `src/eval/loop.js` (`runEvalLoop`), `src/eval/hypothesis.js` (`loadHypothesis`)
 
 ## Rules
 
