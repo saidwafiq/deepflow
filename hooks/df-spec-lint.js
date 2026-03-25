@@ -12,6 +12,45 @@
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * Parse YAML frontmatter from the top of a markdown file.
+ * Detects an opening `---` on line 1 and a closing `---` on a subsequent line.
+ * Supports simple `key: value` pairs only (no full YAML parsing needed).
+ *
+ * @param {string} content - Raw file content.
+ * @returns {{ frontmatter: Object, body: string }}
+ */
+function parseFrontmatter(content) {
+  const lines = content.split('\n');
+  if (lines[0].trim() !== '---') {
+    return { frontmatter: {}, body: content };
+  }
+
+  let closingIndex = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === '---') {
+      closingIndex = i;
+      break;
+    }
+  }
+
+  if (closingIndex === -1) {
+    // No closing marker — treat entire file as body, no frontmatter
+    return { frontmatter: {}, body: content };
+  }
+
+  const frontmatter = {};
+  for (let i = 1; i < closingIndex; i++) {
+    const m = lines[i].match(/^([^:]+):\s*(.*)$/);
+    if (m) {
+      frontmatter[m[1].trim()] = m[2].trim();
+    }
+  }
+
+  const body = lines.slice(closingIndex + 1).join('\n');
+  return { frontmatter, body };
+}
+
 // Each entry: [canonical name, ...aliases that also satisfy the requirement]
 const REQUIRED_SECTIONS = [
   ['Objective', 'overview', 'goal', 'goals', 'summary'],
@@ -89,6 +128,24 @@ function computeLayer(content) {
 function validateSpec(content, { mode = 'interactive', specsDir = null } = {}) {
   const hard = [];
   const advisory = [];
+
+  // ── Frontmatter: parse and validate derives-from ─────────────────────
+  const { frontmatter } = parseFrontmatter(content);
+  if (frontmatter['derives-from'] !== undefined) {
+    const ref = frontmatter['derives-from'];
+    if (specsDir) {
+      // Probe candidate filenames: exact, done- prefix, and plain name
+      const candidates = [
+        `${ref}.md`,
+        `done-${ref}.md`,
+        `${ref}`,
+      ];
+      const exists = candidates.some((f) => fs.existsSync(path.join(specsDir, f)));
+      if (!exists) {
+        advisory.push(`derives-from references unknown spec: "${ref}" (not found in specs dir)`);
+      }
+    }
+  }
 
   const layer = computeLayer(content);
 
@@ -307,4 +364,4 @@ if (require.main === module) {
   process.exit(result.hard.length > 0 ? 1 : 0);
 }
 
-module.exports = { validateSpec, extractSection, computeLayer };
+module.exports = { validateSpec, extractSection, computeLayer, parseFrontmatter };
