@@ -376,7 +376,7 @@ Success criteria: {ACs from spec relevant to this task}
 {TASK_DETAIL if available, else inline block:}
 Impact: Callers: {file} ({why}) | Duplicates: [active→consolidate] [dead→DELETE] | Data flow: {consumers}
 Prior tasks: {dep_id}: {summary}
-Steps: 1. chub search/get for APIs 2. LSP findReferences, add unlisted callers 3. Read all Impact files 4. Implement 5. Commit
+Steps: 1. chub search/get for APIs 2. LSP findReferences, add unlisted callers 3. LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files) 4. Implement 5. Commit
 --- END ---
 Duplicates: [active]→consolidate [dead]→DELETE. ONLY job: code+commit. No merge/rename/checkout.
 Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed) or TASK_STATUS:revert (if reverted)

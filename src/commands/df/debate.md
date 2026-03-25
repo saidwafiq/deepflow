@@ -30,7 +30,7 @@ Coordinate reasoner agents to debate a problem from multiple perspectives, then 
 Summarize conversation context in ~200 words: core problem, requirements, constraints, user priorities. Passed to each perspective agent.
 
 ### 2. GATHER CODEBASE CONTEXT
-Glob/Grep/Read relevant files (up to 5-6, focus on core logic). Produce ~300 word codebase summary: what exists, key interfaces, current limitations, dependencies. Passed to every agent.
+Prefer LSP documentSymbol to understand file structure, then Read with offset/limit on relevant ranges only (never read full files). Glob/Grep to locate files (up to 5-6, focus on core logic). Produce ~300 word codebase summary: what exists, key interfaces, current limitations, dependencies. Passed to every agent.
 
 ### 3. SPAWN PERSPECTIVES
 
