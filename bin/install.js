@@ -306,10 +306,10 @@ async function configureHooks(claudeDir) {
     settings.hooks.SessionStart = [];
   }
 
-  // Remove any existing deepflow update check / quota logger hooks from SessionStart
+  // Remove any existing deepflow update check / quota logger / command usage hooks from SessionStart
   settings.hooks.SessionStart = settings.hooks.SessionStart.filter(hook => {
     const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-check-update') && !cmd.includes('df-quota-logger');
+    return !cmd.includes('df-check-update') && !cmd.includes('df-quota-logger') && !cmd.includes('df-command-usage');
   });
 
   // Add update check hook
@@ -325,6 +325,14 @@ async function configureHooks(claudeDir) {
     hooks: [{
       type: 'command',
       command: quotaLoggerCmd
+    }]
+  });
+
+  // Add command usage tracker to SessionStart (closes orphaned markers on /clear and /compact)
+  settings.hooks.SessionStart.push({
+    hooks: [{
+      type: 'command',
+      command: commandUsageCmd
     }]
   });
   log('SessionStart hook configured');
@@ -677,7 +685,7 @@ async function uninstall() {
         if (settings.hooks?.SessionStart) {
           settings.hooks.SessionStart = settings.hooks.SessionStart.filter(hook => {
             const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-check-update') && !cmd.includes('df-quota-logger');
+            return !cmd.includes('df-check-update') && !cmd.includes('df-quota-logger') && !cmd.includes('df-command-usage');
           });
           if (settings.hooks.SessionStart.length === 0) {
             delete settings.hooks.SessionStart;

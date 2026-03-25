@@ -6,6 +6,7 @@
  * Events:
  *   PreToolUse  — detect Skill calls matching df:*, close previous command, open new marker
  *   PostToolUse — increment tool_calls_count on the active marker
+ *   SessionStart — close orphaned marker on /clear or /compact (context reset)
  *   SessionEnd  — close any open marker so the last command gets a record
  *
  * Marker: .deepflow/active-command.json
@@ -45,6 +46,8 @@ function main() {
     handlePreToolUse(deepflowDir, markerPath, usagePath, tokenHistoryPath);
   } else if (event === 'PostToolUse') {
     handlePostToolUse(markerPath);
+  } else if (event === 'SessionStart') {
+    handleSessionStart(markerPath, usagePath, tokenHistoryPath);
   } else if (event === 'SessionEnd') {
     handleSessionEnd(deepflowDir, markerPath, usagePath, tokenHistoryPath);
   }
@@ -108,6 +111,20 @@ function handlePostToolUse(markerPath) {
     safeWriteFile(markerPath, JSON.stringify(marker, null, 2));
   } catch (_e) {
     // Marker may have been deleted mid-session (REQ-8)
+  }
+}
+
+/**
+ * On /clear or /compact, context resets — close any orphaned marker.
+ * Only fires for source=clear|compact (not startup/resume).
+ */
+function handleSessionStart(markerPath, usagePath, tokenHistoryPath) {
+  if (!safeExists(markerPath)) return;
+  let payload;
+  try { payload = JSON.parse(raw); } catch { return; }
+  const source = payload.source || '';
+  if (source === 'clear' || source === 'compact') {
+    closeCommand(markerPath, usagePath, tokenHistoryPath);
   }
 }
 
