@@ -244,19 +244,82 @@ function copyDir(src, dest) {
   }
 }
 
+// Valid hook events (settings.hooks keys + special "statusLine")
+const VALID_HOOK_EVENTS = new Set([
+  'SessionStart', 'SessionEnd', 'PreToolUse', 'PostToolUse', 'SubagentStop', 'statusLine'
+]);
+
+/**
+ * Scan hook source files for @hook-event tags. Returns:
+ *   { eventMap: Map<event, [filename, ...]>, untagged: [filename, ...] }
+ */
+function scanHookEvents(hooksSourceDir) {
+  const eventMap = new Map();  // event → [filenames]
+  const untagged = [];
+
+  if (!fs.existsSync(hooksSourceDir)) return { eventMap, untagged };
+
+  for (const file of fs.readdirSync(hooksSourceDir)) {
+    if (!file.endsWith('.js') || file.endsWith('.test.js')) continue;
+
+    const content = fs.readFileSync(path.join(hooksSourceDir, file), 'utf8');
+    const firstLines = content.split('\n').slice(0, 10).join('\n');
+    const match = firstLines.match(/\/\/\s*@hook-event:\s*(.+)/);
+
+    if (!match) {
+      untagged.push(file);
+      continue;
+    }
+
+    const events = match[1].split(',').map(e => e.trim()).filter(Boolean);
+    let hasValidEvent = false;
+
+    for (const event of events) {
+      if (!VALID_HOOK_EVENTS.has(event)) {
+        console.log(`  ${c.yellow}!${c.reset} Warning: unknown event "${event}" in ${file} — skipped`);
+        continue;
+      }
+      hasValidEvent = true;
+      if (!eventMap.has(event)) eventMap.set(event, []);
+      eventMap.get(event).push(file);
+    }
+
+    if (!hasValidEvent) {
+      untagged.push(file);
+    }
+  }
+
+  return { eventMap, untagged };
+}
+
+/**
+ * Remove all deepflow hook entries (commands containing /hooks/df-) from settings.
+ * Preserves non-deepflow hooks.
+ */
+function removeDeepflowHooks(settings) {
+  const isDeepflow = (hook) => {
+    const cmd = hook.hooks?.[0]?.command || '';
+    return cmd.includes('/hooks/df-');
+  };
+
+  // Clean settings.hooks.*
+  if (settings.hooks) {
+    for (const event of Object.keys(settings.hooks)) {
+      settings.hooks[event] = settings.hooks[event].filter(h => !isDeepflow(h));
+      if (settings.hooks[event].length === 0) delete settings.hooks[event];
+    }
+    if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
+  }
+
+  // Clean settings.statusLine if it's a deepflow hook
+  if (settings.statusLine?.command && settings.statusLine.command.includes('/hooks/df-')) {
+    delete settings.statusLine;
+  }
+}
+
 async function configureHooks(claudeDir) {
   const settingsPath = path.join(claudeDir, 'settings.json');
-  const statuslineCmd = `node "${path.join(claudeDir, 'hooks', 'df-statusline.js')}"`;
-  const updateCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-check-update.js')}"`;
-  const quotaLoggerCmd = `node "${path.join(claudeDir, 'hooks', 'df-quota-logger.js')}"`;
-  const toolUsageCmd = `node "${path.join(claudeDir, 'hooks', 'df-tool-usage.js')}"`;
-  const dashboardPushCmd = `node "${path.join(claudeDir, 'hooks', 'df-dashboard-push.js')}"`;
-  const executionHistoryCmd = `node "${path.join(claudeDir, 'hooks', 'df-execution-history.js')}"`;
-  const worktreeGuardCmd = `node "${path.join(claudeDir, 'hooks', 'df-worktree-guard.js')}"`;
-  const snapshotGuardCmd = `node "${path.join(claudeDir, 'hooks', 'df-snapshot-guard.js')}"`;
-  const invariantCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-invariant-check.js')}"`;
-  const subagentRegistryCmd = `node "${path.join(claudeDir, 'hooks', 'df-subagent-registry.js')}"`;
-  const commandUsageCmd = `node "${path.join(claudeDir, 'hooks', 'df-command-usage.js')}"`;
+  const hooksSourceDir = path.join(PACKAGE_DIR, 'hooks');
 
   let settings = {};
 
@@ -277,201 +340,63 @@ async function configureHooks(claudeDir) {
   configurePermissions(settings);
   log('Agent permissions configured');
 
-  // Configure statusline
-  if (settings.statusLine) {
-    if (process.stdin.isTTY) {
-      const answer = await ask(
-        `  ${c.yellow}!${c.reset} Existing statusLine found. Replace with deepflow? [y/N] `
-      );
-      if (answer.toLowerCase() === 'y') {
-        settings.statusLine = { type: 'command', command: statuslineCmd };
-        log('Statusline configured');
+  // Scan hook files for @hook-event tags
+  const { eventMap, untagged } = scanHookEvents(hooksSourceDir);
+
+  // Remember if there was a pre-existing non-deepflow statusLine
+  const hadExternalStatusLine = settings.statusLine &&
+    !settings.statusLine.command?.includes('/hooks/df-');
+
+  // Remove all existing deepflow hooks (orphan cleanup + idempotency)
+  removeDeepflowHooks(settings);
+
+  // Wire hooks by event
+  if (!settings.hooks) settings.hooks = {};
+
+  for (const [event, files] of eventMap) {
+    if (event === 'statusLine') {
+      // Handle statusLine separately — it's settings.statusLine, not settings.hooks
+      const statusFile = files[0]; // Only one statusline hook expected
+      const statusCmd = `node "${path.join(claudeDir, 'hooks', statusFile)}"`;
+
+      if (hadExternalStatusLine) {
+        if (process.stdin.isTTY) {
+          const answer = await ask(
+            `  ${c.yellow}!${c.reset} Existing statusLine found. Replace with deepflow? [y/N] `
+          );
+          if (answer.toLowerCase() === 'y') {
+            settings.statusLine = { type: 'command', command: statusCmd };
+            log('Statusline configured');
+          } else {
+            console.log(`  ${c.yellow}!${c.reset} Skipped statusline configuration`);
+          }
+        } else {
+          // Non-interactive (e.g. Claude Code bash tool) — skip prompt, keep existing
+          console.log(`  ${c.yellow}!${c.reset} Existing statusLine found — kept (non-interactive mode)`);
+        }
       } else {
-        console.log(`  ${c.yellow}!${c.reset} Skipped statusline configuration`);
+        settings.statusLine = { type: 'command', command: statusCmd };
+        log('Statusline configured');
       }
-    } else {
-      // Non-interactive (e.g. Claude Code bash tool) — skip prompt, keep existing
-      console.log(`  ${c.yellow}!${c.reset} Existing statusLine found — kept (non-interactive mode)`);
+      continue;
     }
-  } else {
-    settings.statusLine = { type: 'command', command: statuslineCmd };
-    log('Statusline configured');
+
+    // Regular hook events
+    if (!settings.hooks[event]) settings.hooks[event] = [];
+
+    for (const file of files) {
+      const cmd = `node "${path.join(claudeDir, 'hooks', file)}"`;
+      settings.hooks[event].push({
+        hooks: [{ type: 'command', command: cmd }]
+      });
+    }
+    log(`${event} hook configured`);
   }
 
-  // Configure SessionStart hook for update checking
-  if (!settings.hooks) {
-    settings.hooks = {};
+  // Log untagged files (copied but not wired)
+  for (const file of untagged) {
+    console.log(`  ${c.dim}${file} copied (no @hook-event tag — not wired)${c.reset}`);
   }
-  if (!settings.hooks.SessionStart) {
-    settings.hooks.SessionStart = [];
-  }
-
-  // Remove any existing deepflow update check / quota logger / command usage hooks from SessionStart
-  settings.hooks.SessionStart = settings.hooks.SessionStart.filter(hook => {
-    const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-check-update') && !cmd.includes('df-quota-logger') && !cmd.includes('df-command-usage');
-  });
-
-  // Add update check hook
-  settings.hooks.SessionStart.push({
-    hooks: [{
-      type: 'command',
-      command: updateCheckCmd
-    }]
-  });
-
-  // Add quota logger to SessionStart
-  settings.hooks.SessionStart.push({
-    hooks: [{
-      type: 'command',
-      command: quotaLoggerCmd
-    }]
-  });
-
-  // Add command usage tracker to SessionStart (closes orphaned markers on /clear and /compact)
-  settings.hooks.SessionStart.push({
-    hooks: [{
-      type: 'command',
-      command: commandUsageCmd
-    }]
-  });
-  log('SessionStart hook configured');
-
-  // Configure SessionEnd hook for quota logging
-  if (!settings.hooks.SessionEnd) {
-    settings.hooks.SessionEnd = [];
-  }
-
-  // Remove any existing quota logger / dashboard push / command usage from SessionEnd
-  settings.hooks.SessionEnd = settings.hooks.SessionEnd.filter(hook => {
-    const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-quota-logger') && !cmd.includes('df-dashboard-push') && !cmd.includes('df-command-usage');
-  });
-
-  // Add quota logger to SessionEnd
-  settings.hooks.SessionEnd.push({
-    hooks: [{
-      type: 'command',
-      command: quotaLoggerCmd
-    }]
-  });
-
-  // Add dashboard push to SessionEnd (fire-and-forget, skips when dashboard_url unset)
-  settings.hooks.SessionEnd.push({
-    hooks: [{
-      type: 'command',
-      command: dashboardPushCmd
-    }]
-  });
-
-  // Add command usage hook to SessionEnd (flush any pending command data)
-  settings.hooks.SessionEnd.push({
-    hooks: [{
-      type: 'command',
-      command: commandUsageCmd
-    }]
-  });
-  log('Quota logger + dashboard push + command usage configured (SessionEnd)');
-
-  // Configure PostToolUse hook for tool usage instrumentation
-  if (!settings.hooks.PostToolUse) {
-    settings.hooks.PostToolUse = [];
-  }
-
-  // Remove any existing deepflow tool usage / execution history / worktree guard / snapshot guard / invariant check / command usage hooks from PostToolUse
-  settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(hook => {
-    const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard') && !cmd.includes('df-snapshot-guard') && !cmd.includes('df-invariant-check') && !cmd.includes('df-command-usage');
-  });
-
-  // Add tool usage hook
-  settings.hooks.PostToolUse.push({
-    hooks: [{
-      type: 'command',
-      command: toolUsageCmd
-    }]
-  });
-
-  // Add execution history hook
-  settings.hooks.PostToolUse.push({
-    hooks: [{
-      type: 'command',
-      command: executionHistoryCmd
-    }]
-  });
-
-  // Add worktree guard hook (blocks Write/Edit to main-branch files when df/* worktree exists)
-  settings.hooks.PostToolUse.push({
-    hooks: [{
-      type: 'command',
-      command: worktreeGuardCmd
-    }]
-  });
-
-  // Add snapshot guard hook (blocks Write/Edit to ratchet-baseline files in auto-snapshot.txt)
-  settings.hooks.PostToolUse.push({
-    hooks: [{
-      type: 'command',
-      command: snapshotGuardCmd
-    }]
-  });
-
-  // Add invariant check hook (exits 1 on hard failures after git commit)
-  settings.hooks.PostToolUse.push({
-    hooks: [{
-      type: 'command',
-      command: invariantCheckCmd
-    }]
-  });
-
-  // Add command usage hook to PostToolUse
-  settings.hooks.PostToolUse.push({
-    hooks: [{
-      type: 'command',
-      command: commandUsageCmd
-    }]
-  });
-  log('PostToolUse hook configured');
-
-  // Configure SubagentStop hook for subagent registry
-  if (!settings.hooks.SubagentStop) {
-    settings.hooks.SubagentStop = [];
-  }
-
-  // Remove any existing subagent registry hooks
-  settings.hooks.SubagentStop = settings.hooks.SubagentStop.filter(hook => {
-    const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-subagent-registry');
-  });
-
-  // Add subagent registry hook
-  settings.hooks.SubagentStop.push({
-    hooks: [{
-      type: 'command',
-      command: subagentRegistryCmd
-    }]
-  });
-  log('SubagentStop hook configured');
-
-  // Configure PreToolUse hook for command usage instrumentation
-  if (!settings.hooks.PreToolUse) {
-    settings.hooks.PreToolUse = [];
-  }
-
-  // Remove any existing deepflow command usage hooks from PreToolUse
-  settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(hook => {
-    const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-command-usage');
-  });
-
-  // Add command usage hook to PreToolUse
-  settings.hooks.PreToolUse.push({
-    hooks: [{
-      type: 'command',
-      command: commandUsageCmd
-    }]
-  });
-  log('PreToolUse hook configured');
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 }
@@ -656,7 +581,15 @@ async function uninstall() {
   ];
 
   if (level === 'global') {
-    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js', 'hooks/df-dashboard-push.js', 'hooks/df-execution-history.js', 'hooks/df-worktree-guard.js', 'hooks/df-snapshot-guard.js', 'hooks/df-subagent-registry.js', 'hooks/df-command-usage.js');
+    // Dynamically find all df-*.js hook files to remove
+    const hooksDir = path.join(CLAUDE_DIR, 'hooks');
+    if (fs.existsSync(hooksDir)) {
+      for (const file of fs.readdirSync(hooksDir)) {
+        if (file.startsWith('df-') && file.endsWith('.js')) {
+          toRemove.push(`hooks/${file}`);
+        }
+      }
+    }
   }
 
   for (const item of toRemove) {
@@ -676,76 +609,25 @@ async function uninstall() {
     }
   }
 
-  // Remove SessionStart hook from settings
+  // Remove hook entries and settings from global settings.json
   if (level === 'global') {
     const settingsPath = path.join(CLAUDE_DIR, 'settings.json');
     if (fs.existsSync(settingsPath)) {
       try {
         const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-        if (settings.hooks?.SessionStart) {
-          settings.hooks.SessionStart = settings.hooks.SessionStart.filter(hook => {
-            const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-check-update') && !cmd.includes('df-quota-logger') && !cmd.includes('df-command-usage');
-          });
-          if (settings.hooks.SessionStart.length === 0) {
-            delete settings.hooks.SessionStart;
-          }
-        }
-        if (settings.hooks?.SessionEnd) {
-          settings.hooks.SessionEnd = settings.hooks.SessionEnd.filter(hook => {
-            const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-quota-logger') && !cmd.includes('df-dashboard-push') && !cmd.includes('df-command-usage');
-          });
-          if (settings.hooks.SessionEnd.length === 0) {
-            delete settings.hooks.SessionEnd;
-          }
-        }
-        if (settings.hooks?.PostToolUse) {
-          settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(hook => {
-            const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard') && !cmd.includes('df-snapshot-guard') && !cmd.includes('df-invariant-check') && !cmd.includes('df-command-usage');
-          });
-          if (settings.hooks.PostToolUse.length === 0) {
-            delete settings.hooks.PostToolUse;
-          }
-        }
-        if (settings.hooks?.PreToolUse) {
-          settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(hook => {
-            const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-command-usage');
-          });
-          if (settings.hooks.PreToolUse.length === 0) {
-            delete settings.hooks.PreToolUse;
-          }
-        }
-        if (settings.hooks?.SubagentStop) {
-          settings.hooks.SubagentStop = settings.hooks.SubagentStop.filter(hook => {
-            const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-subagent-registry');
-          });
-          if (settings.hooks.SubagentStop.length === 0) {
-            delete settings.hooks.SubagentStop;
-          }
-        }
-        if (settings.hooks && Object.keys(settings.hooks).length === 0) {
-          delete settings.hooks;
-        }
-        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-        console.log(`  ${c.green}✓${c.reset} Removed SessionStart/SessionEnd/PreToolUse/PostToolUse/SubagentStop hooks`);
-      } catch (e) {
-        // Fail silently
-      }
-    }
 
-    // Remove ENABLE_LSP_TOOL and deepflow permissions from global settings
-    if (fs.existsSync(settingsPath)) {
-      try {
-        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        // Remove all deepflow hook wiring dynamically
+        removeDeepflowHooks(settings);
+        console.log(`  ${c.green}✓${c.reset} Removed deepflow hooks from settings`);
+
+        // Remove ENABLE_LSP_TOOL
         if (settings.env?.ENABLE_LSP_TOOL) {
           delete settings.env.ENABLE_LSP_TOOL;
           if (settings.env && Object.keys(settings.env).length === 0) delete settings.env;
           console.log(`  ${c.green}✓${c.reset} Removed ENABLE_LSP_TOOL from settings`);
         }
+
+        // Remove deepflow permissions
         if (settings.permissions?.allow) {
           const dfPerms = new Set(DEEPFLOW_PERMISSIONS);
           settings.permissions.allow = settings.permissions.allow.filter(p => !dfPerms.has(p));
@@ -753,6 +635,7 @@ async function uninstall() {
           if (settings.permissions && Object.keys(settings.permissions).length === 0) delete settings.permissions;
           console.log(`  ${c.green}✓${c.reset} Removed deepflow permissions from settings`);
         }
+
         fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
       } catch (e) {
         // Fail silently
