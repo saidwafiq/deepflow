@@ -1,6 +1,6 @@
 {
   "name": "deepflow",
-  "version": "0.1.102",
+  "version": "0.1.103",
   "description": "Doing reveals what thinking can't predict — spec-driven iterative development for Claude Code",
   "keywords": [
     "claude",
