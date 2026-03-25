@@ -129,6 +129,11 @@ dashboard_url: ""
 # Default: 3334  (3333 is reserved for local mode)
 dashboard_port: 3334
 
+eval:
+  # Max tokens of experiment history passed to the mutator prompt during skill evaluation
+  max_history_tokens: 4000
+  # Future: rework metric (fix count) as secondary signal — requires spec-lineage tracking (not in v1)
+
 # Recommended .gitignore entries
 # Add these entries to your .gitignore to exclude instrumentation artifacts
 gitignore_entries:
