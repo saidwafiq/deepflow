@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @hook-event: statusLine
 /**
  * deepflow statusline for Claude Code
  * Displays: update | model | project | context usage

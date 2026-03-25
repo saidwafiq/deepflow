@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @hook-event: SubagentStop
 'use strict';
 const fs = require('fs');
 const path = require('path');

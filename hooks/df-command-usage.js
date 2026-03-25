@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @hook-event: PreToolUse, PostToolUse, SessionEnd
 /**
  * deepflow command usage tracker
  * Tracks df:* command invocations with token deltas and tool call counts.

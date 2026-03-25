@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @hook-event: SessionStart
 /**
  * deepflow update checker
  * Runs in background, checks npm for newer versions
