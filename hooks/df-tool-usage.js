@@ -60,6 +60,13 @@ process.stdin.on('end', () => {
     const toolResponse = data.tool_response;
     const cwd = data.cwd || '';
 
+    let activeCommand = null;
+    try {
+      const markerPath = path.join(cwd || process.cwd(), '.deepflow', 'active-command.json');
+      const markerRaw = fs.readFileSync(markerPath, 'utf8');
+      activeCommand = JSON.parse(markerRaw).command || null;
+    } catch (_e) { /* no marker or unreadable — null */ }
+
     const record = {
       timestamp: new Date().toISOString(),
       session_id: data.session_id || null,
@@ -71,6 +78,7 @@ process.stdin.on('end', () => {
       project: cwd ? path.basename(cwd) : null,
       phase: inferPhase(cwd),
       task_id: extractTaskId(cwd),
+      active_command: activeCommand,
     };
 
     const logDir = path.dirname(TOOL_USAGE_LOG);

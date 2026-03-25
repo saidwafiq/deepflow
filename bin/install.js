@@ -256,6 +256,7 @@ async function configureHooks(claudeDir) {
   const snapshotGuardCmd = `node "${path.join(claudeDir, 'hooks', 'df-snapshot-guard.js')}"`;
   const invariantCheckCmd = `node "${path.join(claudeDir, 'hooks', 'df-invariant-check.js')}"`;
   const subagentRegistryCmd = `node "${path.join(claudeDir, 'hooks', 'df-subagent-registry.js')}"`;
+  const commandUsageCmd = `node "${path.join(claudeDir, 'hooks', 'df-command-usage.js')}"`;
 
   let settings = {};
 
@@ -333,10 +334,10 @@ async function configureHooks(claudeDir) {
     settings.hooks.SessionEnd = [];
   }
 
-  // Remove any existing quota logger / dashboard push from SessionEnd
+  // Remove any existing quota logger / dashboard push / command usage from SessionEnd
   settings.hooks.SessionEnd = settings.hooks.SessionEnd.filter(hook => {
     const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-quota-logger') && !cmd.includes('df-dashboard-push');
+    return !cmd.includes('df-quota-logger') && !cmd.includes('df-dashboard-push') && !cmd.includes('df-command-usage');
   });
 
   // Add quota logger to SessionEnd
@@ -354,17 +355,25 @@ async function configureHooks(claudeDir) {
       command: dashboardPushCmd
     }]
   });
-  log('Quota logger + dashboard push configured (SessionEnd)');
+
+  // Add command usage hook to SessionEnd (flush any pending command data)
+  settings.hooks.SessionEnd.push({
+    hooks: [{
+      type: 'command',
+      command: commandUsageCmd
+    }]
+  });
+  log('Quota logger + dashboard push + command usage configured (SessionEnd)');
 
   // Configure PostToolUse hook for tool usage instrumentation
   if (!settings.hooks.PostToolUse) {
     settings.hooks.PostToolUse = [];
   }
 
-  // Remove any existing deepflow tool usage / execution history / worktree guard / snapshot guard / invariant check hooks from PostToolUse
+  // Remove any existing deepflow tool usage / execution history / worktree guard / snapshot guard / invariant check / command usage hooks from PostToolUse
   settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(hook => {
     const cmd = hook.hooks?.[0]?.command || '';
-    return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard') && !cmd.includes('df-snapshot-guard') && !cmd.includes('df-invariant-check');
+    return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard') && !cmd.includes('df-snapshot-guard') && !cmd.includes('df-invariant-check') && !cmd.includes('df-command-usage');
   });
 
   // Add tool usage hook
@@ -406,6 +415,14 @@ async function configureHooks(claudeDir) {
       command: invariantCheckCmd
     }]
   });
+
+  // Add command usage hook to PostToolUse
+  settings.hooks.PostToolUse.push({
+    hooks: [{
+      type: 'command',
+      command: commandUsageCmd
+    }]
+  });
   log('PostToolUse hook configured');
 
   // Configure SubagentStop hook for subagent registry
@@ -427,6 +444,26 @@ async function configureHooks(claudeDir) {
     }]
   });
   log('SubagentStop hook configured');
+
+  // Configure PreToolUse hook for command usage instrumentation
+  if (!settings.hooks.PreToolUse) {
+    settings.hooks.PreToolUse = [];
+  }
+
+  // Remove any existing deepflow command usage hooks from PreToolUse
+  settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(hook => {
+    const cmd = hook.hooks?.[0]?.command || '';
+    return !cmd.includes('df-command-usage');
+  });
+
+  // Add command usage hook to PreToolUse
+  settings.hooks.PreToolUse.push({
+    hooks: [{
+      type: 'command',
+      command: commandUsageCmd
+    }]
+  });
+  log('PreToolUse hook configured');
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 }
@@ -611,7 +648,7 @@ async function uninstall() {
   ];
 
   if (level === 'global') {
-    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js', 'hooks/df-dashboard-push.js', 'hooks/df-execution-history.js', 'hooks/df-worktree-guard.js', 'hooks/df-snapshot-guard.js', 'hooks/df-subagent-registry.js');
+    toRemove.push('hooks/df-statusline.js', 'hooks/df-check-update.js', 'hooks/df-invariant-check.js', 'hooks/df-quota-logger.js', 'hooks/df-tool-usage.js', 'hooks/df-dashboard-push.js', 'hooks/df-execution-history.js', 'hooks/df-worktree-guard.js', 'hooks/df-snapshot-guard.js', 'hooks/df-subagent-registry.js', 'hooks/df-command-usage.js');
   }
 
   for (const item of toRemove) {
@@ -649,7 +686,7 @@ async function uninstall() {
         if (settings.hooks?.SessionEnd) {
           settings.hooks.SessionEnd = settings.hooks.SessionEnd.filter(hook => {
             const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-quota-logger') && !cmd.includes('df-dashboard-push');
+            return !cmd.includes('df-quota-logger') && !cmd.includes('df-dashboard-push') && !cmd.includes('df-command-usage');
           });
           if (settings.hooks.SessionEnd.length === 0) {
             delete settings.hooks.SessionEnd;
@@ -658,10 +695,19 @@ async function uninstall() {
         if (settings.hooks?.PostToolUse) {
           settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(hook => {
             const cmd = hook.hooks?.[0]?.command || '';
-            return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard') && !cmd.includes('df-snapshot-guard') && !cmd.includes('df-invariant-check');
+            return !cmd.includes('df-tool-usage') && !cmd.includes('df-execution-history') && !cmd.includes('df-worktree-guard') && !cmd.includes('df-snapshot-guard') && !cmd.includes('df-invariant-check') && !cmd.includes('df-command-usage');
           });
           if (settings.hooks.PostToolUse.length === 0) {
             delete settings.hooks.PostToolUse;
+          }
+        }
+        if (settings.hooks?.PreToolUse) {
+          settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(hook => {
+            const cmd = hook.hooks?.[0]?.command || '';
+            return !cmd.includes('df-command-usage');
+          });
+          if (settings.hooks.PreToolUse.length === 0) {
+            delete settings.hooks.PreToolUse;
           }
         }
         if (settings.hooks?.SubagentStop) {
@@ -677,7 +723,7 @@ async function uninstall() {
           delete settings.hooks;
         }
         fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-        console.log(`  ${c.green}✓${c.reset} Removed SessionStart/SessionEnd/PostToolUse/SubagentStop hooks`);
+        console.log(`  ${c.green}✓${c.reset} Removed SessionStart/SessionEnd/PreToolUse/PostToolUse/SubagentStop hooks`);
       } catch (e) {
         // Fail silently
       }

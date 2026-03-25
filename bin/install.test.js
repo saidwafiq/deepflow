@@ -590,6 +590,220 @@ describe('Uninstaller — file removal and settings cleanup', () => {
 });
 
 // ---------------------------------------------------------------------------
+// T4. command-usage hook registration (PreToolUse, PostToolUse, SessionEnd)
+// ---------------------------------------------------------------------------
+
+describe('T4 — command-usage hook registration in install.js', () => {
+
+  // -- Source-level checks: verify install.js registers df-command-usage.js --
+
+  test('source defines commandUsageCmd variable', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    const pattern = /commandUsageCmd\s*=\s*`node.*df-command-usage\.js/;
+    assert.ok(
+      pattern.test(src),
+      'install.js should define commandUsageCmd pointing to df-command-usage.js'
+    );
+  });
+
+  test('source pushes command-usage hook to PreToolUse', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    // Find PreToolUse section — should contain a push with commandUsageCmd
+    const preToolUseSection = src.match(/PreToolUse[\s\S]*?log\('PreToolUse hook configured'\)/);
+    assert.ok(preToolUseSection, 'Should have a PreToolUse configuration section');
+    assert.ok(
+      preToolUseSection[0].includes('commandUsageCmd'),
+      'PreToolUse section should push commandUsageCmd'
+    );
+  });
+
+  test('source pushes command-usage hook to PostToolUse', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    // Find PostToolUse section
+    const postToolUseSection = src.match(/PostToolUse[\s\S]*?log\('PostToolUse hook configured'\)/);
+    assert.ok(postToolUseSection, 'Should have a PostToolUse configuration section');
+    assert.ok(
+      postToolUseSection[0].includes('commandUsageCmd'),
+      'PostToolUse section should push commandUsageCmd'
+    );
+  });
+
+  test('source pushes command-usage hook to SessionEnd', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    // Find SessionEnd section — should include command-usage alongside quota-logger + dashboard-push
+    const sessionEndSection = src.match(/SessionEnd[\s\S]*?log\('Quota logger.*configured.*SessionEnd/);
+    assert.ok(sessionEndSection, 'Should have a SessionEnd configuration section');
+    assert.ok(
+      sessionEndSection[0].includes('commandUsageCmd'),
+      'SessionEnd section should push commandUsageCmd'
+    );
+  });
+
+  test('source creates PreToolUse array if missing', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    assert.ok(
+      src.includes("if (!settings.hooks.PreToolUse)"),
+      'install.js should initialize PreToolUse array if not present'
+    );
+  });
+
+  // -- Dedup logic: filter removes existing command-usage before re-adding --
+
+  test('PreToolUse dedup filter removes existing df-command-usage entries', () => {
+    const preToolUse = [
+      { hooks: [{ type: 'command', command: 'node /home/.claude/hooks/df-command-usage.js' }] },
+      { hooks: [{ type: 'command', command: 'node /usr/local/my-custom.js' }] },
+    ];
+
+    const filtered = preToolUse.filter(hook => {
+      const cmd = hook.hooks?.[0]?.command || '';
+      return !cmd.includes('df-command-usage');
+    });
+
+    assert.equal(filtered.length, 1, 'Should remove existing df-command-usage hook');
+    assert.ok(filtered[0].hooks[0].command.includes('my-custom.js'), 'Should keep non-deepflow hooks');
+  });
+
+  test('PostToolUse dedup filter removes df-command-usage alongside other deepflow hooks', () => {
+    const postToolUse = [
+      { hooks: [{ type: 'command', command: 'node /home/.claude/hooks/df-tool-usage.js' }] },
+      { hooks: [{ type: 'command', command: 'node /home/.claude/hooks/df-command-usage.js' }] },
+      { hooks: [{ type: 'command', command: 'node /home/.claude/hooks/df-worktree-guard.js' }] },
+      { hooks: [{ type: 'command', command: 'node /usr/local/keep-me.js' }] },
+    ];
+
+    const filtered = postToolUse.filter(hook => {
+      const cmd = hook.hooks?.[0]?.command || '';
+      return !cmd.includes('df-tool-usage') &&
+             !cmd.includes('df-execution-history') &&
+             !cmd.includes('df-worktree-guard') &&
+             !cmd.includes('df-snapshot-guard') &&
+             !cmd.includes('df-invariant-check') &&
+             !cmd.includes('df-command-usage');
+    });
+
+    assert.equal(filtered.length, 1);
+    assert.ok(filtered[0].hooks[0].command.includes('keep-me.js'));
+  });
+
+  test('SessionEnd dedup filter removes df-command-usage alongside quota-logger and dashboard-push', () => {
+    const sessionEnd = [
+      { hooks: [{ type: 'command', command: 'node /home/.claude/hooks/df-quota-logger.js' }] },
+      { hooks: [{ type: 'command', command: 'node /home/.claude/hooks/df-dashboard-push.js' }] },
+      { hooks: [{ type: 'command', command: 'node /home/.claude/hooks/df-command-usage.js' }] },
+      { hooks: [{ type: 'command', command: 'node /usr/local/keep.js' }] },
+    ];
+
+    const filtered = sessionEnd.filter(hook => {
+      const cmd = hook.hooks?.[0]?.command || '';
+      return !cmd.includes('df-quota-logger') &&
+             !cmd.includes('df-dashboard-push') &&
+             !cmd.includes('df-command-usage');
+    });
+
+    assert.equal(filtered.length, 1);
+    assert.ok(filtered[0].hooks[0].command.includes('keep.js'));
+  });
+
+  // -- Uninstall cleanup --
+
+  test('uninstall toRemove includes df-command-usage.js', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    // Find the toRemove.push(...) line for hooks in uninstall
+    assert.ok(
+      src.includes("'hooks/df-command-usage.js'"),
+      'toRemove should include hooks/df-command-usage.js for uninstall'
+    );
+  });
+
+  test('uninstall SessionEnd filter removes df-command-usage', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    // In the uninstall function, the SessionEnd filter should include df-command-usage
+    // Find the uninstall section's SessionEnd filter
+    const uninstallSection = src.match(/async function uninstall[\s\S]+$/);
+    assert.ok(uninstallSection, 'Should have uninstall function');
+    // Check SessionEnd filter in uninstall includes command-usage
+    const sessionEndFilter = uninstallSection[0].match(/SessionEnd[\s\S]*?\.filter[\s\S]*?\);/);
+    assert.ok(sessionEndFilter, 'Should have SessionEnd filter in uninstall');
+    assert.ok(
+      sessionEndFilter[0].includes('df-command-usage'),
+      'Uninstall SessionEnd filter should remove df-command-usage hooks'
+    );
+  });
+
+  test('uninstall PostToolUse filter removes df-command-usage', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    const uninstallSection = src.match(/async function uninstall[\s\S]+$/);
+    const postToolUseFilter = uninstallSection[0].match(/PostToolUse[\s\S]*?\.filter[\s\S]*?\);/);
+    assert.ok(postToolUseFilter, 'Should have PostToolUse filter in uninstall');
+    assert.ok(
+      postToolUseFilter[0].includes('df-command-usage'),
+      'Uninstall PostToolUse filter should remove df-command-usage hooks'
+    );
+  });
+
+  test('uninstall cleans up PreToolUse hooks', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    const uninstallSection = src.match(/async function uninstall[\s\S]+$/);
+    assert.ok(
+      uninstallSection[0].includes('PreToolUse'),
+      'Uninstall function should handle PreToolUse cleanup'
+    );
+    // Verify it filters out df-command-usage from PreToolUse
+    const preToolUseFilter = uninstallSection[0].match(/PreToolUse[\s\S]*?\.filter[\s\S]*?\);/);
+    assert.ok(preToolUseFilter, 'Should have PreToolUse filter in uninstall');
+    assert.ok(
+      preToolUseFilter[0].includes('df-command-usage'),
+      'Uninstall PreToolUse filter should remove df-command-usage hooks'
+    );
+  });
+
+  test('uninstall deletes PreToolUse key when array becomes empty', () => {
+    // Reproduce the uninstall logic for PreToolUse
+    const settings = {
+      hooks: {
+        PreToolUse: [
+          { hooks: [{ type: 'command', command: 'node /home/.claude/hooks/df-command-usage.js' }] },
+        ],
+      }
+    };
+
+    settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(hook => {
+      const cmd = hook.hooks?.[0]?.command || '';
+      return !cmd.includes('df-command-usage');
+    });
+    if (settings.hooks.PreToolUse.length === 0) {
+      delete settings.hooks.PreToolUse;
+    }
+
+    assert.ok(!('PreToolUse' in settings.hooks), 'PreToolUse should be deleted when empty after filtering');
+  });
+
+  test('uninstall keeps PreToolUse when non-deepflow hooks remain', () => {
+    const settings = {
+      hooks: {
+        PreToolUse: [
+          { hooks: [{ type: 'command', command: 'node /home/.claude/hooks/df-command-usage.js' }] },
+          { hooks: [{ type: 'command', command: 'node /usr/local/custom-pre-hook.js' }] },
+        ],
+      }
+    };
+
+    settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(hook => {
+      const cmd = hook.hooks?.[0]?.command || '';
+      return !cmd.includes('df-command-usage');
+    });
+    if (settings.hooks.PreToolUse.length === 0) {
+      delete settings.hooks.PreToolUse;
+    }
+
+    assert.ok('PreToolUse' in settings.hooks, 'PreToolUse should be kept when custom hooks remain');
+    assert.equal(settings.hooks.PreToolUse.length, 1);
+    assert.ok(settings.hooks.PreToolUse[0].hooks[0].command.includes('custom-pre-hook.js'));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 4. isInstalled helper logic
 // ---------------------------------------------------------------------------
 
