@@ -12,8 +12,11 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
-const { computeLayer, validateSpec, extractSection } = require('./df-spec-lint');
+const { computeLayer, validateSpec, extractSection, parseFrontmatter } = require('./df-spec-lint');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -230,5 +233,180 @@ describe('frontmatter edge cases', () => {
       'derives-from': 'done-auth, done-payments',
     });
     assert.equal(computeLayer(content), 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseFrontmatter — direct unit tests
+// ---------------------------------------------------------------------------
+
+describe('parseFrontmatter', () => {
+  test('parses key-value pairs and returns body without frontmatter', () => {
+    const content = [
+      '---',
+      'derives-from: done-auth',
+      'name: spec-lineage',
+      '---',
+      '',
+      '## Objective',
+      'Build it',
+    ].join('\n');
+    const { frontmatter, body } = parseFrontmatter(content);
+    assert.equal(frontmatter['derives-from'], 'done-auth');
+    assert.equal(frontmatter['name'], 'spec-lineage');
+    assert.ok(body.includes('## Objective'));
+    assert.ok(body.includes('Build it'));
+  });
+
+  test('returns empty frontmatter and full body when no --- opener', () => {
+    const content = '## Objective\nBuild it\n';
+    const { frontmatter, body } = parseFrontmatter(content);
+    assert.deepEqual(frontmatter, {});
+    assert.equal(body, content);
+  });
+
+  test('returns empty frontmatter when opening --- exists but no closing ---', () => {
+    const content = '---\nderives-from: done-auth\n## Objective\nBuild it\n';
+    const { frontmatter, body } = parseFrontmatter(content);
+    assert.deepEqual(frontmatter, {});
+    assert.equal(body, content);
+  });
+
+  test('handles empty frontmatter block (--- immediately followed by ---)', () => {
+    const content = ['---', '---', '', '## Objective', 'Build it'].join('\n');
+    const { frontmatter, body } = parseFrontmatter(content);
+    assert.deepEqual(frontmatter, {});
+    assert.ok(body.includes('## Objective'));
+  });
+
+  test('trims whitespace from keys and values', () => {
+    const content = [
+      '---',
+      '  derives-from  :   done-auth  ',
+      '---',
+      '',
+      '## Objective',
+      'Build it',
+    ].join('\n');
+    const { frontmatter } = parseFrontmatter(content);
+    assert.equal(frontmatter['derives-from'], 'done-auth');
+  });
+
+  test('handles empty string input', () => {
+    const { frontmatter, body } = parseFrontmatter('');
+    assert.deepEqual(frontmatter, {});
+    assert.equal(body, '');
+  });
+
+  test('body does not include frontmatter delimiters', () => {
+    const content = withFrontmatter('## Objective\nBuild it', {
+      'derives-from': 'done-auth',
+    });
+    const { body } = parseFrontmatter(content);
+    // Body should not start with ---
+    assert.ok(!body.trimStart().startsWith('---'));
+  });
+
+  test('handles value containing colons', () => {
+    const content = [
+      '---',
+      'description: a spec: with colons: inside',
+      '---',
+      '',
+      'body',
+    ].join('\n');
+    const { frontmatter } = parseFrontmatter(content);
+    assert.equal(frontmatter['description'], 'a spec: with colons: inside');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// derives-from validation in validateSpec
+// ---------------------------------------------------------------------------
+
+describe('derives-from validation', () => {
+  test('spec without derives-from produces no derives-from advisory', () => {
+    const content = fullSpec();
+    const result = validateSpec(content);
+    const derivesAdvisory = result.advisory.filter((m) => m.includes('derives-from'));
+    assert.equal(derivesAdvisory.length, 0);
+  });
+
+  test('derives-from with no specsDir skips reference check (no warning)', () => {
+    const content = withFrontmatter(fullSpec(), {
+      'derives-from': 'nonexistent-spec',
+    });
+    // No specsDir passed — cannot verify, should not warn
+    const result = validateSpec(content);
+    const derivesAdvisory = result.advisory.filter((m) => m.includes('derives-from'));
+    assert.equal(derivesAdvisory.length, 0);
+  });
+
+  test('derives-from referencing missing spec emits advisory warning, not hard error', () => {
+    const content = withFrontmatter(fullSpec(), {
+      'derives-from': 'nonexistent-spec',
+    });
+    // Use a real directory that won't contain spec files
+    const tmpDir = path.join(__dirname, '..', 'templates');
+    const result = validateSpec(content, { specsDir: tmpDir });
+    // Should be advisory, not hard
+    const derivesHard = result.hard.filter((m) => m.includes('derives-from'));
+    assert.equal(derivesHard.length, 0, 'missing derives-from reference must not be a hard error');
+    const derivesAdvisory = result.advisory.filter((m) => m.includes('derives-from'));
+    assert.ok(derivesAdvisory.length > 0, 'should emit advisory warning for missing reference');
+  });
+
+  test('advisory message includes the referenced spec name', () => {
+    const content = withFrontmatter(fullSpec(), {
+      'derives-from': 'phantom-spec',
+    });
+    const tmpDir = path.join(__dirname, '..', 'templates');
+    const result = validateSpec(content, { specsDir: tmpDir });
+    const derivesAdvisory = result.advisory.filter((m) => m.includes('derives-from'));
+    assert.ok(
+      derivesAdvisory.some((m) => m.includes('phantom-spec')),
+      'advisory should mention the referenced spec name'
+    );
+  });
+
+  test('derives-from referencing existing spec file produces no advisory', () => {
+    // Create a temp specs dir with a matching file
+    const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'spec-lint-test-'));
+    try {
+      fs.writeFileSync(path.join(tmpDir, 'done-auth.md'), '## Objective\nAuth\n');
+      const content = withFrontmatter(fullSpec(), {
+        'derives-from': 'done-auth',
+      });
+      const result = validateSpec(content, { specsDir: tmpDir });
+      const derivesAdvisory = result.advisory.filter((m) => m.includes('derives-from'));
+      assert.equal(derivesAdvisory.length, 0, 'should not warn when reference exists');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('derives-from resolves done- prefixed files', () => {
+    // Reference "auth" but file is "done-auth.md" — should resolve
+    const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'spec-lint-test-'));
+    try {
+      fs.writeFileSync(path.join(tmpDir, 'done-auth.md'), '## Objective\nAuth\n');
+      const content = withFrontmatter(fullSpec(), {
+        'derives-from': 'auth',
+      });
+      const result = validateSpec(content, { specsDir: tmpDir });
+      const derivesAdvisory = result.advisory.filter((m) => m.includes('derives-from'));
+      assert.equal(derivesAdvisory.length, 0, 'should resolve done- prefixed file');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('spec layer and hard errors are unaffected by derives-from presence', () => {
+    const withDerives = withFrontmatter(fullSpec(), { 'derives-from': 'done-auth' });
+    const without = fullSpec();
+    const resultWith = validateSpec(withDerives);
+    const resultWithout = validateSpec(without);
+    assert.equal(resultWith.layer, resultWithout.layer);
+    assert.deepEqual(resultWith.hard, resultWithout.hard);
   });
 });
