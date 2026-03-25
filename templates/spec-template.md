@@ -1,3 +1,7 @@
+---
+# derives-from: done-{parent-spec-name}  # optional: links this spec to a parent for lineage/rework tracking
+---
+
 # {Name}
 
 ## Objective
