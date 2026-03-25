@@ -94,14 +94,6 @@ function writeTokenHistory(tmpDir, records) {
   fs.writeFileSync(path.join(dir, 'token-history.jsonl'), content);
 }
 
-function readTokenHistory(tmpDir) {
-  const p = path.join(tmpDir, '.deepflow', 'token-history.jsonl');
-  if (!fs.existsSync(p)) return [];
-  const content = fs.readFileSync(p, 'utf8').trim();
-  if (!content) return [];
-  return content.split('\n').map(line => JSON.parse(line));
-}
-
 function readToolUsage(homeDir) {
   // tool-usage.jsonl lives in $HOME/.claude/ (not .deepflow/)
   const p = path.join(homeDir, '.claude', 'tool-usage.jsonl');
@@ -290,77 +282,7 @@ describe('AC-3: previous marker closed on next command or session end', () => {
 });
 
 // ===========================================================================
-// AC-4: Records in token-history.jsonl written during a command include
-// active_command: "df:plan" (or whichever). Records outside commands have
-// active_command: null
-// ===========================================================================
-
-describe('AC-4: token-history.jsonl records include active_command', () => {
-  let tmpDir;
-
-  beforeEach(() => {
-    tmpDir = makeTmpDir();
-    fs.mkdirSync(path.join(tmpDir, '.deepflow'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.claude'), { recursive: true });
-  });
-
-  afterEach(() => { rmrf(tmpDir); });
-
-  test('active_command matches command name when marker exists', () => {
-    // Create marker via command-usage hook
-    runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 's', cwd: tmpDir }),
-      { event: 'PreToolUse' });
-
-    // Run statusline hook — writes token-history.jsonl
-    const input = makeStatuslineInput(tmpDir);
-    runHook(STATUSLINE_HOOK, input, { cwd: tmpDir });
-
-    const records = readTokenHistory(tmpDir);
-    const lastRecord = records[records.length - 1];
-    assert.ok(lastRecord, 'token-history record must exist');
-    assert.equal(lastRecord.active_command, 'df:plan',
-      'active_command should be df:plan during that command');
-  });
-
-  test('active_command is null when no command is active', () => {
-    // No marker — run statusline hook directly
-    const input = makeStatuslineInput(tmpDir);
-    runHook(STATUSLINE_HOOK, input, { cwd: tmpDir });
-
-    const records = readTokenHistory(tmpDir);
-    const lastRecord = records[records.length - 1];
-    assert.ok(lastRecord, 'token-history record must exist');
-    assert.equal(lastRecord.active_command, null,
-      'active_command should be null outside any command');
-  });
-
-  test('active_command changes when command changes', () => {
-    // Start df:plan, write token history
-    runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 's', cwd: tmpDir }),
-      { event: 'PreToolUse' });
-    runHook(STATUSLINE_HOOK, makeStatuslineInput(tmpDir), { cwd: tmpDir });
-
-    // Switch to df:execute, write token history again
-    runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:execute', { sessionId: 's', cwd: tmpDir }),
-      { event: 'PreToolUse' });
-    runHook(STATUSLINE_HOOK, makeStatuslineInput(tmpDir), { cwd: tmpDir });
-
-    const records = readTokenHistory(tmpDir);
-    // At least 2 records
-    assert.ok(records.length >= 2, 'should have at least 2 token history records');
-    // Find records with active_command
-    const planRecords = records.filter(r => r.active_command === 'df:plan');
-    const execRecords = records.filter(r => r.active_command === 'df:execute');
-    assert.ok(planRecords.length >= 1, 'should have df:plan record');
-    assert.ok(execRecords.length >= 1, 'should have df:execute record');
-  });
-});
-
-// ===========================================================================
-// AC-4 (tool-usage): tool-usage.jsonl records also include active_command
+// AC-4: tool-usage.jsonl records include active_command
 // ===========================================================================
 
 describe('AC-4: tool-usage.jsonl records include active_command', () => {
@@ -828,10 +750,7 @@ describe('Cross-hook integration: full command lifecycle', () => {
       makeSkillPayload('df:plan', { sessionId: 'full-integ', cwd: tmpDir }),
       { event: 'PreToolUse' });
 
-    // 2. Statusline writes token history — should have active_command
-    runHook(STATUSLINE_HOOK, makeStatuslineInput(tmpDir), { cwd: tmpDir });
-
-    // 3. Tool usage writes tool record — should have active_command
+    // 2. Tool usage writes tool record — should have active_command
     runHook(TOOL_USAGE_HOOK, makeToolInput(tmpDir), {
       event: 'PostToolUse',
       cwd: tmpDir,
@@ -844,11 +763,6 @@ describe('Cross-hook integration: full command lifecycle', () => {
 
     // 5. End session
     runHook(CMD_USAGE_HOOK, { cwd: tmpDir }, { event: 'SessionEnd' });
-
-    // Verify token history has active_command
-    const tokenRecords = readTokenHistory(tmpDir);
-    const taggedRecords = tokenRecords.filter(r => r.active_command === 'df:plan');
-    assert.ok(taggedRecords.length >= 1, 'token-history should have df:plan records');
 
     // Verify tool usage has active_command (reads from $HOME/.claude/)
     const toolRecords = readToolUsage(tmpDir);

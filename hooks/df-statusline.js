@@ -150,17 +150,6 @@ function writeTokenHistory(contextWindow, data) {
     const agentRole = process.env.DEEPFLOW_AGENT_ROLE || 'orchestrator';
     const taskId = process.env.DEEPFLOW_TASK_ID || null;
 
-    let activeCommand = null;
-    try {
-      const markerPath = path.join(deepflowDir, 'active-command.json');
-      if (fs.existsSync(markerPath)) {
-        const marker = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
-        activeCommand = marker.command || null;
-      }
-    } catch (e) {
-      // Fail silently
-    }
-
     const record = {
       timestamp,
       input_tokens: usage.input_tokens || 0,
@@ -171,8 +160,7 @@ function writeTokenHistory(contextWindow, data) {
       model,
       session_id: sessionId,
       agent_role: agentRole,
-      task_id: taskId,
-      active_command: activeCommand
+      task_id: taskId
     };
 
     const tokenHistoryPath = path.join(deepflowDir, 'token-history.jsonl');
