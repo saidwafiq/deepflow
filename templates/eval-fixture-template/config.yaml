@@ -1,0 +1,39 @@
+# Benchmark configuration for /df:eval
+
+benchmark:
+  name: "{benchmark-name}"
+  skill: "skills/{skill-name}/SKILL.md"   # path to skill being evaluated
+  description: "[What this benchmark measures]"
+
+# Metric definitions
+metrics:
+  # Target metric — the one numeric value that decides keep/revert
+  target: cache_ratio
+
+  # Guard — binary pass/fail. Failure auto-reverts before any metric check.
+  guard_command: "node tests/guard.test.js"
+
+  # Secondary metrics — logged in commit message, inform mutator, never decide
+  secondary:
+    - total_tokens
+    - wall_time
+    - context_burn
+
+# Iteration settings
+loop:
+  # Default iteration cap. Override with --loop N flag. 0 = unlimited (Ctrl+C to stop)
+  default_iterations: 0
+
+  # History window passed to mutator prompt (~4000 tokens ≈ 15 experiments)
+  max_history_tokens: 4000
+
+# Fixture execution
+fixture:
+  # Command to run inside the fixture dir during each eval iteration
+  run_command: "node scripts/run-task.js"
+
+  # Timeout per iteration in seconds
+  timeout: 300
+
+  # deepflow token-history location relative to fixture dir
+  token_history_path: ".deepflow/token-history.jsonl"

@@ -1,0 +1,12 @@
+{
+  "name": "eval-fixture",
+  "version": "1.0.0",
+  "description": "Minimal deepflow-like codebase for skill evaluation",
+  "main": "src/index.js",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "test": "node tests/run.js",
+    "lint": "node scripts/lint.js"
+  },
+  "dependencies": {}
+}
