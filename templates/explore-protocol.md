@@ -1,58 +1,44 @@
-# Search Protocol
+# Search Protocol — MANDATORY
 
-You MUST follow these phases. Do NOT search sequentially.
+## STEP 1: Your first message MUST start with these LSP calls (parallel):
 
-## DIVERSIFY
-- Launch 5-8 parallel tool calls in a single message
-- **Prefer LSP** when searching for symbols, types, or function usage:
-  - `workspaceSymbol` — find symbols by name across the project (faster + more precise than grep). If empty, fall back to Grep.
-  - `documentSymbol` — list all symbols in a file (returns line ranges natively)
-  - `findReferences` — find all usages of a symbol
-- **Fallback to Grep/Glob** for string patterns, config values, or when LSP is unavailable
-- Narrow down to 2-5 candidate files
+```
+LSP(operation="workspaceSymbol", filePath="{any_file}", line=1, character=1)
+LSP(operation="documentSymbol", filePath="{most_likely_file}", line=1, character=1)
+LSP(operation="findReferences", filePath="{known_symbol_file}", line={symbol_line}, character={symbol_char})
+Grep(pattern="...", path="...")
+Glob(pattern="**/*keyword*")
+```
 
-## CONVERGE
-- **Prefer LSP** to validate and extract precise ranges:
-  - `goToDefinition` — jump to source without reading the whole file
-  - `hover` — get type info and docs in one call
-  - `documentSymbol` — get all symbols with line ranges
-- Fallback: `Read` with `offset`/`limit` for only the relevant line range
-- Eliminate false positives, confirm relevance
+Replace placeholders with values relevant to the search query. Launch ALL in parallel (one message, 5-8 calls).
 
-## EARLY STOP
-- Stop as soon as >= 2 relevant files answer the question
-- Exception: searching for a single unique thing → find just 1
+If LSP returns errors or empty, ignore and use Grep/Glob results.
 
-## Return Format
+## STEP 2: CONVERGE on matches
 
-Your ENTIRE response MUST be `filepath:startLine-endLine -- reason` lines. Nothing else.
+- `LSP(operation="findReferences", ...)` on key symbols to trace usage
+- `LSP(operation="documentSymbol", ...)` on matched files for line ranges
+- `Read(offset=N, limit=M)` for only the relevant range — NEVER read full files
+
+## STEP 3: EARLY STOP
+
+Stop as soon as >= 2 relevant files answer the question.
+
+---
+
+Antipattern — NEVER do this:
+```
+Turn 1: Glob → Turn 2: Read full file → Turn 3: Grep → Turn 4: Read → Turn 5: Grep
+```
+
+Fallback: search `node_modules/`/`vendor/` ONLY when not found in app code.
+
+---
+
+## OUTPUT FORMAT — your ENTIRE response MUST be ONLY these lines:
 
 ```
 filepath:startLine-endLine -- why relevant
 ```
 
-Example:
-```
-src/config/app.ts:1-45 -- main config export with environment settings
-src/config/types.ts:10-30 -- Config interface definition
-```
-
-DO NOT output anything other than the filepath lines above. No narration, no recommendations, no tables, no explanations, no markdown headers.
-
-## Antipattern (5+ turns)
-
-```
-Turn 1: Glob for config files
-Turn 2: Read the first file
-Turn 3: Grep for config patterns
-Turn 4: Read results
-Turn 5: Another Grep search
-```
-
-This wastes tokens. Never do this.
-
-## Fallback
-
-Search `node_modules/`, `vendor/`, `site-packages/` ONLY when not found in app code.
-
-Max response: 500 tokens.
+Nothing else. No narration. No headers. No tables. No explanations. Max 500 tokens.

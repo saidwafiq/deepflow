@@ -68,13 +68,22 @@ process.stdin.on('end', () => {
       activeCommand = JSON.parse(markerRaw).command || null;
     } catch (_e) { /* no marker or unreadable — null */ }
 
+    // Extract a compact tool_input summary per tool type
+    const ti = data.tool_input || {};
+    let inputSummary = null;
+    if (toolName === 'Bash') inputSummary = ti.command || null;
+    else if (toolName === 'LSP') inputSummary = `${ti.operation || '?'}:${(ti.filePath || '').split('/').pop()}:${ti.line || '?'}`;
+    else if (toolName === 'Read') inputSummary = (ti.file_path || '').split('/').pop() + (ti.offset ? `:${ti.offset}-${ti.offset + (ti.limit || 0)}` : '');
+    else if (toolName === 'Grep') inputSummary = ti.pattern || null;
+    else if (toolName === 'Glob') inputSummary = ti.pattern || null;
+    else if (toolName === 'Agent') inputSummary = `${ti.subagent_type || '?'}/${ti.model || '?'}`;
+    else if (toolName === 'Edit' || toolName === 'Write') inputSummary = (ti.file_path || '').split('/').pop();
+
     const record = {
       timestamp: new Date().toISOString(),
       session_id: data.session_id || null,
       tool_name: toolName,
-      command: (toolName === 'Bash' && data.tool_input && data.tool_input.command != null)
-        ? data.tool_input.command
-        : null,
+      input: inputSummary,
       output_size_est_tokens: Math.ceil(JSON.stringify(toolResponse).length / 4),
       project: cwd ? path.basename(cwd) : null,
       phase: inferPhase(cwd),
