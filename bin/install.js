@@ -134,6 +134,13 @@ async function main() {
   );
   log('Agents installed');
 
+  // Copy templates (explore-protocol, explore-agent, etc.)
+  copyDir(
+    path.join(PACKAGE_DIR, 'templates'),
+    path.join(CLAUDE_DIR, 'templates')
+  );
+  log('Templates installed');
+
   // Copy bin utilities (plan-consolidator, wave-runner, ratchet)
   const binDest = path.join(CLAUDE_DIR, 'bin');
   fs.mkdirSync(binDest, { recursive: true });
@@ -198,8 +205,9 @@ async function main() {
   console.log('  skills/          — gap-discovery, atomic-commits, code-completeness, browse-fetch, browse-verify, auto-cycle');
   console.log('  agents/          — reasoner (/df:auto — autonomous execution via /loop)');
   console.log('  bin/             — plan-consolidator, wave-runner, ratchet');
+  console.log('  templates/       — explore-protocol (auto-injected into Explore agents via hook)');
   if (level === 'global') {
-    console.log('  hooks/           — statusline, update checker, invariant checker, worktree guard');
+    console.log('  hooks/           — statusline, update checker, invariant checker, worktree guard, explore protocol');
   }
   console.log('  hooks/df-spec-*  — spec validation (auto-enforced by /df:spec and /df:plan)');
   console.log('  env/             — ENABLE_LSP_TOOL (code navigation via goToDefinition, findReferences, workspaceSymbol)');
@@ -577,7 +585,8 @@ async function uninstall() {
     'agents/reasoner.md',
     'bin/plan-consolidator.js',
     'bin/wave-runner.js',
-    'bin/ratchet.js'
+    'bin/ratchet.js',
+    'templates'
   ];
 
   if (level === 'global') {
