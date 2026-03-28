@@ -4,7 +4,7 @@
  * deepflow quota logger
  * Logs Anthropic API quota/usage data to ~/.claude/quota-history.jsonl
  * Runs on SessionStart and SessionEnd events.
- * Exits silently (code 0) on non-macOS or when Keychain token is absent.
+ * Reads anthropic_token from ~/.deepflow/config.yaml; exits silently when token is absent.
  */
 
 'use strict';
@@ -12,15 +12,10 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execFileSync } = require('child_process');
 const https = require('https');
 
 const QUOTA_LOG = path.join(os.homedir(), '.claude', 'quota-history.jsonl');
-
-// Only supported on macOS (Keychain access)
-if (process.platform !== 'darwin') {
-  process.exit(0);
-}
+const USER_CONFIG = path.join(os.homedir(), '.deepflow', 'config.yaml');
 
 // Spawn background process so hook returns immediately
 if (process.argv[2] !== '--background') {
@@ -37,7 +32,7 @@ if (process.argv[2] !== '--background') {
 
 async function main() {
   try {
-    const token = getToken();
+    const token = readUserConfig();
     if (!token) {
       process.exit(0);
     }
@@ -54,23 +49,16 @@ async function main() {
   process.exit(0);
 }
 
-function getToken() {
+function readUserConfig() {
   try {
-    const raw = execFileSync(
-      'security',
-      ['find-generic-password', '-s', 'Claude Code-credentials', '-w'],
-      { stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }
-    ).toString().trim();
-
-    if (!raw) return null;
-
-    // The stored value may be a JSON blob with an access_token field
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed.access_token || parsed.token || raw;
-    } catch (_e) {
-      return raw;
+    const content = fs.readFileSync(USER_CONFIG, 'utf8');
+    for (const line of content.split('\n')) {
+      const match = line.match(/^anthropic_token\s*:\s*(.+)$/);
+      if (match) {
+        return match[1].trim().replace(/^['"]|['"]$/g, '');
+      }
     }
+    return null;
   } catch (_e) {
     return null;
   }
