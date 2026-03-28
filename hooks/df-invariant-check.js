@@ -16,7 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { extractSection } = require('./df-spec-lint');
 
 // ── LSP availability check (REQ-5, AC-11) ────────────────────────────────────
@@ -94,7 +94,7 @@ function detectLanguageServer(projectRoot, diffFilePaths) {
  */
 function isBinaryAvailable(binary) {
   try {
-    execSync(`which ${binary}`, { stdio: 'ignore' });
+    execFileSync('which', [binary], { stdio: 'ignore' });
     return true;
   } catch (_) {
     return false;
@@ -1064,7 +1064,7 @@ function loadActiveSpec(cwd) {
 
 function extractDiffFromLastCommit(cwd) {
   try {
-    return execSync('git diff HEAD~1 HEAD', {
+    return execFileSync('git', ['diff', 'HEAD~1', 'HEAD'], {
       encoding: 'utf8',
       cwd,
       stdio: ['ignore', 'pipe', 'ignore'],

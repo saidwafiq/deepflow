@@ -41,9 +41,9 @@ function getStdinSync() {
   }
 }
 
-/** Read .deepflow/config.yaml and extract dashboard_url (no yaml dep — regex parse). */
-function getDashboardUrl(cwd) {
-  const configPath = path.join(cwd, '.deepflow', 'config.yaml');
+/** Read ~/.deepflow/config.yaml and extract dashboard_url (no yaml dep — regex parse). */
+function getDashboardUrl() {
+  const configPath = path.join(os.homedir(), '.deepflow', 'config.yaml');
   if (!fs.existsSync(configPath)) return null;
   try {
     const content = fs.readFileSync(configPath, 'utf8');
@@ -112,7 +112,7 @@ function postJson(url, payload) {
 async function main() {
   try {
     const cwd = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-    const dashboardUrl = getDashboardUrl(cwd);
+    const dashboardUrl = getDashboardUrl();
 
     // Silently skip if not configured
     if (!dashboardUrl) process.exit(0);

@@ -238,11 +238,32 @@ function isInstalled(claudeDir) {
 function copyDir(src, dest) {
   if (!fs.existsSync(src)) return;
 
+  const resolvedSrcRoot = path.resolve(src);
+  const resolvedDestRoot = path.resolve(dest);
+
   fs.mkdirSync(dest, { recursive: true });
 
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
+
+    // Reject symlinks to prevent symlink attacks
+    if (entry.isSymbolicLink()) {
+      process.stderr.write(`[deepflow] skipping symlink: ${srcPath}\n`);
+      continue;
+    }
+
+    // Guard against path traversal — resolved paths must stay under their roots
+    const resolvedSrc = path.resolve(srcPath);
+    const resolvedDest = path.resolve(destPath);
+    if (!resolvedSrc.startsWith(resolvedSrcRoot + path.sep) && resolvedSrc !== resolvedSrcRoot) {
+      process.stderr.write(`[deepflow] skipping path traversal attempt (src): ${srcPath}\n`);
+      continue;
+    }
+    if (!resolvedDest.startsWith(resolvedDestRoot + path.sep) && resolvedDest !== resolvedDestRoot) {
+      process.stderr.write(`[deepflow] skipping path traversal attempt (dest): ${destPath}\n`);
+      continue;
+    }
 
     if (entry.isDirectory()) {
       copyDir(srcPath, destPath);

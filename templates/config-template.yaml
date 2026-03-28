@@ -119,12 +119,6 @@ ratchet:
   # Examples: "eslint .", "flake8", "cargo clippy"
   lint_command: ""
 
-# deepflow-dashboard team mode settings
-# dashboard_url: URL of the shared team server for POST ingestion
-# Leave blank (or omit) to use local-only mode (no data is pushed)
-# Example: http://team-server:3334
-dashboard_url: ""
-
 # Port for `npx deepflow-dashboard serve` (team server mode)
 # Default: 3334  (3333 is reserved for local mode)
 dashboard_port: 3334
