@@ -909,3 +909,208 @@ describe('copyDir logic', () => {
     assert.ok(fs.existsSync(path.join(newDest, 'a.md')));
   });
 });
+
+// ---------------------------------------------------------------------------
+// 6. copyDir security hardening — symlink rejection & path traversal guard
+// ---------------------------------------------------------------------------
+
+describe('copyDir security hardening (symlink & path traversal)', () => {
+  let tmpSrc;
+  let tmpDest;
+
+  /**
+   * Reproduces the hardened copyDir from install.js (commit f3b7f47).
+   * Includes isSymbolicLink() check and path traversal guard.
+   */
+  function copyDir(src, dest) {
+    if (!fs.existsSync(src)) return;
+
+    const resolvedSrcRoot = path.resolve(src);
+    const resolvedDestRoot = path.resolve(dest);
+
+    fs.mkdirSync(dest, { recursive: true });
+
+    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+
+      // Reject symlinks to prevent symlink attacks
+      if (entry.isSymbolicLink()) {
+        process.stderr.write(`[deepflow] skipping symlink: ${srcPath}\n`);
+        continue;
+      }
+
+      // Guard against path traversal — resolved paths must stay under their roots
+      const resolvedSrc = path.resolve(srcPath);
+      const resolvedDest = path.resolve(destPath);
+      if (!resolvedSrc.startsWith(resolvedSrcRoot + path.sep) && resolvedSrc !== resolvedSrcRoot) {
+        process.stderr.write(`[deepflow] skipping path traversal attempt (src): ${srcPath}\n`);
+        continue;
+      }
+      if (!resolvedDest.startsWith(resolvedDestRoot + path.sep) && resolvedDest !== resolvedDestRoot) {
+        process.stderr.write(`[deepflow] skipping path traversal attempt (dest): ${destPath}\n`);
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        copyDir(srcPath, destPath);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
+    }
+  }
+
+  beforeEach(() => {
+    tmpSrc = makeTmpDir();
+    tmpDest = makeTmpDir();
+  });
+
+  afterEach(() => {
+    rmrf(tmpSrc);
+    rmrf(tmpDest);
+  });
+
+  // -- Symlink rejection --
+
+  test('skips symlinked files and does not copy them to dest', () => {
+    // Create a real file outside the src tree
+    const outsideFile = path.join(os.tmpdir(), `df-symlink-target-${Date.now()}.txt`);
+    fs.writeFileSync(outsideFile, 'secret content');
+
+    // Create a symlink inside the src dir pointing to the outside file
+    fs.symlinkSync(outsideFile, path.join(tmpSrc, 'link-to-secret.txt'));
+
+    // Also create a normal file to ensure it IS copied
+    fs.writeFileSync(path.join(tmpSrc, 'normal.md'), '# normal');
+
+    copyDir(tmpSrc, tmpDest);
+
+    // The symlink should NOT have been copied
+    assert.ok(
+      !fs.existsSync(path.join(tmpDest, 'link-to-secret.txt')),
+      'Symlinked file should be skipped and not appear in dest'
+    );
+    // The normal file should still be copied
+    assert.ok(
+      fs.existsSync(path.join(tmpDest, 'normal.md')),
+      'Normal files should still be copied alongside skipped symlinks'
+    );
+
+    // Cleanup
+    fs.unlinkSync(outsideFile);
+  });
+
+  test('skips symlinked directories and does not copy them to dest', () => {
+    // Create a real directory outside src
+    const outsideDir = makeTmpDir();
+    fs.writeFileSync(path.join(outsideDir, 'inside.txt'), 'hidden');
+
+    // Create a directory symlink inside src
+    fs.symlinkSync(outsideDir, path.join(tmpSrc, 'link-to-dir'));
+
+    // Normal subdir to verify it copies
+    fs.mkdirSync(path.join(tmpSrc, 'real-sub'));
+    fs.writeFileSync(path.join(tmpSrc, 'real-sub', 'file.md'), '# real');
+
+    copyDir(tmpSrc, tmpDest);
+
+    assert.ok(
+      !fs.existsSync(path.join(tmpDest, 'link-to-dir')),
+      'Symlinked directory should be skipped'
+    );
+    assert.ok(
+      fs.existsSync(path.join(tmpDest, 'real-sub', 'file.md')),
+      'Real subdirectories should still be copied'
+    );
+
+    rmrf(outsideDir);
+  });
+
+  test('skips relative symlinks within the source tree', () => {
+    // Create a real file and a relative symlink to it
+    fs.writeFileSync(path.join(tmpSrc, 'real.md'), '# real');
+    fs.symlinkSync('real.md', path.join(tmpSrc, 'relative-link.md'));
+
+    copyDir(tmpSrc, tmpDest);
+
+    assert.ok(
+      fs.existsSync(path.join(tmpDest, 'real.md')),
+      'Real file should be copied'
+    );
+    assert.ok(
+      !fs.existsSync(path.join(tmpDest, 'relative-link.md')),
+      'Even relative symlinks should be skipped'
+    );
+  });
+
+  // -- Normal files continue to copy correctly --
+
+  test('copies normal files correctly when no symlinks or traversal present', () => {
+    fs.writeFileSync(path.join(tmpSrc, 'a.md'), '# a');
+    fs.writeFileSync(path.join(tmpSrc, 'b.txt'), 'content b');
+    fs.mkdirSync(path.join(tmpSrc, 'sub'));
+    fs.writeFileSync(path.join(tmpSrc, 'sub', 'c.md'), '# c');
+
+    copyDir(tmpSrc, tmpDest);
+
+    assert.equal(fs.readFileSync(path.join(tmpDest, 'a.md'), 'utf8'), '# a');
+    assert.equal(fs.readFileSync(path.join(tmpDest, 'b.txt'), 'utf8'), 'content b');
+    assert.equal(fs.readFileSync(path.join(tmpDest, 'sub', 'c.md'), 'utf8'), '# c');
+  });
+
+  test('copies deeply nested directories correctly', () => {
+    fs.mkdirSync(path.join(tmpSrc, 'l1', 'l2', 'l3'), { recursive: true });
+    fs.writeFileSync(path.join(tmpSrc, 'l1', 'l2', 'l3', 'deep.md'), '# deep');
+
+    copyDir(tmpSrc, tmpDest);
+
+    assert.ok(fs.existsSync(path.join(tmpDest, 'l1', 'l2', 'l3', 'deep.md')));
+    assert.equal(
+      fs.readFileSync(path.join(tmpDest, 'l1', 'l2', 'l3', 'deep.md'), 'utf8'),
+      '# deep'
+    );
+  });
+
+  // -- Source-level verification that the guards exist in install.js --
+
+  test('install.js copyDir checks isSymbolicLink()', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    assert.ok(
+      src.includes('entry.isSymbolicLink()'),
+      'copyDir should check entry.isSymbolicLink() to reject symlinks'
+    );
+  });
+
+  test('install.js copyDir has path traversal guard using startsWith', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    // The guard resolves src/dest and checks they stay under their root
+    assert.ok(
+      src.includes('resolvedSrc.startsWith(resolvedSrcRoot + path.sep)'),
+      'copyDir should guard source paths against traversal using startsWith'
+    );
+    assert.ok(
+      src.includes('resolvedDest.startsWith(resolvedDestRoot + path.sep)'),
+      'copyDir should guard dest paths against traversal using startsWith'
+    );
+  });
+
+  test('install.js copyDir logs stderr warning for skipped symlinks', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    assert.ok(
+      src.includes('[deepflow] skipping symlink:'),
+      'copyDir should log a warning to stderr when skipping a symlink'
+    );
+  });
+
+  test('install.js copyDir logs stderr warning for path traversal attempts', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    assert.ok(
+      src.includes('[deepflow] skipping path traversal attempt (src):'),
+      'copyDir should log a warning for source path traversal'
+    );
+    assert.ok(
+      src.includes('[deepflow] skipping path traversal attempt (dest):'),
+      'copyDir should log a warning for dest path traversal'
+    );
+  });
+});
