@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { extractSection } = require('./df-spec-lint');
+const { readStdinIfMain } = require('./lib/hook-stdin');
 
 // ── LSP availability check (REQ-5, AC-11) ────────────────────────────────────
 
@@ -1122,78 +1123,63 @@ function isGitCommitBash(toolName, toolInput) {
   return /git\s+commit\b/.test(cmd);
 }
 
-// Run hook mode when stdin is not a TTY (i.e., piped payload from Claude Code)
-if (!process.stdin.isTTY) {
-  let raw = '';
-  process.stdin.setEncoding('utf8');
-  process.stdin.on('data', (chunk) => { raw += chunk; });
-  process.stdin.on('end', () => {
-    let data;
-    try {
-      data = JSON.parse(raw);
-    } catch (_) {
-      // Not valid JSON — not a hook payload, exit silently
-      process.exit(0);
+// Run hook mode when called as main module (stdin payload from Claude Code).
+// readStdinIfMain guards against hanging when required by tests.
+readStdinIfMain(module, (data) => {
+  // CLI --invariants mode is handled separately below; if we're here,
+  // we got a JSON payload on stdin (PostToolUse hook invocation).
+  if (process.argv.includes('--invariants')) return;
+
+  const toolName = data.tool_name || '';
+  const toolInput = data.tool_input || {};
+
+  // Only run after a git commit bash call
+  if (!isGitCommitBash(toolName, toolInput)) {
+    process.exit(0);
+  }
+
+  const cwd = data.cwd || process.cwd();
+
+  const diff = extractDiffFromLastCommit(cwd);
+  if (!diff) {
+    // No diff available (e.g. initial commit) — pass through
+    process.exit(0);
+  }
+
+  const specContent = loadActiveSpec(cwd);
+  if (!specContent) {
+    // No active spec found — not a deepflow project or no spec in progress
+    process.exit(0);
+  }
+
+  const results = checkInvariants(diff, specContent, { mode: 'auto', taskType: 'implementation', projectRoot: cwd });
+
+  if (results.hard.length > 0) {
+    console.error('[df-invariant-check] Hard invariant failures detected:');
+    const outputLines = formatOutput(results);
+    for (const line of outputLines) {
+      if (results.hard.some((v) => formatViolation(v) === line)) {
+        console.error(`  ${line}`);
+      }
     }
+    process.exit(1);
+  }
 
-    try {
-      const toolName = data.tool_name || '';
-      const toolInput = data.tool_input || {};
-
-      // Only run after a git commit bash call
-      if (!isGitCommitBash(toolName, toolInput)) {
-        process.exit(0);
-      }
-
-      const cwd = data.cwd || process.cwd();
-
-      const diff = extractDiffFromLastCommit(cwd);
-      if (!diff) {
-        // No diff available (e.g. initial commit) — pass through
-        process.exit(0);
-      }
-
-      const specContent = loadActiveSpec(cwd);
-      if (!specContent) {
-        // No active spec found — not a deepflow project or no spec in progress
-        process.exit(0);
-      }
-
-      const results = checkInvariants(diff, specContent, { mode: 'auto', taskType: 'implementation', projectRoot: cwd });
-
-      if (results.hard.length > 0) {
-        console.error('[df-invariant-check] Hard invariant failures detected:');
-        const outputLines = formatOutput(results);
-        for (const line of outputLines) {
-          if (results.hard.some((v) => formatViolation(v) === line)) {
-            console.error(`  ${line}`);
-          }
-        }
-        process.exit(1);
-      }
-
-      if (results.advisory.length > 0) {
-        console.warn('[df-invariant-check] Advisory warnings:');
-        for (const v of results.advisory) {
-          console.warn(`  ${formatViolation(v)}`);
-        }
-      }
-
-      process.exit(0);
-    } catch (_err) {
-      // Unexpected error — fail open so we never break non-deepflow projects
-      process.exit(0);
+  if (results.advisory.length > 0) {
+    console.warn('[df-invariant-check] Advisory warnings:');
+    for (const v of results.advisory) {
+      console.warn(`  ${formatViolation(v)}`);
     }
-  });
-} else {
+  }
+});
 
 // ── CLI entry point (REQ-6) ───────────────────────────────────────────────────
-if (require.main === module) {
+if (require.main === module && process.argv.includes('--invariants')) {
   const args = process.argv.slice(2);
 
   // Parse --invariants <spec-path> <diff-file>
   const invariantsIdx = args.indexOf('--invariants');
-  if (invariantsIdx === -1 || args.length < invariantsIdx + 3) {
+  if (args.length < invariantsIdx + 3) {
     console.error('Usage: df-invariant-check.js --invariants <spec-file.md> <diff-file>');
     console.error('');
     console.error('Options:');
@@ -1257,8 +1243,6 @@ if (require.main === module) {
 
   process.exit(results.hard.length > 0 ? 1 : 0);
 }
-
-} // end else (TTY / CLI mode)
 
 module.exports = {
   checkInvariants,
