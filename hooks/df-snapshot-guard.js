@@ -19,6 +19,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { readStdinIfMain } = require('./lib/hook-stdin');
 
 function loadSnapshotPaths(cwd) {
   try {
@@ -55,52 +56,43 @@ function isSnapshotFile(filePath, snapshotPaths, cwd) {
   return false;
 }
 
-let raw = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', chunk => { raw += chunk; });
-process.stdin.on('end', () => {
-  try {
-    const data = JSON.parse(raw);
-    const toolName = data.tool_name || '';
+readStdinIfMain(module, (data) => {
+  const toolName = data.tool_name || '';
 
-    // Only guard Write and Edit
-    if (toolName !== 'Write' && toolName !== 'Edit') {
-      process.exit(0);
-    }
-
-    const filePath = (data.tool_input && data.tool_input.file_path) || '';
-    const cwd = data.cwd || process.cwd();
-
-    if (!filePath) {
-      process.exit(0);
-    }
-
-    const snapshotPaths = loadSnapshotPaths(cwd);
-
-    // No snapshot file present — not a deepflow project or ratchet not initialized
-    if (snapshotPaths === null) {
-      process.exit(0);
-    }
-
-    // Empty snapshot — nothing to protect
-    if (snapshotPaths.length === 0) {
-      process.exit(0);
-    }
-
-    if (!isSnapshotFile(filePath, snapshotPaths, cwd)) {
-      process.exit(0);
-    }
-
-    // File is in the snapshot — block the write
-    console.error(
-      `[df-snapshot-guard] Blocked ${toolName} to "${filePath}" — this file is listed in ` +
-      `.deepflow/auto-snapshot.txt (ratchet baseline). ` +
-      `Pre-existing test files must not be modified by agents. ` +
-      `If you need to update this file, do so manually outside the autonomous loop.`
-    );
-    process.exit(1);
-  } catch (_e) {
-    // Parse or unexpected error — fail open so we never break non-deepflow projects
-    process.exit(0);
+  // Only guard Write and Edit
+  if (toolName !== 'Write' && toolName !== 'Edit') {
+    return;
   }
+
+  const filePath = (data.tool_input && data.tool_input.file_path) || '';
+  const cwd = data.cwd || process.cwd();
+
+  if (!filePath) {
+    return;
+  }
+
+  const snapshotPaths = loadSnapshotPaths(cwd);
+
+  // No snapshot file present — not a deepflow project or ratchet not initialized
+  if (snapshotPaths === null) {
+    return;
+  }
+
+  // Empty snapshot — nothing to protect
+  if (snapshotPaths.length === 0) {
+    return;
+  }
+
+  if (!isSnapshotFile(filePath, snapshotPaths, cwd)) {
+    return;
+  }
+
+  // File is in the snapshot — block the write
+  console.error(
+    `[df-snapshot-guard] Blocked ${toolName} to "${filePath}" — this file is listed in ` +
+    `.deepflow/auto-snapshot.txt (ratchet baseline). ` +
+    `Pre-existing test files must not be modified by agents. ` +
+    `If you need to update this file, do so manually outside the autonomous loop.`
+  );
+  process.exit(1);
 });

@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { readStdinIfMain } = require('./lib/hook-stdin');
 
 // ANSI colors
 const colors = {
@@ -21,18 +22,8 @@ const colors = {
   cyan: '\x1b[36m'
 };
 
-// Read JSON from stdin
-let input = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', chunk => input += chunk);
-process.stdin.on('end', () => {
-  try {
-    const data = JSON.parse(input);
-    console.log(buildStatusLine(data));
-  } catch (e) {
-    // Fail silently to avoid breaking statusline
-    console.log('');
-  }
+readStdinIfMain(module, (data) => {
+  console.log(buildStatusLine(data));
 });
 
 function buildStatusLine(data) {
