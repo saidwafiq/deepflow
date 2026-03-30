@@ -316,7 +316,23 @@ Spawn Agent(model="haiku", run_in_background=false):
 
 Trigger: task has `Optimize:` block. One at a time, N cycles until stop condition.
 
-**Init:** Parse metric/target/direction/max_cycles/secondary_metrics. Load or init `optimize_state` in auto-memory.yaml (fields: task_id, metric_command, target, direction, baseline, current_best, best_commit, cycles_run, cycles_without_improvement, consecutive_reverts, probe_scale, max_cycles, history[], failed_hypotheses[]). Measure baseline (`eval` with cwd=worktree) → store as baseline+current_best. Measure secondaries. Target met → mark `[x]`, done.
+**Init:** Parse metric/target/direction/max_cycles/secondary_metrics from the task's `Optimize:` block. The `metric:` field is a **reference key**, not a shell command.
+
+**Resolve `metric_command` from config.yaml (required):**
+```
+CONFIG=!`cat .deepflow/config.yaml 2>/dev/null || echo 'NOT_FOUND'`
+```
+Parse YAML: look for `optimize.metric_command` or `metric_commands.{metric_key}` where `{metric_key}` matches the `metric:` field from the task's `Optimize:` block.
+
+**If `metric_command` is absent from config.yaml → REFUSE and halt this task:**
+```
+ERROR: metric_command for "{metric_key}" is not defined in .deepflow/config.yaml.
+Add it under `optimize.metric_command` or `metric_commands.{metric_key}` before retrying.
+Task "{task_id}" will not execute.
+```
+Set `TaskUpdate(status: "pending")`. Do NOT proceed to baseline measurement or cycle loop.
+
+**If `metric_command` resolves → continue:** Load or init `optimize_state` in auto-memory.yaml (fields: task_id, metric_command, target, direction, baseline, current_best, best_commit, cycles_run, cycles_without_improvement, consecutive_reverts, probe_scale, max_cycles, history[], failed_hypotheses[]). Measure baseline (`eval` with cwd=worktree) → store as baseline+current_best. Measure secondaries. Target met → mark `[x]`, done.
 
 **Cycle loop:**
 ```

@@ -141,6 +141,7 @@ const TAGS = {
   STUB: 'STUB',               // Incomplete stub left in production code
   PHANTOM: 'PHANTOM',         // Reference to non-existent symbol/file/function
   SCOPE_GAP: 'SCOPE_GAP',     // Implementation goes beyond or falls short of spec scope
+  CONFIG_GUARD: 'CONFIG_GUARD', // config.yaml/yml modified inside a worktree path
 };
 
 // ── Diff parsing ──────────────────────────────────────────────────────────────
@@ -948,6 +949,43 @@ function formatOutput(results) {
 // ── Core API ──────────────────────────────────────────────────────────────────
 
 /**
+ * REQ-3: Guard against creation or modification of .deepflow/config.yaml (or config.yml)
+ * inside worktree paths. Agents must never alter project-level config from a worktree.
+ *
+ * Matches `+++ b/` diff header lines whose path contains `.deepflow/config.yaml` or
+ * `.deepflow/config.yml`, regardless of worktree depth.
+ *
+ * Always HARD severity — no advisory variant. Tag: [CONFIG_GUARD]
+ *
+ * @param {Array} files - Parsed diff files
+ * @param {string} specContent - Raw spec markdown (unused, kept for uniform signature)
+ * @param {string} taskType - Task type (unused, check always runs)
+ * @returns {Array<{ file: string, line: number, tag: string, description: string }>}
+ */
+function checkConfigYamlGuard(files, specContent, taskType) { // eslint-disable-line no-unused-vars
+  const violations = [];
+
+  // Pattern matches .deepflow/config.yaml or .deepflow/config.yml anywhere in the path,
+  // which covers worktree sub-paths like .claude/worktrees/agent-xyz/.deepflow/config.yaml
+  const CONFIG_PATTERN = /\.deepflow\/config\.ya?ml$/;
+
+  for (const f of files) {
+    if (CONFIG_PATTERN.test(f.file)) {
+      violations.push({
+        file: f.file,
+        line: 1,
+        tag: TAGS.CONFIG_GUARD,
+        description:
+          `[CONFIG_GUARD] Modification of "${f.file}" detected inside a worktree. ` +
+          'Agents must not create or modify .deepflow/config.yaml from within a worktree.',
+      });
+    }
+  }
+
+  return violations;
+}
+
+/**
  * Check implementation diffs against spec invariants.
  *
  * @param {string} diff - Raw unified diff text
@@ -1010,6 +1048,10 @@ function checkInvariants(diff, specContent, opts = {}) {
   // REQ-4b: REQ-N only in tests, not in production source
   const reqOnlyInTestsViolations = checkReqOnlyInTests(files, specContent, taskType);
   hard.push(...reqOnlyInTestsViolations);
+
+  // REQ-3: config.yaml guard — always hard, no advisory variant
+  const configGuardViolations = checkConfigYamlGuard(files, specContent, taskType);
+  hard.push(...configGuardViolations);
 
   // ── Auto-mode escalation (REQ-9) ─────────────────────────────────────────
   // In auto mode (non-interactive CI/hook runs), all advisory items are promoted
@@ -1231,4 +1273,5 @@ module.exports = {
   checkReqOnlyInTests,
   checkPhantoms,
   checkScopeGaps,
+  checkConfigYamlGuard,
 };

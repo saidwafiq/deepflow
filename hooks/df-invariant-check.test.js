@@ -15,7 +15,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { isBinaryAvailable } = require('./df-invariant-check');
+const { isBinaryAvailable, checkConfigYamlGuard } = require('./df-invariant-check');
 
 const HOOK_SOURCE = fs.readFileSync(
   path.resolve(__dirname, 'df-invariant-check.js'),
@@ -136,6 +136,119 @@ describe('extractDiffFromLastCommit implementation', () => {
     assert.ok(
       /execFileSync\(\s*['"]git['"]\s*,\s*\[/.test(fnBody),
       'git arguments should be passed as an array (second argument to execFileSync)'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. checkConfigYamlGuard — config.yaml/yml modification detection
+// ---------------------------------------------------------------------------
+
+describe('checkConfigYamlGuard', () => {
+  // Helper: build a minimal parsed-file object matching the shape used by check functions
+  function makeFiles(...paths) {
+    return paths.map((p) => ({ file: p, chunks: [] }));
+  }
+
+  test('detects .deepflow/config.yaml modification as HARD violation', () => {
+    const files = makeFiles('.deepflow/config.yaml');
+    const violations = checkConfigYamlGuard(files, '', 'implementation');
+
+    assert.equal(violations.length, 1);
+    assert.equal(violations[0].tag, 'CONFIG_GUARD');
+    assert.equal(violations[0].file, '.deepflow/config.yaml');
+    assert.equal(violations[0].line, 1);
+    assert.ok(violations[0].description.includes('[CONFIG_GUARD]'));
+  });
+
+  test('detects .deepflow/config.yml variant as HARD violation', () => {
+    const files = makeFiles('.deepflow/config.yml');
+    const violations = checkConfigYamlGuard(files, '', 'implementation');
+
+    assert.equal(violations.length, 1);
+    assert.equal(violations[0].tag, 'CONFIG_GUARD');
+    assert.equal(violations[0].file, '.deepflow/config.yml');
+  });
+
+  test('detects config.yaml inside a worktree sub-path', () => {
+    const worktreePath = '.claude/worktrees/agent-abc123/.deepflow/config.yaml';
+    const files = makeFiles(worktreePath);
+    const violations = checkConfigYamlGuard(files, '', 'implementation');
+
+    assert.equal(violations.length, 1);
+    assert.equal(violations[0].tag, 'CONFIG_GUARD');
+    assert.equal(violations[0].file, worktreePath);
+  });
+
+  test('detects config.yml inside a deeply nested worktree path', () => {
+    const deepPath = 'some/deep/path/.deepflow/config.yml';
+    const files = makeFiles(deepPath);
+    const violations = checkConfigYamlGuard(files, '', 'implementation');
+
+    assert.equal(violations.length, 1);
+    assert.equal(violations[0].tag, 'CONFIG_GUARD');
+  });
+
+  test('returns no violations for non-config files', () => {
+    const files = makeFiles(
+      'src/index.js',
+      'hooks/df-invariant-check.js',
+      'package.json',
+      '.deepflow/decisions.md'
+    );
+    const violations = checkConfigYamlGuard(files, '', 'implementation');
+
+    assert.equal(violations.length, 0);
+  });
+
+  test('ignores files that partially match but are not config.yaml/yml', () => {
+    const files = makeFiles(
+      '.deepflow/config.yaml.bak',
+      '.deepflow/config.yamls',
+      '.deepflow/my-config.yaml',
+      'config.yaml'  // not under .deepflow/
+    );
+    const violations = checkConfigYamlGuard(files, '', 'implementation');
+
+    assert.equal(violations.length, 0);
+  });
+
+  test('returns one violation per matching file when multiple configs present', () => {
+    const files = makeFiles(
+      '.deepflow/config.yaml',
+      '.claude/worktrees/agent-xyz/.deepflow/config.yml'
+    );
+    const violations = checkConfigYamlGuard(files, '', 'implementation');
+
+    assert.equal(violations.length, 2);
+    assert.equal(violations[0].tag, 'CONFIG_GUARD');
+    assert.equal(violations[1].tag, 'CONFIG_GUARD');
+  });
+
+  test('returns empty array when files list is empty', () => {
+    const violations = checkConfigYamlGuard([], '', 'implementation');
+    assert.equal(violations.length, 0);
+  });
+
+  test('works regardless of specContent and taskType arguments', () => {
+    const files = makeFiles('.deepflow/config.yaml');
+
+    // Different specContent and taskType should not affect the result
+    const v1 = checkConfigYamlGuard(files, 'some spec content', 'spike');
+    const v2 = checkConfigYamlGuard(files, '', 'bootstrap');
+
+    assert.equal(v1.length, 1);
+    assert.equal(v2.length, 1);
+  });
+
+  test('violation description mentions the offending file path', () => {
+    const targetPath = '.claude/worktrees/agent-foo/.deepflow/config.yaml';
+    const files = makeFiles(targetPath);
+    const violations = checkConfigYamlGuard(files, '', 'implementation');
+
+    assert.ok(
+      violations[0].description.includes(targetPath),
+      'description should include the exact file path'
     );
   });
 });
