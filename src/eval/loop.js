@@ -18,7 +18,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const { buildMutatorPrompt } = require('./mutator-prompt');
 const { collectMetrics } = require('./metric-collector');
 const { commitExperiment, revertExperiment, getExperimentHistory } = require('./git-memory');
@@ -42,7 +42,7 @@ function createEvalWorktree(repoRoot, skillName) {
   const worktreePath = path.join(worktreeBase, `eval-${skillName}-${timestamp}`);
 
   // Create orphan branch from current HEAD
-  execSync(`git worktree add -b "${branch}" "${worktreePath}" HEAD`, {
+  execFileSync('git', ['worktree', 'add', '-b', branch, worktreePath, 'HEAD'], {
     cwd: repoRoot,
     stdio: 'pipe',
   });
@@ -58,7 +58,7 @@ function createEvalWorktree(repoRoot, skillName) {
  */
 function removeEvalWorktree(repoRoot, worktreePath) {
   try {
-    execSync(`git worktree remove "${worktreePath}" --force`, {
+    execFileSync('git', ['worktree', 'remove', worktreePath, '--force'], {
       cwd: repoRoot,
       stdio: 'pipe',
     });
