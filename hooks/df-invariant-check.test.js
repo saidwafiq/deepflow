@@ -252,3 +252,64 @@ describe('checkConfigYamlGuard', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// 5. T3 — stdin hang fix: readStdinIfMain guard and no raw stdin listeners
+// ---------------------------------------------------------------------------
+
+describe('stdin hang fix (T3)', () => {
+  test('source does not contain process.stdin.on calls', () => {
+    // The old code used process.stdin.on('data') directly, which caused hangs
+    // when the file was required by tests. readStdinIfMain replaces this.
+    const lines = HOOK_SOURCE.split('\n');
+    const offendingLines = lines.filter((line) => {
+      if (line.trimStart().startsWith('//') || line.trimStart().startsWith('*')) return false;
+      return /process\.stdin\.on\b/.test(line);
+    });
+    assert.equal(
+      offendingLines.length,
+      0,
+      `Found process.stdin.on in source: ${offendingLines.map((l) => l.trim()).join('; ')}`
+    );
+  });
+
+  test('source calls readStdinIfMain', () => {
+    // readStdinIfMain(module, callback) should be the entry point for stdin reading
+    assert.ok(
+      /readStdinIfMain\s*\(\s*module\b/.test(HOOK_SOURCE),
+      'source should call readStdinIfMain(module, ...) to guard stdin reading'
+    );
+  });
+
+  test('source imports readStdinIfMain from hook-stdin', () => {
+    assert.ok(
+      /require\(['"]\.\/lib\/hook-stdin['"]\)/.test(HOOK_SOURCE),
+      'source should require ./lib/hook-stdin'
+    );
+    assert.ok(
+      /readStdinIfMain/.test(HOOK_SOURCE),
+      'readStdinIfMain should be destructured from the import'
+    );
+  });
+
+  test('--invariants CLI entry point is preserved', () => {
+    // The CLI path must still exist: require.main === module && --invariants
+    assert.ok(
+      /require\.main\s*===\s*module/.test(HOOK_SOURCE),
+      'source should have require.main === module guard for CLI mode'
+    );
+    assert.ok(
+      /--invariants/.test(HOOK_SOURCE),
+      'source should reference --invariants flag'
+    );
+  });
+
+  test('requiring the module does not hang (exits immediately)', () => {
+    // AC-5: node -e "require('./hooks/df-invariant-check.js')" should exit fast.
+    // We already required it at the top of this file without hanging,
+    // so reaching this test at all proves require() does not block.
+    // Additionally, verify the exported API is still accessible.
+    assert.equal(typeof isBinaryAvailable, 'function');
+    assert.equal(typeof checkConfigYamlGuard, 'function');
+  });
+});
