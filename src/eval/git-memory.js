@@ -1,6 +1,6 @@
 'use strict';
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 /**
  * Formats the commit message for an experiment commit.
@@ -30,10 +30,10 @@ function commitExperiment({ cwd, skillName, hypothesis, target, value, delta, st
   const message = formatCommitMessage({ skillName, hypothesis, target, value, delta, status, secondaries });
 
   // Stage all changes so the commit captures the experiment state
-  execSync('git add -A', { cwd, stdio: 'pipe' });
-  execSync(`git commit -m ${JSON.stringify(message)}`, { cwd, stdio: 'pipe' });
+  execFileSync('git', ['add', '-A'], { cwd, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-m', message], { cwd, stdio: 'pipe' });
 
-  const hash = execSync('git rev-parse --short HEAD', { cwd, stdio: 'pipe' }).toString().trim();
+  const hash = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd, stdio: 'pipe' }).toString().trim();
   return hash;
 }
 
@@ -46,8 +46,8 @@ function commitExperiment({ cwd, skillName, hypothesis, target, value, delta, st
  * @returns {string} The revert commit hash (short)
  */
 function revertExperiment({ cwd }) {
-  execSync('git revert HEAD --no-edit', { cwd, stdio: 'pipe' });
-  const hash = execSync('git rev-parse --short HEAD', { cwd, stdio: 'pipe' }).toString().trim();
+  execFileSync('git', ['revert', 'HEAD', '--no-edit'], { cwd, stdio: 'pipe' });
+  const hash = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd, stdio: 'pipe' }).toString().trim();
   return hash;
 }
 
@@ -100,8 +100,8 @@ function queryExperiments({ cwd, skillName }) {
 
   let output;
   try {
-    output = execSync(
-      `git log --grep=${JSON.stringify(grepPattern)} --format="%H %s"`,
+    output = execFileSync(
+      'git', ['log', `--grep=${grepPattern}`, '--format=%H %s'],
       { cwd, stdio: 'pipe' }
     ).toString().trim();
   } catch {
