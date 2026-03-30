@@ -5,7 +5,134 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
+
+// ---------------------------------------------------------------------------
+// Source-level security checks: execSync → execFileSync migration
+// ---------------------------------------------------------------------------
+
+const GIT_MEMORY_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, 'git-memory.js'),
+  'utf8'
+);
+
+describe('security-hardening: execSync removal (source grep)', () => {
+  it('source does not import execSync from child_process', () => {
+    const importPattern = /\brequire\(['"]child_process['"]\).*\bexecSync\b/;
+    assert.strictEqual(
+      importPattern.test(GIT_MEMORY_SOURCE),
+      false,
+      'execSync should not appear in the child_process require statement'
+    );
+  });
+
+  it('source does not call execSync anywhere in non-comment lines', () => {
+    const lines = GIT_MEMORY_SOURCE.split('\n');
+    const offendingLines = lines.filter((line) => {
+      if (line.trimStart().startsWith('//') || line.trimStart().startsWith('*')) return false;
+      return /\bexecSync\b/.test(line) && !/\bexecFileSync\b/.test(line);
+    });
+    assert.strictEqual(
+      offendingLines.length,
+      0,
+      `Found bare execSync usage on lines: ${offendingLines.map((l) => l.trim()).join('; ')}`
+    );
+  });
+
+  it('source imports execFileSync from child_process', () => {
+    const pattern = /\{\s*execFileSync\s*\}\s*=\s*require\(['"]child_process['"]\)/;
+    assert.ok(
+      pattern.test(GIT_MEMORY_SOURCE),
+      'execFileSync should be destructured from child_process require'
+    );
+  });
+
+  it('all execFileSync calls use array form for arguments (no shell strings)', () => {
+    // Match execFileSync calls and verify they pass an array as second arg
+    // Pattern: execFileSync('git', [...], ...)  — the second arg should be [
+    const callPattern = /execFileSync\(\s*'git'\s*,\s*\[/g;
+    const allCallPattern = /execFileSync\(/g;
+    const arrayCallCount = (GIT_MEMORY_SOURCE.match(callPattern) || []).length;
+    const totalCallCount = (GIT_MEMORY_SOURCE.match(allCallPattern) || []).length;
+    assert.ok(totalCallCount > 0, 'should have at least one execFileSync call');
+    assert.strictEqual(
+      arrayCallCount,
+      totalCallCount,
+      `All ${totalCallCount} execFileSync calls should use array form; found ${arrayCallCount} with array args`
+    );
+  });
+
+  it('no shell metacharacter interpolation via template literals in exec calls', () => {
+    // Ensure no backtick template strings are used inside execFileSync calls
+    // that could allow injection (e.g., execFileSync(`git commit -m ${msg}`))
+    const lines = GIT_MEMORY_SOURCE.split('\n');
+    const dangerousLines = lines.filter((line) => {
+      if (line.trimStart().startsWith('//') || line.trimStart().startsWith('*')) return false;
+      // execFileSync with a backtick-templated first argument
+      return /execFileSync\s*\(\s*`/.test(line);
+    });
+    assert.strictEqual(
+      dangerousLines.length,
+      0,
+      `Found template-literal exec calls: ${dangerousLines.map((l) => l.trim()).join('; ')}`
+    );
+  });
+});
+
+describe('security-hardening: shell injection resistance (behavioral)', () => {
+  let cwd;
+
+  before(() => {
+    cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'git-memory-sec-'));
+    execSync('git init', { cwd, stdio: 'pipe' });
+    execSync('git config user.email "test@test.com"', { cwd, stdio: 'pipe' });
+    execSync('git config user.name "Test"', { cwd, stdio: 'pipe' });
+    fs.writeFileSync(path.join(cwd, 'README.md'), '# test\n');
+    execSync('git add -A && git commit -m "initial"', { cwd, stdio: 'pipe' });
+  });
+
+  after(() => {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it('commit message with shell metacharacters is stored literally', () => {
+    // If execSync were used with string interpolation, these chars would cause
+    // shell interpretation or errors. With execFileSync + array args, they pass through.
+    fs.writeFileSync(path.join(cwd, 'sec.txt'), 'test\n');
+    commitExperiment({
+      cwd,
+      skillName: 'test$(whoami)',
+      hypothesis: 'inject; rm -rf /',
+      target: 'metric',
+      value: '1',
+      delta: '0',
+      status: 'pass',
+      secondaries: '`echo pwned`',
+    });
+
+    const subject = execSync('git log -1 --format=%s', { cwd, stdio: 'pipe' }).toString().trim();
+    assert.ok(
+      subject.includes('test$(whoami)'),
+      'Shell substitution $(whoami) should be stored literally in commit message'
+    );
+    assert.ok(
+      subject.includes('inject; rm -rf /'),
+      'Shell metacharacters should be stored literally in commit message'
+    );
+    assert.ok(
+      subject.includes('`echo pwned`'),
+      'Backtick command substitution should be stored literally in commit message'
+    );
+  });
+
+  it('commit with pipe and backtick chars in secondaries is preserved', () => {
+    // Verify that the commit subject stored the metacharacters literally
+    const subject = execSync('git log -1 --format=%s', { cwd, stdio: 'pipe' }).toString().trim();
+    // The backtick and semicolon chars should appear verbatim, not interpreted
+    assert.ok(subject.includes('`echo pwned`'), 'backtick command substitution in secondaries should be literal');
+    assert.ok(subject.includes('; rm -rf /'), 'semicolons should be literal in hypothesis');
+  });
+});
 
 const {
   commitExperiment,
