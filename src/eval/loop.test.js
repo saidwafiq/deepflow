@@ -238,6 +238,164 @@ describe('removeEvalWorktree', () => {
   });
 });
 
+// --- Security: execFileSync usage (shell injection prevention) ---
+
+describe('security: execFileSync prevents shell injection in worktree functions', () => {
+  // Verify that the source code uses execFileSync (not execSync) for git worktree commands.
+  // This is the core behavioral guarantee of the security-hardening-wave2 T2 change.
+
+  const loopSrc = fs.readFileSync(path.join(__dirname, 'loop.js'), 'utf8');
+
+  it('createEvalWorktree uses execFileSync, not execSync, for git worktree add', () => {
+    // Extract the createEvalWorktree function body
+    const fnMatch = loopSrc.match(/function createEvalWorktree\b[\s\S]*?^}/m);
+    assert.ok(fnMatch, 'should find createEvalWorktree function in source');
+    const fnBody = fnMatch[0];
+
+    assert.ok(
+      fnBody.includes('execFileSync'),
+      'createEvalWorktree should use execFileSync'
+    );
+    assert.ok(
+      !fnBody.includes('execSync('),
+      'createEvalWorktree should NOT use execSync (shell-based)'
+    );
+  });
+
+  it('removeEvalWorktree uses execFileSync, not execSync, for git worktree remove', () => {
+    const fnMatch = loopSrc.match(/function removeEvalWorktree\b[\s\S]*?^}/m);
+    assert.ok(fnMatch, 'should find removeEvalWorktree function in source');
+    const fnBody = fnMatch[0];
+
+    assert.ok(
+      fnBody.includes('execFileSync'),
+      'removeEvalWorktree should use execFileSync'
+    );
+    assert.ok(
+      !fnBody.includes('execSync('),
+      'removeEvalWorktree should NOT use execSync (shell-based)'
+    );
+  });
+
+  it('execFileSync is called with array arguments (not string interpolation)', () => {
+    // Verify the pattern: execFileSync('git', [...], ...)
+    // The array form prevents shell metacharacter interpretation
+    const arrayCallPattern = /execFileSync\(\s*'git'\s*,\s*\[/g;
+    const matches = loopSrc.match(arrayCallPattern);
+    assert.ok(matches, 'should find execFileSync calls with array args');
+    assert.ok(matches.length >= 2, `expected at least 2 execFileSync array calls, found ${matches.length}`);
+  });
+});
+
+describe('createEvalWorktree: shell metacharacters in skill name are safe', () => {
+  let repoDir;
+
+  before(() => {
+    repoDir = createTempRepo();
+  });
+
+  after(() => {
+    cleanupRepo(repoDir);
+  });
+
+  it('skill names with semicolons cause git error, not shell injection', () => {
+    // With execSync, 'skill;touch /tmp/pwned' would execute the touch command.
+    // With execFileSync, it is passed as a literal arg to git, which rejects
+    // the invalid branch name. The key: no side-effect file is created.
+    const markerFile = path.join(os.tmpdir(), `injection-marker-${Date.now()}`);
+    const maliciousName = `skill;touch ${markerFile}`;
+
+    assert.throws(
+      () => createEvalWorktree(repoDir, maliciousName),
+      /Command failed/,
+      'git should reject the invalid branch name'
+    );
+
+    // Crucially: the touch command was NOT executed by a shell
+    assert.ok(
+      !fs.existsSync(markerFile),
+      'shell injection side-effect should not exist — execFileSync does not interpret semicolons'
+    );
+  });
+
+  it('skill names with $() cause git error, not command substitution', () => {
+    const markerFile = path.join(os.tmpdir(), `injection-marker-subst-${Date.now()}`);
+    const maliciousName = `skill$(touch ${markerFile})`;
+
+    assert.throws(
+      () => createEvalWorktree(repoDir, maliciousName),
+      /Command failed/,
+      'git should reject the invalid branch name'
+    );
+
+    assert.ok(
+      !fs.existsSync(markerFile),
+      'command substitution should not execute — execFileSync does not expand $()'
+    );
+  });
+
+  it('skill names with backticks cause git error, not command substitution', () => {
+    const markerFile = path.join(os.tmpdir(), `injection-marker-bt-${Date.now()}`);
+    const maliciousName = 'skill`touch ' + markerFile + '`';
+
+    assert.throws(
+      () => createEvalWorktree(repoDir, maliciousName),
+      /Command failed/,
+      'git should reject the invalid branch name'
+    );
+
+    assert.ok(
+      !fs.existsSync(markerFile),
+      'backtick command substitution should not execute'
+    );
+  });
+
+  it('valid skill names with hyphens and dots work correctly', () => {
+    // Ensure the function still works with normal skill names after the change
+    const { branch, worktreePath } = createEvalWorktree(repoDir, 'my-skill.v2');
+
+    assert.ok(branch.startsWith('eval/my-skill.v2/'));
+    assert.ok(fs.existsSync(worktreePath));
+
+    removeEvalWorktree(repoDir, worktreePath);
+  });
+});
+
+describe('removeEvalWorktree: shell metacharacters in path are safe', () => {
+  let repoDir;
+
+  before(() => {
+    repoDir = createTempRepo();
+  });
+
+  after(() => {
+    cleanupRepo(repoDir);
+  });
+
+  it('does not throw for path with shell metacharacters when worktree missing', () => {
+    // With execSync, this path could cause shell injection.
+    // With execFileSync, it is safely passed as a literal argument.
+    const fakePath = path.join(os.tmpdir(), 'fake;rm -rf /');
+    assert.doesNotThrow(() => {
+      removeEvalWorktree(repoDir, fakePath);
+    });
+  });
+
+  it('path with $() does not trigger command substitution', () => {
+    const markerFile = path.join(os.tmpdir(), `remove-injection-${Date.now()}`);
+    const fakePath = `$(touch ${markerFile})`;
+
+    assert.doesNotThrow(() => {
+      removeEvalWorktree(repoDir, fakePath);
+    });
+
+    assert.ok(
+      !fs.existsSync(markerFile),
+      'command substitution in path should not execute'
+    );
+  });
+});
+
 // --- runGuardCheck ---
 
 describe('runGuardCheck', () => {
