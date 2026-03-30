@@ -18,6 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { readStdinIfMain } = require('./lib/hook-stdin');
 
 /**
  * Locate the explore-protocol.md template.
@@ -34,50 +35,40 @@ function findProtocol(cwd) {
   return null;
 }
 
-let raw = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', chunk => raw += chunk);
-process.stdin.on('end', () => {
-  try {
-    const payload = JSON.parse(raw);
-    const { tool_name, tool_input, cwd } = payload;
+readStdinIfMain(module, (payload) => {
+  const { tool_name, tool_input, cwd } = payload;
 
-    // Only intercept Agent calls with subagent_type "Explore"
-    if (tool_name !== 'Agent') {
-      process.exit(0);
-    }
-    const subagentType = (tool_input.subagent_type || '').toLowerCase();
-    if (subagentType !== 'explore') {
-      process.exit(0);
-    }
-
-    const protocolPath = findProtocol(cwd || process.cwd());
-    if (!protocolPath) {
-      // No template found — allow without modification
-      process.exit(0);
-    }
-
-    const protocol = fs.readFileSync(protocolPath, 'utf8').trim();
-    const originalPrompt = tool_input.prompt || '';
-
-    // Append protocol as a system-level suffix the agent must follow
-    const updatedPrompt = `${originalPrompt}\n\n---\n## Search Protocol (auto-injected — MUST follow)\n\n${protocol}`;
-
-    const result = {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'allow',
-        updatedInput: {
-          ...tool_input,
-          prompt: updatedPrompt,
-        },
-      },
-    };
-
-    process.stdout.write(JSON.stringify(result));
-    process.exit(0);
-  } catch {
-    // Never break Claude Code
-    process.exit(0);
+  // Only intercept Agent calls with subagent_type "Explore"
+  if (tool_name !== 'Agent') {
+    return;
   }
+  const subagentType = (tool_input.subagent_type || '').toLowerCase();
+  if (subagentType !== 'explore') {
+    return;
+  }
+
+  const protocolPath = findProtocol(cwd || process.cwd());
+  if (!protocolPath) {
+    // No template found — allow without modification
+    return;
+  }
+
+  const protocol = fs.readFileSync(protocolPath, 'utf8').trim();
+  const originalPrompt = tool_input.prompt || '';
+
+  // Append protocol as a system-level suffix the agent must follow
+  const updatedPrompt = `${originalPrompt}\n\n---\n## Search Protocol (auto-injected — MUST follow)\n\n${protocol}`;
+
+  const result = {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'allow',
+      updatedInput: {
+        ...tool_input,
+        prompt: updatedPrompt,
+      },
+    },
+  };
+
+  process.stdout.write(JSON.stringify(result));
 });

@@ -14,6 +14,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { readStdinIfMain } = require('./lib/hook-stdin');
 
 /**
  * Extract task_id from Agent prompt.
@@ -61,61 +62,50 @@ function resolveProjectRoot(cwd) {
   return cwd;
 }
 
-// Read all stdin, then process
-let raw = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', chunk => { raw += chunk; });
-process.stdin.on('end', () => {
-  try {
-    const data = JSON.parse(raw);
-
-    // Only fire for Agent tool calls
-    if (data.tool_name !== 'Agent') {
-      process.exit(0);
-    }
-
-    const prompt = (data.tool_input && data.tool_input.prompt) || '';
-    const taskId = extractTaskId(prompt);
-
-    // Only record if we have a task_id
-    if (!taskId) {
-      process.exit(0);
-    }
-
-    const cwd = data.cwd || process.cwd();
-    const projectRoot = resolveProjectRoot(cwd);
-    const historyFile = path.join(projectRoot, '.deepflow', 'execution-history.jsonl');
-
-    const timestamp = new Date().toISOString();
-    const sessionId = data.session_id || null;
-    const spec = extractSpec(prompt);
-    const status = extractStatus(data.tool_response);
-
-    const startRecord = {
-      type: 'task_start',
-      task_id: taskId,
-      spec,
-      session_id: sessionId,
-      timestamp,
-    };
-
-    const endRecord = {
-      type: 'task_end',
-      task_id: taskId,
-      session_id: sessionId,
-      status,
-      timestamp,
-    };
-
-    const logDir = path.dirname(historyFile);
-    if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true });
-    }
-
-    fs.appendFileSync(historyFile, JSON.stringify(startRecord) + '\n');
-    fs.appendFileSync(historyFile, JSON.stringify(endRecord) + '\n');
-  } catch (_e) {
-    // Fail silently — never break tool execution (REQ-8)
+readStdinIfMain(module, (data) => {
+  // Only fire for Agent tool calls
+  if (data.tool_name !== 'Agent') {
+    return;
   }
-  process.exit(0);
+
+  const prompt = (data.tool_input && data.tool_input.prompt) || '';
+  const taskId = extractTaskId(prompt);
+
+  // Only record if we have a task_id
+  if (!taskId) {
+    return;
+  }
+
+  const cwd = data.cwd || process.cwd();
+  const projectRoot = resolveProjectRoot(cwd);
+  const historyFile = path.join(projectRoot, '.deepflow', 'execution-history.jsonl');
+
+  const timestamp = new Date().toISOString();
+  const sessionId = data.session_id || null;
+  const spec = extractSpec(prompt);
+  const status = extractStatus(data.tool_response);
+
+  const startRecord = {
+    type: 'task_start',
+    task_id: taskId,
+    spec,
+    session_id: sessionId,
+    timestamp,
+  };
+
+  const endRecord = {
+    type: 'task_end',
+    task_id: taskId,
+    session_id: sessionId,
+    status,
+    timestamp,
+  };
+
+  const logDir = path.dirname(historyFile);
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+
+  fs.appendFileSync(historyFile, JSON.stringify(startRecord) + '\n');
+  fs.appendFileSync(historyFile, JSON.stringify(endRecord) + '\n');
 });

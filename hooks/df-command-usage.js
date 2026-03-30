@@ -18,24 +18,20 @@
 
 const fs = require('fs');
 const path = require('path');
+const { readStdinIfMain } = require('./lib/hook-stdin');
 
 const event = process.env.CLAUDE_HOOK_EVENT || '';
 
-// Read stdin for hook payload
-let raw = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', d => raw += d);
-process.stdin.on('end', () => {
+readStdinIfMain(module, (data) => {
   try {
-    main();
+    main(data);
   } catch (_e) {
     // REQ-8: never break Claude Code
   }
-  process.exit(0);
 });
 
-function main() {
-  const baseDir = findProjectDir();
+function main(data) {
+  const baseDir = findProjectDir(data);
   if (!baseDir) return;
 
   const deepflowDir = path.join(baseDir, '.deepflow');
@@ -44,20 +40,18 @@ function main() {
   const tokenHistoryPath = path.join(deepflowDir, 'token-history.jsonl');
 
   if (event === 'PreToolUse') {
-    handlePreToolUse(deepflowDir, markerPath, usagePath, tokenHistoryPath);
+    handlePreToolUse(data, deepflowDir, markerPath, usagePath, tokenHistoryPath);
   } else if (event === 'PostToolUse') {
-    handlePostToolUse(markerPath);
+    handlePostToolUse(data, markerPath);
   } else if (event === 'SessionStart') {
-    handleSessionStart(markerPath, usagePath, tokenHistoryPath);
+    handleSessionStart(data, markerPath, usagePath, tokenHistoryPath);
   } else if (event === 'SessionEnd') {
     handleSessionEnd(deepflowDir, markerPath, usagePath, tokenHistoryPath);
   }
 }
 
-function handlePreToolUse(deepflowDir, markerPath, usagePath, tokenHistoryPath) {
-  let payload;
-  try { payload = JSON.parse(raw); } catch { return; }
-
+function handlePreToolUse(data, deepflowDir, markerPath, usagePath, tokenHistoryPath) {
+  const payload = data;
   const toolName = payload.tool_name || '';
   const toolInput = payload.tool_input || {};
 
@@ -96,12 +90,11 @@ function handlePreToolUse(deepflowDir, markerPath, usagePath, tokenHistoryPath) 
   safeWriteFile(markerPath, JSON.stringify(marker, null, 2));
 }
 
-function handlePostToolUse(markerPath) {
+function handlePostToolUse(data, markerPath) {
   if (!safeExists(markerPath)) return;
 
   // Don't count the Skill call itself (the one that opened the marker)
-  let payload;
-  try { payload = JSON.parse(raw); } catch { return; }
+  const payload = data;
   const toolName = payload.tool_name || '';
   const toolInput = payload.tool_input || {};
   if (toolName === 'Skill' && (toolInput.skill || '').startsWith('df:')) return;
@@ -119,10 +112,9 @@ function handlePostToolUse(markerPath) {
  * On /clear or /compact, context resets — close any orphaned marker.
  * Only fires for source=clear|compact (not startup/resume).
  */
-function handleSessionStart(markerPath, usagePath, tokenHistoryPath) {
+function handleSessionStart(data, markerPath, usagePath, tokenHistoryPath) {
   if (!safeExists(markerPath)) return;
-  let payload;
-  try { payload = JSON.parse(raw); } catch { return; }
+  const payload = data;
   const source = payload.source || '';
   if (source === 'clear' || source === 'compact') {
     closeCommand(markerPath, usagePath, tokenHistoryPath);
@@ -250,11 +242,10 @@ function parseTranscriptOutputTokens(transcriptPath, offset) {
 /**
  * Find the project directory from hook payload or environment.
  */
-function findProjectDir() {
+function findProjectDir(data) {
   try {
-    const payload = JSON.parse(raw);
-    if (payload.cwd) return payload.cwd;
-    if (payload.workspace && payload.workspace.current_dir) return payload.workspace.current_dir;
+    if (data && data.cwd) return data.cwd;
+    if (data && data.workspace && data.workspace.current_dir) return data.workspace.current_dir;
   } catch (_e) {
     // fall through
   }

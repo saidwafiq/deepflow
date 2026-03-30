@@ -15,6 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { readStdinIfMain } = require('./lib/hook-stdin');
 
 const TOOL_USAGE_LOG = path.join(os.homedir(), '.claude', 'tool-usage.jsonl');
 
@@ -49,56 +50,45 @@ function extractTaskId(cwd) {
   return taskMatch ? taskMatch[1].toUpperCase() : null;
 }
 
-// Read all stdin, then process
-let raw = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', chunk => { raw += chunk; });
-process.stdin.on('end', () => {
+readStdinIfMain(module, (data) => {
+  const toolName = data.tool_name || null;
+  const toolResponse = data.tool_response;
+  const cwd = data.cwd || '';
+
+  let activeCommand = null;
   try {
-    const data = JSON.parse(raw);
+    const markerPath = path.join(cwd || process.cwd(), '.deepflow', 'active-command.json');
+    const markerRaw = fs.readFileSync(markerPath, 'utf8');
+    activeCommand = JSON.parse(markerRaw).command || null;
+  } catch (_e) { /* no marker or unreadable — null */ }
 
-    const toolName = data.tool_name || null;
-    const toolResponse = data.tool_response;
-    const cwd = data.cwd || '';
+  // Extract a compact tool_input summary per tool type
+  const ti = data.tool_input || {};
+  let inputSummary = null;
+  if (toolName === 'Bash') inputSummary = ti.command || null;
+  else if (toolName === 'LSP') inputSummary = `${ti.operation || '?'}:${(ti.filePath || '').split('/').pop()}:${ti.line || '?'}`;
+  else if (toolName === 'Read') inputSummary = (ti.file_path || '').split('/').pop() + (ti.offset ? `:${ti.offset}-${ti.offset + (ti.limit || 0)}` : '');
+  else if (toolName === 'Grep') inputSummary = ti.pattern || null;
+  else if (toolName === 'Glob') inputSummary = ti.pattern || null;
+  else if (toolName === 'Agent') inputSummary = `${ti.subagent_type || '?'}/${ti.model || '?'}`;
+  else if (toolName === 'Edit' || toolName === 'Write') inputSummary = (ti.file_path || '').split('/').pop();
 
-    let activeCommand = null;
-    try {
-      const markerPath = path.join(cwd || process.cwd(), '.deepflow', 'active-command.json');
-      const markerRaw = fs.readFileSync(markerPath, 'utf8');
-      activeCommand = JSON.parse(markerRaw).command || null;
-    } catch (_e) { /* no marker or unreadable — null */ }
+  const record = {
+    timestamp: new Date().toISOString(),
+    session_id: data.session_id || null,
+    tool_name: toolName,
+    input: inputSummary,
+    output_size_est_tokens: Math.ceil(JSON.stringify(toolResponse).length / 4),
+    project: cwd ? path.basename(cwd) : null,
+    phase: inferPhase(cwd),
+    task_id: extractTaskId(cwd),
+    active_command: activeCommand,
+  };
 
-    // Extract a compact tool_input summary per tool type
-    const ti = data.tool_input || {};
-    let inputSummary = null;
-    if (toolName === 'Bash') inputSummary = ti.command || null;
-    else if (toolName === 'LSP') inputSummary = `${ti.operation || '?'}:${(ti.filePath || '').split('/').pop()}:${ti.line || '?'}`;
-    else if (toolName === 'Read') inputSummary = (ti.file_path || '').split('/').pop() + (ti.offset ? `:${ti.offset}-${ti.offset + (ti.limit || 0)}` : '');
-    else if (toolName === 'Grep') inputSummary = ti.pattern || null;
-    else if (toolName === 'Glob') inputSummary = ti.pattern || null;
-    else if (toolName === 'Agent') inputSummary = `${ti.subagent_type || '?'}/${ti.model || '?'}`;
-    else if (toolName === 'Edit' || toolName === 'Write') inputSummary = (ti.file_path || '').split('/').pop();
-
-    const record = {
-      timestamp: new Date().toISOString(),
-      session_id: data.session_id || null,
-      tool_name: toolName,
-      input: inputSummary,
-      output_size_est_tokens: Math.ceil(JSON.stringify(toolResponse).length / 4),
-      project: cwd ? path.basename(cwd) : null,
-      phase: inferPhase(cwd),
-      task_id: extractTaskId(cwd),
-      active_command: activeCommand,
-    };
-
-    const logDir = path.dirname(TOOL_USAGE_LOG);
-    if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true });
-    }
-
-    fs.appendFileSync(TOOL_USAGE_LOG, JSON.stringify(record) + '\n');
-  } catch (_e) {
-    // Fail silently — never break tool execution
+  const logDir = path.dirname(TOOL_USAGE_LOG);
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
   }
-  process.exit(0);
+
+  fs.appendFileSync(TOOL_USAGE_LOG, JSON.stringify(record) + '\n');
 });

@@ -19,6 +19,7 @@
 'use strict';
 
 const { execFileSync } = require('child_process');
+const { readStdinIfMain } = require('./lib/hook-stdin');
 
 // Paths that are always allowed regardless of worktree state
 const ALLOWLIST = [
@@ -56,47 +57,38 @@ function dfWorktreeExists(cwd) {
   }
 }
 
-let raw = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', chunk => { raw += chunk; });
-process.stdin.on('end', () => {
-  try {
-    const data = JSON.parse(raw);
-    const toolName = data.tool_name || '';
+readStdinIfMain(module, (data) => {
+  const toolName = data.tool_name || '';
 
-    // Only guard Write and Edit
-    if (toolName !== 'Write' && toolName !== 'Edit') {
-      process.exit(0);
-    }
-
-    const filePath = (data.tool_input && data.tool_input.file_path) || '';
-    const cwd = data.cwd || process.cwd();
-
-    // Allowlisted paths always pass
-    if (isAllowlisted(filePath)) {
-      process.exit(0);
-    }
-
-    const branch = currentBranch(cwd);
-
-    // Only guard when on main/master
-    if (branch !== 'main' && branch !== 'master') {
-      process.exit(0);
-    }
-
-    // Block only when a df/* worktree branch exists
-    if (!dfWorktreeExists(cwd)) {
-      process.exit(0);
-    }
-
-    // All conditions met — block the write
-    console.error(
-      `[df-worktree-guard] Blocked ${toolName} to "${filePath}" on main branch ` +
-      `while df/* worktree exists. Make changes inside the worktree branch instead.`
-    );
-    process.exit(1);
-  } catch (_e) {
-    // Parse or unexpected error — fail open so we never break non-deepflow projects
-    process.exit(0);
+  // Only guard Write and Edit
+  if (toolName !== 'Write' && toolName !== 'Edit') {
+    return;
   }
+
+  const filePath = (data.tool_input && data.tool_input.file_path) || '';
+  const cwd = data.cwd || process.cwd();
+
+  // Allowlisted paths always pass
+  if (isAllowlisted(filePath)) {
+    return;
+  }
+
+  const branch = currentBranch(cwd);
+
+  // Only guard when on main/master
+  if (branch !== 'main' && branch !== 'master') {
+    return;
+  }
+
+  // Block only when a df/* worktree branch exists
+  if (!dfWorktreeExists(cwd)) {
+    return;
+  }
+
+  // All conditions met — block the write
+  console.error(
+    `[df-worktree-guard] Blocked ${toolName} to "${filePath}" on main branch ` +
+    `while df/* worktree exists. Make changes inside the worktree branch instead.`
+  );
+  process.exit(1);
 });
