@@ -216,7 +216,7 @@ Every set: ≥1 contraditoria + ≥1 ingenua. contextualizada from round 2+ only
 
 Git operations that produce large output (diff, stash, cherry-pick conflict output) MUST be delegated to a context-forked haiku subagent. Raw output never enters the orchestrator context.
 
-**Trigger:** Any of: post-implementation diff capture (§5.6 step 1), revert confirmation, cherry-pick merge-back.
+**Trigger:** Any of: revert confirmation, cherry-pick merge-back (spike probes).
 
 **Pattern:**
 ```
