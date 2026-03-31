@@ -156,14 +156,21 @@ async function main() {
   if (level === 'global') {
     const hooksDir = path.join(PACKAGE_DIR, 'hooks');
     if (fs.existsSync(hooksDir)) {
-      for (const file of fs.readdirSync(hooksDir)) {
-        if (file.endsWith('.js')) {
-          fs.copyFileSync(
-            path.join(hooksDir, file),
-            path.join(CLAUDE_DIR, 'hooks', file)
-          );
+      const copyDirRecursive = (srcDir, destDir) => {
+        for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+          if (entry.isDirectory()) {
+            const subDest = path.join(destDir, entry.name);
+            fs.mkdirSync(subDest, { recursive: true });
+            copyDirRecursive(path.join(srcDir, entry.name), subDest);
+          } else if (entry.name.endsWith('.js')) {
+            fs.copyFileSync(
+              path.join(srcDir, entry.name),
+              path.join(destDir, entry.name)
+            );
+          }
         }
-      }
+      };
+      copyDirRecursive(hooksDir, path.join(CLAUDE_DIR, 'hooks'));
       log('Hooks installed');
     }
   }
@@ -620,6 +627,8 @@ async function uninstall() {
         }
       }
     }
+    // Remove hooks/lib (shared hook utilities)
+    toRemove.push('hooks/lib');
   }
 
   for (const item of toRemove) {
@@ -707,7 +716,13 @@ async function uninstall() {
   console.log('');
 }
 
-main().catch(err => {
-  console.error('Installation failed:', err.message);
-  process.exit(1);
-});
+// Export for testing
+module.exports = { scanHookEvents, removeDeepflowHooks };
+
+// Only run main when executed directly (not when required by tests)
+if (require.main === module) {
+  main().catch(err => {
+    console.error('Installation failed:', err.message);
+    process.exit(1);
+  });
+}
