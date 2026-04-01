@@ -284,6 +284,22 @@ function main() {
     process.exit(1);
   }
 
+  // Stale-filter: when --specs-dir is set, remove mini-plans whose corresponding
+  // spec file does not exist in specsDir
+  if (args.specsDir) {
+    const specsDir = path.resolve(process.cwd(), args.specsDir);
+    entries = entries.filter(filename => {
+      const specPath = path.join(specsDir, filename);
+      if (!fs.existsSync(specPath)) {
+        process.stderr.write(
+          `plan-consolidator: skipping stale mini-plan ${filename} (no matching spec in ${args.specsDir})\n`
+        );
+        return false;
+      }
+      return true;
+    });
+  }
+
   if (entries.length === 0) {
     process.stdout.write('## Tasks\n\n(no mini-plan files found in ' + plansDir + ')\n');
     process.exit(0);
