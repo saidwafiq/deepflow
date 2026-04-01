@@ -193,7 +193,8 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
 2. **Merge:** `git checkout main && git merge ${BRANCH} --no-ff -m "feat({spec}): merge verified changes"`. On conflict → keep worktree, output "Resolve manually, run /df:verify --merge-only", exit.
 3. **Cleanup:** `git worktree remove --force ${PATH} && git branch -d ${BRANCH} && rm -f .deepflow/checkpoint.json`
 4. **Rename spec:** `mv specs/doing-${NAME}.md specs/done-${NAME}.md`
-5. **Extract decisions:** Read done spec, extract `[APPROACH]`/`[ASSUMPTION]`/`[PROVISIONAL]` decisions, append to `.deepflow/decisions.md` as `### {date} — {spec}\n- [TAG] decision — rationale`. Delete done spec after successful write; preserve on failure.
-6. **Clean PLAN.md:** Find the `### {spec-name}` section (match on name stem, strip `doing-`/`done-` prefix). Delete from header through the line before the next `### ` header (or EOF). Recalculate Summary table (recount `### ` headers for spec count, `- [ ]`/`- [x]` for task counts). If no spec sections remain, delete PLAN.md entirely. Skip silently if PLAN.md missing or section already gone.
+5. **Cleanup stale plans:** `rm -f .deepflow/plans/doing-${NAME}.md`
+6. **Extract decisions:** Read done spec, extract `[APPROACH]`/`[ASSUMPTION]`/`[PROVISIONAL]` decisions, append to `.deepflow/decisions.md` as `### {date} — {spec}\n- [TAG] decision — rationale`. Delete done spec after successful write; preserve on failure.
+7. **Clean PLAN.md:** Find the `### {spec-name}` section (match on name stem, strip `doing-`/`done-` prefix). Delete from header through the line before the next `### ` header (or EOF). Recalculate Summary table (recount `### ` headers for spec count, `- [ ]`/`- [x]` for task counts). If no spec sections remain, delete PLAN.md entirely. Skip silently if PLAN.md missing or section already gone.
 
 Output: `✓ Merged → main | ✓ Cleaned worktree | ✓ Spec → done | ✓ Decisions extracted | ✓ Cleaned PLAN.md | Workflow complete! Ready: /df:spec <name>`
