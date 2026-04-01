@@ -346,7 +346,7 @@ function main() {
   if (cliArgs.snapshot && fs.existsSync(cliArgs.snapshot)) {
     const snapFiles = fs.readFileSync(cliArgs.snapshot, 'utf8')
       .split('\n').map(l => l.trim()).filter(l => l.length > 0)
-      .map(rel => path.isAbsolute(rel) ? rel : path.join(repoRoot, rel));
+      .map(rel => path.isAbsolute(rel) ? rel : path.join(cwd, rel));
     if (snapFiles.length > 0 && projectType === 'node' && !cfg.test_command) {
       cmds.test = ['node', '--test', ...snapFiles];
     }
