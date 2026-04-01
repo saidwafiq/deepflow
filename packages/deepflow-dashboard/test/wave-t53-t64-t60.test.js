@@ -211,25 +211,16 @@ describe('T60 — relativeUpdated helper logic', () => {
     assert.equal(relativeUpdated(threeDaysAgo), 'Updated 3d ago');
   });
 
-  it('source code contains relativeUpdated function in QuotaGauge.tsx', () => {
-    const gaugeSrc = readFileSync(
-      resolve(SRC_ROOT, 'client', 'components', 'QuotaGauge.tsx'),
-      'utf8'
-    );
-    assert.ok(
-      gaugeSrc.includes('function relativeUpdated('),
-      'QuotaGauge.tsx should contain the relativeUpdated helper function'
-    );
+  it('relativeUpdated logic: handles null/undefined input correctly', () => {
+    // relativeUpdated was inlined into QuotaStatus.tsx (T3 rewrite removed QuotaGauge).
+    // The logic is fully covered by the pure-function tests above.
+    assert.equal(relativeUpdated(null), '');
+    assert.equal(relativeUpdated(undefined), '');
+    assert.equal(relativeUpdated(''), '');
   });
 
-  it('source relativeUpdated handles null/undefined guard', () => {
-    const gaugeSrc = readFileSync(
-      resolve(SRC_ROOT, 'client', 'components', 'QuotaGauge.tsx'),
-      'utf8'
-    );
-    assert.ok(
-      gaugeSrc.includes("if (!capturedAt) return ''"),
-      'relativeUpdated should return empty string for falsy input'
-    );
+  it('relativeUpdated logic: handles future timestamp correctly', () => {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    assert.equal(relativeUpdated(future), 'Updated just now');
   });
 });

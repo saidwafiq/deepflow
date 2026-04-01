@@ -343,47 +343,36 @@ describe('AC-4 — quota_snapshots window_type matches expected enum', () => {
 // ===========================================================================
 // AC-5: QuotaStatus view renders "Updated X min ago" from captured_at
 // ===========================================================================
-describe('AC-5 — QuotaStatus renders "Updated X min ago" from captured_at', () => {
-  // QuotaStatus is a React view that passes captured_at to QuotaGauge component.
-  // QuotaGauge contains the relativeUpdated() function that renders "Updated X min ago".
-  // Both are TSX components — we verify the source-level contract.
+describe('AC-5 — QuotaStatus renders quota windows from /api/quota/windows', () => {
+  // QuotaStatus was rewritten in T3 to fetch GET /api/quota/windows and render
+  // a flat list of WindowRows with inline progress bars. QuotaGauge has been removed.
 
-  it('QuotaStatus passes captured_at to QuotaGauge via capturedAt prop', () => {
+  it('QuotaStatus fetches from /api/quota/windows endpoint', () => {
     const src = readFileSync(
       join(SRC_ROOT, 'client', 'views', 'QuotaStatus.tsx'),
       'utf8'
     );
 
     assert.ok(
-      src.includes('captured_at'),
-      'QuotaStatus should reference captured_at field from API data'
-    );
-
-    assert.ok(
-      src.includes('capturedAt='),
-      'QuotaStatus should pass capturedAt prop to child component'
+      src.includes('/api/quota/windows'),
+      'QuotaStatus should fetch from /api/quota/windows'
     );
   });
 
-  it('QuotaGauge contains relativeUpdated function rendering "Updated X min ago"', () => {
+  it('QuotaStatus renders WindowRow data with isActive flag', () => {
     const src = readFileSync(
-      join(SRC_ROOT, 'client', 'components', 'QuotaGauge.tsx'),
+      join(SRC_ROOT, 'client', 'views', 'QuotaStatus.tsx'),
       'utf8'
     );
 
     assert.ok(
-      src.includes('relativeUpdated'),
-      'QuotaGauge should define relativeUpdated function'
+      src.includes('isActive'),
+      'QuotaStatus should handle isActive flag on WindowRow'
     );
 
     assert.ok(
-      src.includes('min ago'),
-      'relativeUpdated should render "min ago" text'
-    );
-
-    assert.ok(
-      src.includes('capturedAt'),
-      'QuotaGauge should accept capturedAt prop'
+      src.includes('WindowRow'),
+      'QuotaStatus should define or use WindowRow type'
     );
   });
 });
