@@ -114,10 +114,11 @@ Identify code style, patterns, and integration points relevant to the spec under
 
 ```
 ## Objective
-Perform LSP-first impact analysis for each file in the spec's Files list. Produce a blast-radius map.
+Perform LSP-first impact analysis for each file in the spec's Files list. Produce a blast-radius map with caller counts and impact reasons.
 
 ## Acceptance Criteria
-- Use LSP `findReferences`/`incomingCalls` on exports being changed; fall back to grep only when LSP unavailable
+- PRIMARY: Run LSP `findReferences`/`incomingCalls` on every export being changed in scope
+- FALLBACK: If LSP is unavailable for a file, log exactly `LSP unavailable for {file}: {reason}` then use grep
 - Annotate each impacted file with WHY it is affected
 - Classify duplicate logic files as [active] (consolidate) or [dead] (DELETE candidate)
 - Trace data flow via LSP `outgoingCalls` for consumer mapping
@@ -137,6 +138,9 @@ Perform LSP-first impact analysis for each file in the spec's Files list. Produc
 
 ### Files Outside Original Scope
 - {file}: (impact — verify/update) — {reason}
+
+### LSP Fallback Log
+- {file}: LSP unavailable — {reason} (grep used)
 ```
 
 #### Agent C — Dead Code & TODOs
