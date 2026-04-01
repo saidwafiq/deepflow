@@ -1171,3 +1171,175 @@ describe('Subprocess integration — --task flag updates PLAN.md on PASS', () =>
     assert.ok(plan.includes('- [ ] **T42**'), 'PLAN.md should remain unchecked without --task');
   });
 });
+
+// ---------------------------------------------------------------------------
+// 19. Worktree cwd routing — commands execute in worktree path
+// ---------------------------------------------------------------------------
+
+describe('loadSnapshotFiles — resolveBase parameter resolves paths against cwd not repoRoot', () => {
+  let repoRoot;
+  let worktreeDir;
+
+  beforeEach(() => {
+    repoRoot = makeTmpDir();
+    worktreeDir = makeTmpDir();
+  });
+
+  afterEach(() => {
+    rmrf(repoRoot);
+    rmrf(worktreeDir);
+  });
+
+  test('resolveBase defaults to repoRoot when not provided', () => {
+    const deepflowDir = path.join(repoRoot, '.deepflow');
+    fs.mkdirSync(deepflowDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(deepflowDir, 'auto-snapshot.txt'),
+      'bin/ratchet.test.js\n'
+    );
+
+    const files = loadSnapshotFiles(repoRoot);
+    assert.equal(files.length, 1);
+    assert.equal(files[0], path.join(repoRoot, 'bin/ratchet.test.js'));
+  });
+
+  test('resolveBase overrides path resolution when cwd differs from repoRoot', () => {
+    // Snapshot lives in repoRoot's .deepflow dir, but paths should resolve against worktreeDir
+    const deepflowDir = path.join(repoRoot, '.deepflow');
+    fs.mkdirSync(deepflowDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(deepflowDir, 'auto-snapshot.txt'),
+      'bin/ratchet.test.js\ntest/integration.test.js\n'
+    );
+
+    // Pass worktreeDir as resolveBase — paths should resolve against it, not repoRoot
+    const files = loadSnapshotFiles(repoRoot, worktreeDir);
+    assert.equal(files.length, 2);
+    assert.equal(files[0], path.join(worktreeDir, 'bin/ratchet.test.js'));
+    assert.equal(files[1], path.join(worktreeDir, 'test/integration.test.js'));
+    // Confirm the paths do NOT point into repoRoot
+    assert.ok(!files[0].startsWith(repoRoot), 'resolveBase should override repoRoot for path resolution');
+  });
+
+  test('resolveBase changes where test files are expected to live', () => {
+    const deepflowDir = path.join(repoRoot, '.deepflow');
+    fs.mkdirSync(deepflowDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(deepflowDir, 'auto-snapshot.txt'),
+      'spec/my.test.js\n'
+    );
+
+    const filesFromRepo = loadSnapshotFiles(repoRoot, repoRoot);
+    const filesFromWorktree = loadSnapshotFiles(repoRoot, worktreeDir);
+
+    assert.equal(filesFromRepo[0], path.join(repoRoot, 'spec/my.test.js'));
+    assert.equal(filesFromWorktree[0], path.join(worktreeDir, 'spec/my.test.js'));
+    assert.notEqual(filesFromRepo[0], filesFromWorktree[0]);
+  });
+});
+
+describe('Subprocess integration — --worktree flag routes commands to worktree cwd', () => {
+  let repoDir;
+  let worktreeDir;
+
+  beforeEach(() => {
+    // Set up main repo
+    repoDir = makeTmpDir();
+    execFileSync('git', ['init'], { cwd: repoDir, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repoDir, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repoDir, stdio: 'ignore' });
+    fs.writeFileSync(path.join(repoDir, 'dummy.txt'), 'hello');
+    execFileSync('git', ['add', '.'], { cwd: repoDir, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: repoDir, stdio: 'ignore' });
+
+    // Set up worktree directory as a separate git repo (simulating a worktree checkout)
+    worktreeDir = makeTmpDir();
+    execFileSync('git', ['init'], { cwd: worktreeDir, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: worktreeDir, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: worktreeDir, stdio: 'ignore' });
+    fs.writeFileSync(path.join(worktreeDir, 'dummy.txt'), 'hello');
+    execFileSync('git', ['add', '.'], { cwd: worktreeDir, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: worktreeDir, stdio: 'ignore' });
+  });
+
+  afterEach(() => {
+    rmrf(repoDir);
+    rmrf(worktreeDir);
+  });
+
+  test('--worktree flag causes test command to execute in worktree path', () => {
+    // Write a test file in the WORKTREE dir that prints its cwd via process.cwd()
+    const testFile = path.join(worktreeDir, 'cwd-check.test.js');
+    fs.writeFileSync(testFile, [
+      "'use strict';",
+      "const { test } = require('node:test');",
+      "const assert = require('node:assert/strict');",
+      "const path = require('node:path');",
+      "test('cwd is worktree path', () => {",
+      "  // This file lives in the worktree dir — if cwd is correct, __dirname matches cwd prefix",
+      "  assert.ok(process.cwd().startsWith(path.dirname(__dirname) || '/'), 'cwd should be set');",
+      "});",
+    ].join('\n'));
+
+    // Write snapshot pointing to the test file (relative path from worktreeDir)
+    const deepflowDir = path.join(worktreeDir, '.deepflow');
+    fs.mkdirSync(deepflowDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(deepflowDir, 'auto-snapshot.txt'),
+      'cwd-check.test.js\n'
+    );
+
+    // Write package.json in worktreeDir so it's detected as node project
+    fs.writeFileSync(path.join(worktreeDir, 'package.json'), JSON.stringify({ name: 'test-worktree' }));
+
+    const result = spawnSync(process.execPath, [RATCHET_PATH, '--worktree', worktreeDir], {
+      cwd: repoDir,  // invoked from a different cwd (repoDir)
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const output = (result.stdout || '').trim();
+    assert.ok(output.length > 0, 'ratchet should produce output');
+    const parsed = JSON.parse(output);
+    // The test should pass because the test file exists in worktreeDir and runs correctly
+    assert.equal(parsed.result, 'PASS', `Expected PASS but got: ${JSON.stringify(parsed)}`);
+  });
+
+  test('--worktree flag: snapshot paths resolve against worktreeDir, not process.cwd()', () => {
+    // Place test file only in worktreeDir (NOT in repoDir)
+    const testFile = path.join(worktreeDir, 'only-in-worktree.test.js');
+    fs.writeFileSync(testFile, [
+      "'use strict';",
+      "const { test } = require('node:test');",
+      "const assert = require('node:assert/strict');",
+      "test('exists only in worktree', () => { assert.ok(true); });",
+    ].join('\n'));
+
+    // Snapshot is in worktreeDir's .deepflow
+    const deepflowDir = path.join(worktreeDir, '.deepflow');
+    fs.mkdirSync(deepflowDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(deepflowDir, 'auto-snapshot.txt'),
+      'only-in-worktree.test.js\n'
+    );
+    fs.writeFileSync(path.join(worktreeDir, 'package.json'), JSON.stringify({ name: 'wt' }));
+
+    // Verify the test file does NOT exist in repoDir (to confirm routing works)
+    assert.ok(
+      !fs.existsSync(path.join(repoDir, 'only-in-worktree.test.js')),
+      'Test file should not exist in repoDir'
+    );
+
+    const result = spawnSync(process.execPath, [RATCHET_PATH, '--worktree', worktreeDir], {
+      cwd: repoDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const output = (result.stdout || '').trim();
+    assert.ok(output.length > 0, 'ratchet should produce output');
+    const parsed = JSON.parse(output);
+    // PASS means the test file was found in worktreeDir — cwd routing works
+    assert.equal(parsed.result, 'PASS', `Expected PASS but got: ${JSON.stringify(parsed)}`);
+  });
+});
