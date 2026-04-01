@@ -410,3 +410,136 @@ describe('derives-from validation', () => {
     assert.deepEqual(resultWith.hard, resultWithout.hard);
   });
 });
+
+// ---------------------------------------------------------------------------
+// validateSpec — spec filename stem validation
+// ---------------------------------------------------------------------------
+
+describe('validateSpec stem validation', () => {
+  test('valid plain name passes', () => {
+    const result = validateSpec(fullSpec(), { filename: 'my-spec.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 0);
+  });
+
+  test('valid name with numbers passes', () => {
+    const result = validateSpec(fullSpec(), { filename: 'spec-v2-fix.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 0);
+  });
+
+  test('single character name passes', () => {
+    const result = validateSpec(fullSpec(), { filename: 'a.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 0);
+  });
+
+  test('doing- prefix is stripped before validation', () => {
+    const result = validateSpec(fullSpec(), { filename: 'doing-my-spec.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 0);
+  });
+
+  test('done- prefix is stripped before validation', () => {
+    const result = validateSpec(fullSpec(), { filename: 'done-my-spec.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 0);
+  });
+
+  test('filename with dollar sign is rejected as hard failure', () => {
+    const result = validateSpec(fullSpec(), { filename: 'spec-$bad.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 1);
+  });
+
+  test('filename with backtick is rejected as hard failure', () => {
+    const result = validateSpec(fullSpec(), { filename: 'spec-`bad.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 1);
+  });
+
+  test('filename with pipe character is rejected as hard failure', () => {
+    const result = validateSpec(fullSpec(), { filename: 'spec|bad.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 1);
+  });
+
+  test('filename with semicolon is rejected as hard failure', () => {
+    const result = validateSpec(fullSpec(), { filename: 'spec;bad.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 1);
+  });
+
+  test('filename with ampersand is rejected as hard failure', () => {
+    const result = validateSpec(fullSpec(), { filename: 'spec&bad.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 1);
+  });
+
+  test('filename with space is rejected as hard failure', () => {
+    const result = validateSpec(fullSpec(), { filename: 'spec bad.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 1);
+  });
+
+  test('filename with path traversal (..) is rejected as hard failure', () => {
+    const result = validateSpec(fullSpec(), { filename: '..evil.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 1);
+  });
+
+  test('filename with leading hyphen is rejected as hard failure', () => {
+    const result = validateSpec(fullSpec(), { filename: '-leading.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 1);
+  });
+
+  test('filename with trailing hyphen is rejected as hard failure', () => {
+    const result = validateSpec(fullSpec(), { filename: 'trailing-.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 1);
+  });
+
+  test('empty stem (only prefix) is rejected as hard failure', () => {
+    // A filename of just "doing-.md" strips to empty string
+    const result = validateSpec(fullSpec(), { filename: 'doing-.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 1);
+  });
+
+  test('empty filename stem (.md only) is rejected as hard failure', () => {
+    const result = validateSpec(fullSpec(), { filename: '.md' });
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 1);
+  });
+
+  test('stem validation failure is in hard array, not advisory', () => {
+    const result = validateSpec(fullSpec(), { filename: 'spec$bad.md' });
+    const hardErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    const advisoryErrors = result.advisory.filter((m) => m.includes('unsafe characters'));
+    assert.equal(hardErrors.length, 1);
+    assert.equal(advisoryErrors.length, 0);
+  });
+
+  test('no filename passed (null) skips stem validation', () => {
+    // No filename option — stem check should not run
+    const result = validateSpec(fullSpec());
+    const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+    assert.equal(stemErrors.length, 0);
+  });
+
+  test('all existing repo spec names pass validation', () => {
+    const existingNames = [
+      'done-dashboard-model-cost-fixes.md',
+      'done-orchestrator-v2.md',
+      'done-plan-cleanup.md',
+      'done-plan-fanout.md',
+      'done-quality-gates.md',
+    ];
+    for (const filename of existingNames) {
+      const result = validateSpec(fullSpec(), { filename });
+      const stemErrors = result.hard.filter((m) => m.includes('unsafe characters'));
+      assert.equal(stemErrors.length, 0, `Expected ${filename} to pass but got stem errors`);
+    }
+  });
+});

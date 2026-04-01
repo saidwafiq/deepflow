@@ -123,11 +123,22 @@ function computeLayer(content) {
  * @param {string} content  - The raw markdown content of the spec file.
  * @param {object} opts
  * @param {'interactive'|'auto'} opts.mode
+ * @param {string|null} opts.filename - Optional filename (basename) used for stem validation.
  * @returns {{ hard: string[], advisory: string[] }}
  */
-function validateSpec(content, { mode = 'interactive', specsDir = null } = {}) {
+function validateSpec(content, { mode = 'interactive', specsDir = null, filename = null } = {}) {
   const hard = [];
   const advisory = [];
+
+  // ── Spec filename stem validation ────────────────────────────────────
+  if (filename !== null) {
+    let stem = path.basename(filename, '.md');
+    stem = stem.replace(/^(doing-|done-)/, '');
+    const SAFE_STEM = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+    if (!SAFE_STEM.test(stem)) {
+      hard.push(`Spec filename stem contains unsafe characters: "${stem}"`);
+    }
+  }
 
   // ── Frontmatter: parse and validate derives-from ─────────────────────
   const { frontmatter } = parseFrontmatter(content);
@@ -339,7 +350,7 @@ if (require.main === module) {
   const content = fs.readFileSync(filePath, 'utf8');
   const mode = process.argv.includes('--auto') ? 'auto' : 'interactive';
   const specsDir = path.resolve(path.dirname(filePath));
-  const result = validateSpec(content, { mode, specsDir });
+  const result = validateSpec(content, { mode, specsDir, filename: path.basename(filePath) });
 
   if (result.hard.length > 0) {
     console.error('HARD invariant failures:');
