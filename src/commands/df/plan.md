@@ -294,9 +294,47 @@ Continue processing remaining specs regardless of individual failures. Only succ
 
 **When:** Exactly 1 plannable spec (§4.7 was skipped).
 
-Spawn `Task(subagent_type="reasoner", model="opus")`. Map each requirement to DONE/PARTIAL/MISSING/CONFLICT. Check REQ-AC alignment. Flag spec gaps.
+Spawn `Task(subagent_type="reasoner", model="opus")` passing ONLY:
+- `spec_path` — path to the spec file (e.g., `specs/feature.md`)
+- `agent_summaries[]` — structured output blocks returned by §3 Agents A, B, C (their output contract sections verbatim — no raw source code, no inlined file contents)
+- `experiment_results[]` — paths and conclusion excerpts from `.deepflow/experiments/` matches found in §2 (paths only, no full file content)
+
+**NEVER pass to the reasoner:** raw source code, inlined file contents, or any implementation file text. The reasoner works from paths and summaries only.
+
+The reasoner prompt:
+
+```
+You are the plan reasoner. Analyze this spec and produce a prioritized task plan.
+
+## Spec file path
+{spec_path}
+
+Read the spec using the Read tool on the path above. Do NOT read any implementation files.
+
+## Agent summaries (from §3 parallel agents)
+
+### Code Style & Conventions (Agent A)
+{agent_a_summary — verbatim output contract block}
+
+### Blast Radius (Agent B)
+{agent_b_summary — verbatim output contract block}
+
+### Dead Code & TODOs (Agent C)
+{agent_c_summary — verbatim output contract block}
+
+## Experiment results (paths + conclusions)
+{for each experiment: path and Conclusion section excerpt only}
+
+## Your job
+
+Map each requirement to DONE/PARTIAL/MISSING/CONFLICT. Check REQ-AC alignment. Flag spec gaps.
+Scan ACs for metric patterns `{metric} {operator} {number}[unit]` — flag matches for §6.5 Optimize tasks, flag ambiguous thresholds ("fast", "small") as spec gaps.
+Apply the §5.5 routing matrix to classify model + effort per task.
 
 Priority: Dependencies → Impact → Risk
+```
+
+Then apply §5.5 routing matrix. Continue to §6.
 
 ##### Metric AC Detection
 
