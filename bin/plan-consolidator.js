@@ -23,12 +23,14 @@ const path = require('path');
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const args = { plansDir: null };
+  const args = { plansDir: null, specsDir: null };
   let i = 2;
   while (i < argv.length) {
     const arg = argv[i];
     if (arg === '--plans-dir' && argv[i + 1]) {
       args.plansDir = argv[++i];
+    } else if (arg === '--specs-dir' && argv[i + 1]) {
+      args.specsDir = argv[++i];
     }
     i++;
   }
