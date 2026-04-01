@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DbHelpers } from '../../db/index.js';
+import { QUOTA_WINDOW_KEYS } from './constants.js';
 
 /**
  * Parses ~/.claude/quota-history.jsonl → quota_snapshots table.
@@ -37,8 +38,7 @@ export async function parseQuotaHistory(db: DbHelpers, claudeDir: string): Promi
 
     // Quota JSONL has nested window objects: five_hour, seven_day, seven_day_sonnet, extra_usage
     const windows: Array<{ type: string; obj: Record<string, unknown> }> = [];
-    const windowKeys = ['five_hour', 'seven_day', 'seven_day_sonnet', 'extra_usage'] as const;
-    for (const wk of windowKeys) {
+    for (const wk of QUOTA_WINDOW_KEYS) {
       if (record[wk] && typeof record[wk] === 'object') {
         windows.push({ type: wk, obj: record[wk] as Record<string, unknown> });
       }
