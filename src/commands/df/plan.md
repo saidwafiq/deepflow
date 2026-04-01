@@ -7,7 +7,8 @@ description: Compare specs against codebase and past experiments, generate prior
 
 Compare specs against codebase and past experiments. Generate prioritized tasks.
 
-**NEVER:** use EnterPlanMode, use ExitPlanMode — this command IS the planning phase
+**NEVER:** Read implementation source files, edit code, use TaskOutput, use EnterPlanMode, use ExitPlanMode
+**ONLY:** Read specs/*.md, .deepflow/config.yaml, .deepflow/experiments/, PLAN.md, .deepflow/*.md state files, spawn agents, run health checks, update PLAN.md
 
 ## Usage
 ```
@@ -452,5 +453,6 @@ If any L0–L1 spec: `ℹ L0–L1 specs generate spikes only. Deepen with /df:sp
 - **Learn from failures** — Extract next hypothesis, never repeat approach
 - **Plan only** — Do NOT implement (except quick validation prototypes)
 - **One task = one logical unit** — Atomic, committable
+- **Context budget** — orchestrator reads ONLY specs, config, experiments, PLAN.md, .deepflow/ state; never implementation files
 - Prefer existing utilities over new code; flag spec gaps
 - Always use `Task` tool with explicit `subagent_type` and `model`
