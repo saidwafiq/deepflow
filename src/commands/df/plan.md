@@ -76,26 +76,104 @@ Glob `.deepflow/experiments/{topic}--*`. File naming: `{topic}--{hypothesis}--{s
 
 Implementation tasks BLOCKED until spike validates.
 
-### 3. DETECT PROJECT CONTEXT
+### 3. EXPLORE & IMPACT (PARALLEL AGENTS)
 
-Identify code style, patterns (error handling, API structure), integration points. Include in task descriptions.
+Spawn three parallel `Task(subagent_type="default", model="sonnet")` agents simultaneously. Collect all outputs before proceeding.
 
-### 4. IMPACT ANALYSIS (L3 specs only)
+#### Agent A — Code Style & Conventions
 
-Skip for L0–L2 specs. For each file in a task's `Files:` list, find blast radius.
+```
+## Objective
+Identify code style, patterns, and integration points relevant to the spec under analysis.
 
-**Search (prefer LSP, fallback grep):**
-1. **Callers:** LSP `findReferences`/`incomingCalls` on exports being changed. Annotate WHY impacted. Fallback: grep.
-2. **Duplicates:** Similar logic files. Classify: `[active]` → consolidate, `[dead]` → DELETE.
-3. **Data flow:** LSP `outgoingCalls` to trace consumers.
+## Acceptance Criteria
+- Return a code style summary covering: naming conventions, error handling patterns, API structure, module boundaries
+- List integration points (files/exports) that the spec's target files interact with
+- Flag any implicit patterns not captured in the spec
 
-Embed as `Impact:` block in each task. Files outside original `Files:` → add with `(impact — verify/update)`. Skip for spikes.
+## Spec and target files
+{spec_file_path}
+{files_list_from_spec}
 
-### 4.5. TARGETED EXPLORATION
+## Output contract (return EXACTLY this structure — no deviations)
 
-Follow `templates/explore-agent.md` for spawn rules. 3-5 agents cover post-LSP gaps: conventions, dead code, implicit patterns.
+### Code Style Summary
+- Naming: {convention observed}
+- Error handling: {pattern observed}
+- API structure: {pattern observed}
+- Module boundaries: {pattern observed}
 
-Use `code-completeness` skill: implementations matching spec, TODOs/FIXMEs/HACKs, stubs, skipped tests.
+### Integration Points
+- {file}: {how it integrates} [callee|caller|peer]
+
+### Implicit Patterns
+- {pattern}: {description}
+```
+
+#### Agent B — Blast Radius (LSP-first)
+
+```
+## Objective
+Perform LSP-first impact analysis for each file in the spec's Files list. Produce a blast-radius map.
+
+## Acceptance Criteria
+- Use LSP `findReferences`/`incomingCalls` on exports being changed; fall back to grep only when LSP unavailable
+- Annotate each impacted file with WHY it is affected
+- Classify duplicate logic files as [active] (consolidate) or [dead] (DELETE candidate)
+- Trace data flow via LSP `outgoingCalls` for consumer mapping
+- Skip impact analysis entirely for spike tasks
+
+## Spec and target files
+{spec_file_path}
+{files_list_from_spec}
+
+## Output contract (return EXACTLY this structure — no deviations)
+
+### Blast Radius per File
+- {file}: {caller_count} callers — {why_impacted}
+  - Callers: {file1}, {file2}
+  - Duplicates: {file} [active|dead]
+  - Consumers (outgoing): {file1}, {file2}
+
+### Files Outside Original Scope
+- {file}: (impact — verify/update) — {reason}
+```
+
+#### Agent C — Dead Code & TODOs
+
+```
+## Objective
+Audit the codebase for incomplete work and dead code related to the spec's scope.
+
+## Acceptance Criteria
+- Use the `code-completeness` skill to surface TODOs/FIXMEs/HACKs, stubs, and skipped tests
+- Flag any dead code (unreferenced exports, unused modules) within spec scope
+- Inventory all stubs that must be implemented before tasks can be marked done
+
+## Spec and target files
+{spec_file_path}
+{files_list_from_spec}
+
+## Output contract (return EXACTLY this structure — no deviations)
+
+### TODO / FIXME / HACK Inventory
+- {file}:{line}: {tag} — {description}
+
+### Stubs & Incomplete Implementations
+- {file}:{symbol}: {reason incomplete}
+
+### Dead Code Flags
+- {file}:{symbol}: [dead] — {evidence}
+
+### Skipped Tests
+- {file}:{test_name}: [skipped] — {reason if known}
+```
+
+**Merged output contract** (consumed by §4.6 and §5):
+- Code style summary (from Agent A)
+- Blast radius per file with caller counts (from Agent B)
+- Dead code flags (from Agent C)
+- TODO/stub inventory (from Agent C)
 
 ### 4.6. CROSS-TASK FILE CONFLICT DETECTION
 
