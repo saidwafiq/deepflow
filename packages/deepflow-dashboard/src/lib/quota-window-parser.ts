@@ -111,6 +111,18 @@ function flushExtraUsage(state: ExtraUsageWindowState): ExtraUsageWindow {
 }
 
 // ---------------------------------------------------------------------------
+// Options
+// ---------------------------------------------------------------------------
+
+export interface ParseQuotaWindowsOptions {
+  /**
+   * REQ-5: Only yield windows whose `endsAt` is >= this date.
+   * Windows that end before this date are silently skipped.
+   */
+  since?: Date;
+}
+
+// ---------------------------------------------------------------------------
 // Main streaming parser
 // ---------------------------------------------------------------------------
 
@@ -123,10 +135,20 @@ function flushExtraUsage(state: ExtraUsageWindowState): ExtraUsageWindow {
  *         snapshots of the same window type.
  * REQ-3: Yields `QuotaWindow` for five_hour / seven_day / seven_day_sonnet.
  * REQ-4: Yields `ExtraUsageWindow` for extra_usage.
+ * REQ-5: When `opts.since` is provided, only yields windows where endsAt >= since.
  */
 export async function* parseQuotaWindows(
-  filePath: string
+  filePath: string,
+  opts?: ParseQuotaWindowsOptions
 ): AsyncGenerator<AnyQuotaWindow> {
+  const sinceMs = opts?.since instanceof Date ? opts.since.getTime() : undefined;
+
+  /** Returns true if the window should be yielded given the since filter. */
+  function passesFilter(window: AnyQuotaWindow): boolean {
+    if (sinceMs === undefined) return true;
+    return new Date(window.endsAt).getTime() >= sinceMs;
+  }
+
   const rl = readline.createInterface({
     input: fs.createReadStream(filePath),
     crlfDelay: Infinity,
@@ -212,8 +234,9 @@ export async function* parseQuotaWindows(
           const boundaryChanged = existing.currentResetsAt !== resetsAt;
 
           if (boundaryChanged) {
-            // Flush completed window
-            yield flushExtraUsage(existing);
+            // Flush completed window (REQ-5: apply since filter)
+            const completed = flushExtraUsage(existing);
+            if (passesFilter(completed)) yield completed;
 
             // Start new window
             windowStates.set('extra_usage', {
@@ -271,8 +294,9 @@ export async function* parseQuotaWindows(
         } else {
           // REQ-2: Detect boundary by resets_at change
           if (existing.currentResetsAt !== resetsAt) {
-            // Flush completed window
-            yield flushStandard(existing);
+            // Flush completed window (REQ-5: apply since filter)
+            const completed = flushStandard(existing);
+            if (passesFilter(completed)) yield completed;
 
             // Start new window
             windowStates.set(wk, {
@@ -296,12 +320,12 @@ export async function* parseQuotaWindows(
     }
   }
 
-  // Flush any open windows at end of file
+  // Flush any open windows at end of file (REQ-5: apply since filter)
   for (const [, state] of windowStates) {
-    if (state.type === 'extra_usage') {
-      yield flushExtraUsage(state as ExtraUsageWindowState);
-    } else {
-      yield flushStandard(state as StandardWindowState);
-    }
+    const flushed: AnyQuotaWindow =
+      state.type === 'extra_usage'
+        ? flushExtraUsage(state as ExtraUsageWindowState)
+        : flushStandard(state as StandardWindowState);
+    if (passesFilter(flushed)) yield flushed;
   }
 }
