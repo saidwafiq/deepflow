@@ -880,3 +880,153 @@ describe('formatConsolidated — additional edge cases', () => {
     assert.ok(output.includes('Blocked by: T1, T2'));
   });
 });
+
+// ---------------------------------------------------------------------------
+// 10. parseArgs — --specs-dir (AC-1)
+// ---------------------------------------------------------------------------
+
+describe('parseArgs — --specs-dir', () => {
+  test('recognizes --specs-dir and stores it in args.specsDir', () => {
+    const args = parseArgs(['node', 'plan-consolidator.js', '--plans-dir', '/tmp/plans', '--specs-dir', 'specs/']);
+    assert.equal(args.specsDir, 'specs/');
+  });
+
+  test('specsDir is null when --specs-dir is not provided', () => {
+    const args = parseArgs(['node', 'plan-consolidator.js', '--plans-dir', '/tmp/plans']);
+    assert.equal(args.specsDir, null);
+  });
+
+  test('specsDir is null when --specs-dir has no following value', () => {
+    const args = parseArgs(['node', 'plan-consolidator.js', '--plans-dir', '/tmp/plans', '--specs-dir']);
+    assert.equal(args.specsDir, null);
+  });
+
+  test('--specs-dir works without --plans-dir (args are independent)', () => {
+    const args = parseArgs(['node', 'plan-consolidator.js', '--specs-dir', 'my-specs/']);
+    assert.equal(args.specsDir, 'my-specs/');
+    assert.equal(args.plansDir, null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 11. CLI integration — stale-filter with --specs-dir (AC-2, AC-3, AC-4)
+// ---------------------------------------------------------------------------
+
+describe('CLI integration — stale-filter', () => {
+  test('AC-2: mini-plan is included when matching spec exists in --specs-dir', () => {
+    const plansDir = makeTmpDir();
+    const specsDir = makeTmpDir();
+    try {
+      // Create a mini-plan doing-foo.md
+      fs.writeFileSync(path.join(plansDir, 'doing-foo.md'), `## Tasks
+- [ ] **T1**: Foo task
+`);
+      // Create matching spec in specsDir
+      fs.writeFileSync(path.join(specsDir, 'doing-foo.md'), '# Spec for foo\n');
+
+      const result = runConsolidator(['--plans-dir', plansDir, '--specs-dir', specsDir]);
+      assert.equal(result.code, 0);
+      assert.ok(result.stdout.includes('**T1**: Foo task'), 'task from matched mini-plan should appear in output');
+      assert.ok(!result.stderr.includes('skipping stale'), 'no stale warning should appear when spec exists');
+    } finally {
+      rmrf(plansDir);
+      rmrf(specsDir);
+    }
+  });
+
+  test('AC-3: mini-plan is excluded with stderr warning when spec is absent from --specs-dir', () => {
+    const plansDir = makeTmpDir();
+    const specsDir = makeTmpDir();
+    try {
+      // Create a mini-plan doing-bar.md
+      fs.writeFileSync(path.join(plansDir, 'doing-bar.md'), `## Tasks
+- [ ] **T1**: Bar task
+`);
+      // No matching spec in specsDir — specsDir is empty
+
+      const result = runConsolidator(['--plans-dir', plansDir, '--specs-dir', specsDir]);
+      assert.equal(result.code, 0);
+      assert.ok(!result.stdout.includes('**T1**: Bar task'), 'stale mini-plan task should be excluded from output');
+      assert.ok(result.stderr.includes('skipping stale mini-plan doing-bar.md'), 'stderr should warn about stale mini-plan');
+    } finally {
+      rmrf(plansDir);
+      rmrf(specsDir);
+    }
+  });
+
+  test('AC-3: stderr warning includes the specsDir path', () => {
+    const plansDir = makeTmpDir();
+    const specsDir = makeTmpDir();
+    try {
+      fs.writeFileSync(path.join(plansDir, 'doing-bar.md'), `## Tasks
+- [ ] **T1**: Bar task
+`);
+
+      const result = runConsolidator(['--plans-dir', plansDir, '--specs-dir', specsDir]);
+      // Warning format: "plan-consolidator: skipping stale mini-plan {filename} (no matching spec in {specsDir})"
+      assert.ok(result.stderr.includes('no matching spec in'), 'stderr should mention no matching spec');
+    } finally {
+      rmrf(plansDir);
+      rmrf(specsDir);
+    }
+  });
+
+  test('AC-2+AC-3: only matched mini-plans are included when some specs exist and some do not', () => {
+    const plansDir = makeTmpDir();
+    const specsDir = makeTmpDir();
+    try {
+      // Two mini-plans: doing-present.md (spec exists) and doing-stale.md (spec absent)
+      fs.writeFileSync(path.join(plansDir, 'doing-present.md'), `## Tasks
+- [ ] **T1**: Present task
+`);
+      fs.writeFileSync(path.join(plansDir, 'doing-stale.md'), `## Tasks
+- [ ] **T1**: Stale task
+`);
+      // Only doing-present.md has a spec
+      fs.writeFileSync(path.join(specsDir, 'doing-present.md'), '# Spec for present\n');
+
+      const result = runConsolidator(['--plans-dir', plansDir, '--specs-dir', specsDir]);
+      assert.equal(result.code, 0);
+      assert.ok(result.stdout.includes('Present task'), 'matched mini-plan task should be included');
+      assert.ok(!result.stdout.includes('Stale task'), 'stale mini-plan task should be excluded');
+      assert.ok(result.stderr.includes('skipping stale mini-plan doing-stale.md'), 'stderr should warn about stale entry');
+    } finally {
+      rmrf(plansDir);
+      rmrf(specsDir);
+    }
+  });
+
+  test('AC-4: without --specs-dir, all doing-* mini-plans are included (backward compatible)', () => {
+    const plansDir = makeTmpDir();
+    try {
+      fs.writeFileSync(path.join(plansDir, 'doing-alpha.md'), `## Tasks
+- [ ] **T1**: Alpha task
+`);
+      fs.writeFileSync(path.join(plansDir, 'doing-beta.md'), `## Tasks
+- [ ] **T1**: Beta task
+`);
+
+      const result = runConsolidator(['--plans-dir', plansDir]);
+      assert.equal(result.code, 0);
+      assert.ok(result.stdout.includes('Alpha task'), 'alpha mini-plan should be included without --specs-dir');
+      assert.ok(result.stdout.includes('Beta task'), 'beta mini-plan should be included without --specs-dir');
+    } finally {
+      rmrf(plansDir);
+    }
+  });
+
+  test('AC-4: backward-compat — no stale warnings emitted without --specs-dir', () => {
+    const plansDir = makeTmpDir();
+    try {
+      fs.writeFileSync(path.join(plansDir, 'doing-orphan.md'), `## Tasks
+- [ ] **T1**: Orphan task (no spec file anywhere)
+`);
+
+      const result = runConsolidator(['--plans-dir', plansDir]);
+      assert.equal(result.code, 0);
+      assert.ok(!result.stderr.includes('skipping stale'), 'no stale warnings without --specs-dir');
+    } finally {
+      rmrf(plansDir);
+    }
+  });
+});
