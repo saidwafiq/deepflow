@@ -35,6 +35,23 @@ const GLOBAL_DIR = path.join(os.homedir(), '.claude');
 const PROJECT_DIR = path.join(process.cwd(), '.claude');
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 
+/**
+ * Atomically write data to targetPath using a write-to-temp + rename pattern.
+ * If the write fails, the original file is left untouched and the temp file is
+ * cleaned up. Temp file is created in the same directory as the target so the
+ * rename is within the same filesystem (atomic on POSIX).
+ */
+function atomicWriteFileSync(targetPath, data) {
+  const tmpPath = targetPath + '.tmp';
+  try {
+    fs.writeFileSync(tmpPath, data);
+    fs.renameSync(tmpPath, targetPath);
+  } catch (err) {
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+    throw err;
+  }
+}
+
 function updateGlobalPackage() {
   const currentVersion = require(path.join(PACKAGE_DIR, 'package.json')).version;
   try {
@@ -434,7 +451,7 @@ async function configureHooks(claudeDir) {
     console.log(`  ${c.dim}${file} copied (no @hook-event tag — not wired)${c.reset}`);
   }
 
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2));
 }
 
 function configureProjectSettings(claudeDir) {
@@ -457,7 +474,7 @@ function configureProjectSettings(claudeDir) {
   // Configure permissions for background agents
   configurePermissions(settings);
 
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2));
   log('LSP tool enabled + agent permissions configured (project)');
 }
 
@@ -675,7 +692,7 @@ async function uninstall() {
           console.log(`  ${c.green}✓${c.reset} Removed deepflow permissions from settings`);
         }
 
-        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+        atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2));
       } catch (e) {
         // Fail silently
       }
@@ -702,7 +719,7 @@ async function uninstall() {
           fs.unlinkSync(localSettingsPath);
           console.log(`  ${c.green}✓${c.reset} Removed settings.local.json (empty after cleanup)`);
         } else {
-          fs.writeFileSync(localSettingsPath, JSON.stringify(localSettings, null, 2));
+          atomicWriteFileSync(localSettingsPath, JSON.stringify(localSettings, null, 2));
           console.log(`  ${c.green}✓${c.reset} Removed deepflow settings from settings.local.json`);
         }
       } catch (e) {
@@ -717,7 +734,7 @@ async function uninstall() {
 }
 
 // Export for testing
-module.exports = { scanHookEvents, removeDeepflowHooks };
+module.exports = { scanHookEvents, removeDeepflowHooks, atomicWriteFileSync };
 
 // Only run main when executed directly (not when required by tests)
 if (require.main === module) {

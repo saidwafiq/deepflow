@@ -1040,3 +1040,116 @@ describe('copyDir security hardening (symlink & path traversal)', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// 7. atomicWriteFileSync — write-to-temp + rename pattern
+// ---------------------------------------------------------------------------
+
+describe('atomicWriteFileSync', () => {
+  const { atomicWriteFileSync } = require('./install.js');
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+  });
+
+  afterEach(() => {
+    rmrf(tmpDir);
+  });
+
+  test('writes data to target file', () => {
+    const target = path.join(tmpDir, 'settings.json');
+    atomicWriteFileSync(target, '{"key":"value"}');
+    assert.equal(fs.readFileSync(target, 'utf8'), '{"key":"value"}');
+  });
+
+  test('leaves no .tmp artifact on success', () => {
+    const target = path.join(tmpDir, 'settings.json');
+    atomicWriteFileSync(target, 'data');
+    assert.ok(!fs.existsSync(target + '.tmp'), 'No .tmp file should remain after successful write');
+  });
+
+  test('overwrites existing target with new content', () => {
+    const target = path.join(tmpDir, 'settings.json');
+    fs.writeFileSync(target, 'original');
+    atomicWriteFileSync(target, 'updated');
+    assert.equal(fs.readFileSync(target, 'utf8'), 'updated');
+  });
+
+  test('leaves original untouched when write to temp fails', () => {
+    const target = path.join(tmpDir, 'settings.json');
+    fs.writeFileSync(target, 'safe-original');
+
+    // Force writeFileSync to fail by passing a directory path as the tmpPath target
+    // We do this by making the .tmp path a directory so writeFileSync throws EISDIR
+    const tmpPath = target + '.tmp';
+    fs.mkdirSync(tmpPath);
+
+    let threw = false;
+    try {
+      atomicWriteFileSync(target, 'should-not-overwrite');
+    } catch (_) {
+      threw = true;
+    }
+
+    assert.ok(threw, 'atomicWriteFileSync should rethrow write errors');
+    assert.equal(
+      fs.readFileSync(target, 'utf8'),
+      'safe-original',
+      'Original file must be untouched when temp write fails'
+    );
+  });
+
+  test('cleans up .tmp artifact when write fails', () => {
+    const target = path.join(tmpDir, 'settings.json');
+    const tmpPath = target + '.tmp';
+
+    // Intercept: write succeeds but rename fails
+    // We simulate this by making the target's parent dir read-only after the temp write
+    // Instead, test cleanup via the EISDIR approach (tmpPath is a dir — can't write into it)
+    // After EISDIR on writeFileSync(tmpPath), unlinkSync should clean it up.
+    // Since tmpPath was created as a dir in this test, unlinkSync would fail silently,
+    // but the dir itself was pre-existing. Let's use a simpler approach:
+    // patch by making target a directory, which causes renameSync to fail after temp write.
+
+    // Create a target that is a directory so renameSync(tmp, target) fails
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, 'dummy'), 'x'); // non-empty so unlinkSync fails cleanly
+
+    let threw = false;
+    try {
+      atomicWriteFileSync(target, 'data');
+    } catch (_) {
+      threw = true;
+    }
+
+    assert.ok(threw, 'Should throw when rename fails');
+    // .tmp should be cleaned up
+    assert.ok(!fs.existsSync(tmpPath), '.tmp file should be cleaned up after rename failure');
+  });
+
+  test('source uses atomicWriteFileSync for all 4 settings writes', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    // Count occurrences of atomicWriteFileSync calls (excluding the definition)
+    const calls = src.match(/atomicWriteFileSync\(/g) || [];
+    // 1 definition + 4 call sites = 5 total occurrences minimum
+    assert.ok(
+      calls.length >= 5,
+      `Expected at least 5 occurrences of atomicWriteFileSync (1 def + 4 calls), found ${calls.length}`
+    );
+  });
+
+  test('source exports atomicWriteFileSync for testing', () => {
+    const src = fs.readFileSync(path.resolve(__dirname, 'install.js'), 'utf8');
+    assert.ok(
+      src.includes('atomicWriteFileSync') && src.includes('module.exports'),
+      'install.js should export atomicWriteFileSync'
+    );
+    const exportLine = src.match(/module\.exports\s*=\s*\{([^}]+)\}/);
+    assert.ok(exportLine, 'module.exports should be a plain object');
+    assert.ok(
+      exportLine[1].includes('atomicWriteFileSync'),
+      'module.exports should include atomicWriteFileSync'
+    );
+  });
+});
