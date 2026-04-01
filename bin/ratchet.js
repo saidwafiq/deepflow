@@ -74,7 +74,7 @@ function loadConfig(repoRoot) {
 // Snapshot: read auto-snapshot.txt and absolutize paths
 // ---------------------------------------------------------------------------
 
-function loadSnapshotFiles(repoRoot) {
+function loadSnapshotFiles(repoRoot, resolveBase = repoRoot) {
   const snapshotPath = path.join(repoRoot, '.deepflow', 'auto-snapshot.txt');
   if (!fs.existsSync(snapshotPath)) return [];
 
@@ -82,7 +82,7 @@ function loadSnapshotFiles(repoRoot) {
     .split('\n')
     .map(l => l.trim())
     .filter(l => l.length > 0)
-    .map(rel => path.join(repoRoot, rel));
+    .map(rel => path.join(resolveBase, rel));
 }
 
 // ---------------------------------------------------------------------------
@@ -340,7 +340,7 @@ function main() {
 
   const cfg = loadConfig(repoRoot);
   const projectType = detectProjectType(repoRoot);
-  const snapshotFiles = loadSnapshotFiles(repoRoot);
+  const snapshotFiles = loadSnapshotFiles(repoRoot, cwd);
   const cmds = buildCommands(repoRoot, projectType, snapshotFiles, cfg);
   // --snapshot flag overrides the snapshot-derived test command
   if (cliArgs.snapshot && fs.existsSync(cliArgs.snapshot)) {
