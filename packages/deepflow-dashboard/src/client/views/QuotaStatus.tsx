@@ -1,85 +1,96 @@
 import React, { useCallback, useContext, useEffect, useState } from 'react';
-import { QuotaGauge } from '../components/QuotaGauge';
-import { StackedAreaChart } from '../components/charts/StackedAreaChart';
 import { useApi } from '../hooks/useApi';
 import { usePolling } from '../hooks/usePolling';
 import { DashboardContext } from '../context/DashboardContext';
 
-/* ---- Types from GET /api/quota ---- */
-interface QuotaEntry {
-  window_type: string;
-  used: number;
-  limit_val: number;
-  utilization_pct: number;
-  reset_at: string | null;
-  captured_at: string | null;
-  /** Present in team mode */
-  user?: string;
+/* ---- Types from GET /api/quota/windows ---- */
+interface WindowRow {
+  startedAt: string;
+  endsAt: string;
+  five_hour_pct: number | null;
+  seven_day_pct: number | null;
+  seven_day_sonnet_pct: number | null;
+  extra_usage_pct: number | null;
+  isActive: boolean;
 }
 
-interface QuotaResponse {
-  data: QuotaEntry[];
-}
-
-/* ---- Types from GET /api/quota/history ---- */
-interface QuotaHistoryEntry {
-  captured_at: string;
-  window_type: string;
-  used: number;
-  limit_val: number;
-  utilization_pct: number | null;
-}
-
-interface QuotaHistoryResponse {
-  data: QuotaHistoryEntry[];
-}
-
-/** Palette for distinct window_type series */
-const WINDOW_COLORS: Record<string, string> = {
-  five_hour: '#6366f1',
-  seven_day: '#22c55e',
-  seven_day_sonnet: '#f59e0b',
-  extra_usage: '#ef4444',
-};
-
-function windowColor(windowType: string, idx: number): string {
-  return WINDOW_COLORS[windowType] ?? ['#8b5cf6', '#14b8a6', '#f97316', '#ec4899'][idx % 4];
+interface WindowsResponse {
+  data: WindowRow[];
 }
 
 /* ---- Helpers ---- */
+function fmtDate(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
 
-/** Human-friendly label for window_type keys */
-const WINDOW_LABELS: Record<string, string> = {
-  five_hour: '5-Hour Window',
-  seven_day: '7-Day Window',
-  seven_day_sonnet: '7-Day (Sonnet)',
-  extra_usage: 'Extra Usage',
-};
+function clamp(v: number | null): number {
+  if (v === null || v === undefined) return 0;
+  return Math.max(0, Math.min(100, v));
+}
 
-function label(windowType: string): string {
-  return WINDOW_LABELS[windowType] ?? windowType;
+/* ---- InlineBar ---- */
+interface InlineBarProps {
+  label: string;
+  pct: number | null;
+  color: string;
+}
+
+function InlineBar({ label, pct, color }: InlineBarProps) {
+  const val = clamp(pct);
+  const display = pct === null ? '–' : `${Math.round(val)}%`;
+
+  return (
+    <div className="flex items-center gap-1" style={{ minWidth: 0 }}>
+      <span
+        className="text-xs font-medium shrink-0"
+        style={{ color: 'var(--text-secondary)', width: '3.5rem' }}
+      >
+        {label}
+      </span>
+      <div
+        className="relative rounded-sm overflow-hidden shrink-0"
+        style={{ width: 64, height: 8, background: 'var(--bg-secondary)' }}
+      >
+        <div
+          style={{
+            width: `${val}%`,
+            height: '100%',
+            background: color,
+            transition: 'width 0.3s ease',
+          }}
+        />
+      </div>
+      <span
+        className="text-xs tabular-nums shrink-0"
+        style={{ color: 'var(--text-secondary)', width: '2.5rem' }}
+      >
+        {display}
+      </span>
+    </div>
+  );
 }
 
 /* ---- Component ---- */
 export function QuotaStatus() {
   const apiFetch = useApi();
-  const { refreshInterval, refreshKey, mode } = useContext(DashboardContext);
-  const [data, setData] = useState<QuotaResponse | null>(null);
-  const [history, setHistory] = useState<QuotaHistoryResponse | null>(null);
+  const { refreshInterval, refreshKey } = useContext(DashboardContext);
+  const [data, setData] = useState<WindowsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [res, histRes] = await Promise.all([
-        apiFetch('/api/quota'),
-        apiFetch('/api/quota/history?days=7'),
-      ]);
+      const res = await apiFetch('/api/quota/windows');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      if (!histRes.ok) throw new Error(`HTTP ${histRes.status}`);
-      const json = (await res.json()) as QuotaResponse;
-      const histJson = (await histRes.json()) as QuotaHistoryResponse;
+      const json = (await res.json()) as WindowsResponse;
       setData(json);
-      setHistory(histJson);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -96,115 +107,56 @@ export function QuotaStatus() {
     return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading…</p>;
   }
 
-  const quota = data.data;
+  const rows = data.data;
 
-  /* ---- Build trend chart data ---- */
-  // Pivot history rows: [{captured_at, five_hour_pct, seven_day_pct, ...}]
-  const trendSection = (() => {
-    if (!history || history.data.length === 0) return null;
+  return (
+    <div className="space-y-4">
+      <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Quota Windows</h1>
 
-    // Collect unique window types in order of first appearance
-    const windowTypes: string[] = [];
-    const seenWindowTypes = new Set<string>();
-    for (const row of history.data) {
-      if (!seenWindowTypes.has(row.window_type)) {
-        seenWindowTypes.add(row.window_type);
-        windowTypes.push(row.window_type);
-      }
-    }
-
-    // Group by captured_at timestamp
-    const byTs = new Map<string, Record<string, number | null>>();
-    for (const row of history.data) {
-      const ts = row.captured_at;
-      if (!byTs.has(ts)) byTs.set(ts, { captured_at: ts as unknown as number });
-      byTs.get(ts)![row.window_type] = row.utilization_pct;
-    }
-
-    // Sort chronologically and format x-axis label
-    const chartData = Array.from(byTs.values()).sort((a, b) =>
-      String(a.captured_at) < String(b.captured_at) ? -1 : 1
-    );
-
-    const areas = windowTypes.map((wt, idx) => ({
-      dataKey: wt,
-      name: label(wt),
-      color: windowColor(wt, idx),
-    }));
-
-    const xFmt = (v: unknown) => {
-      const d = new Date(String(v));
-      return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    };
-    const yFmt = (v: unknown) => `${v}%`;
-
-    return (
       <div className="space-y-2">
-        <h2 className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-          Utilization Trend — last 7 days
-        </h2>
-        <StackedAreaChart
-          data={chartData as Record<string, unknown>[]}
-          areas={areas}
-          xKey="captured_at"
-          xTickFormatter={xFmt}
-          yTickFormatter={yFmt}
-          tooltipFormatter={(value, name) => [`${value}%`, name]}
-          height={220}
-        />
-      </div>
-    );
-  })();
+        {rows.map((row) => (
+          <div
+            key={`${row.startedAt}-${row.endsAt}`}
+            className="rounded-xl p-3"
+            style={{
+              background: row.isActive ? 'var(--bg-card)' : 'var(--bg-secondary)',
+              border: row.isActive
+                ? '1px solid var(--accent)'
+                : '1px solid var(--border)',
+            }}
+          >
+            {/* Period label */}
+            <div className="flex items-center gap-2 mb-2">
+              {row.isActive && (
+                <span
+                  className="text-xs font-semibold px-1.5 py-0.5 rounded"
+                  style={{ background: 'var(--accent)', color: '#fff', lineHeight: 1.4 }}
+                >
+                  active
+                </span>
+              )}
+              <span
+                className="text-xs font-mono"
+                style={{ color: row.isActive ? 'var(--text)' : 'var(--text-secondary)' }}
+              >
+                {fmtDate(row.startedAt)} → {fmtDate(row.endsAt)}
+              </span>
+            </div>
 
-  // In team mode entries may carry a user field — group by user, then window.
-  if (mode === 'team') {
-    const byUser = new Map<string, QuotaEntry[]>();
-    for (const entry of quota) {
-      const u = entry.user ?? 'unknown';
-      if (!byUser.has(u)) byUser.set(u, []);
-      byUser.get(u)!.push(entry);
-    }
-
-    return (
-      <div className="space-y-6">
-        <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Quota Status</h1>
-        {Array.from(byUser.entries()).map(([user, entries]) => (
-          <div key={user} className="space-y-3">
-            <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>{user}</p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {entries.map((e) => (
-                <QuotaGauge
-                  key={`${user}-${e.window_type}`}
-                  label={label(e.window_type)}
-                  pct={e.utilization_pct}
-                  reset_at={e.reset_at}
-                  capturedAt={e.captured_at}
-                />
-              ))}
+            {/* 4 inline bars */}
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+              <InlineBar label="5h" pct={row.five_hour_pct} color="#6366f1" />
+              <InlineBar label="7d" pct={row.seven_day_pct} color="#22c55e" />
+              <InlineBar label="Sonnet" pct={row.seven_day_sonnet_pct} color="#f59e0b" />
+              <InlineBar label="Extra" pct={row.extra_usage_pct} color="#ef4444" />
             </div>
           </div>
         ))}
-        {trendSection}
-      </div>
-    );
-  }
 
-  // Local mode — flat grid of gauges.
-  return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Quota Status</h1>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {quota.map((e) => (
-          <QuotaGauge
-            key={e.window_type}
-            label={label(e.window_type)}
-            pct={e.utilization_pct}
-            reset_at={e.reset_at}
-            capturedAt={e.captured_at}
-          />
-        ))}
+        {rows.length === 0 && (
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No quota window data available.</p>
+        )}
       </div>
-      {trendSection}
     </div>
   );
 }
