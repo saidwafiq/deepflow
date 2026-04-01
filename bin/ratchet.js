@@ -363,7 +363,7 @@ function main() {
       if (exe !== 'npx' && !commandExists(exe)) continue;
     }
 
-    const { ok, log } = runCommand(cmd, repoRoot);
+    const { ok, log } = runCommand(cmd, cwd);
 
     if (ok === null) {
       // executable spawning error — skip stage
