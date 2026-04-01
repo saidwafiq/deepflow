@@ -1,7 +1,90 @@
 import { Hono } from 'hono';
+import { homedir } from 'node:os';
+import { resolve } from 'node:path';
 import { all } from '../db/index.js';
+import { parseQuotaWindows, type AnyQuotaWindow } from '../lib/quota-window-parser.js';
 
 export const quotaRouter = new Hono();
+
+// ---------------------------------------------------------------------------
+// Types for GET /api/quota/windows
+// ---------------------------------------------------------------------------
+
+interface WindowRow {
+  startedAt: string;
+  endsAt: string;
+  five_hour_pct: number | null;
+  seven_day_pct: number | null;
+  seven_day_sonnet_pct: number | null;
+  extra_usage_pct: number | null;
+  isActive: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/quota/windows
+// ---------------------------------------------------------------------------
+// Returns correlated quota windows: each five_hour window paired with the
+// seven_day / seven_day_sonnet / extra_usage window that overlaps it.
+// Sorted newest-first. No monetary values — utilization % only.
+// ---------------------------------------------------------------------------
+quotaRouter.get('/windows', async (c) => {
+  const claudeDir = resolve(homedir(), '.claude');
+  const filePath = resolve(claudeDir, 'quota-history.jsonl');
+
+  // Collect all windows from the JSONL file
+  const allWindows: AnyQuotaWindow[] = [];
+  try {
+    for await (const w of parseQuotaWindows(filePath)) {
+      allWindows.push(w);
+    }
+  } catch {
+    // File missing or unreadable — return empty
+    return c.json({ data: [] });
+  }
+
+  // Group by window type
+  const fiveHour = allWindows.filter((w) => w.type === 'five_hour');
+  const sevenDay = allWindows.filter((w) => w.type === 'seven_day');
+  const sevenDaySonnet = allWindows.filter((w) => w.type === 'seven_day_sonnet');
+  const extraUsage = allWindows.filter((w) => w.type === 'extra_usage');
+
+  /** Find the first window in `pool` where startedAt <= ts <= endsAt */
+  function findOverlap(pool: AnyQuotaWindow[], ts: string): AnyQuotaWindow | undefined {
+    const tsMs = new Date(ts).getTime();
+    return pool.find((w) => {
+      const start = new Date(w.startedAt).getTime();
+      const end = new Date(w.endsAt).getTime();
+      return start <= tsMs && tsMs <= end;
+    });
+  }
+
+  const now = Date.now();
+
+  const rows: WindowRow[] = fiveHour.map((fh) => {
+    const sdMatch = findOverlap(sevenDay, fh.startedAt);
+    const sdsMatch = findOverlap(sevenDaySonnet, fh.startedAt);
+    const euMatch = findOverlap(extraUsage, fh.startedAt);
+
+    const fhEndsMs = new Date(fh.endsAt).getTime();
+    const fhStartMs = new Date(fh.startedAt).getTime();
+    const isActive = fhEndsMs > now && fhStartMs <= now;
+
+    return {
+      startedAt: fh.startedAt,
+      endsAt: fh.endsAt,
+      five_hour_pct: fh.finalUtilization,
+      seven_day_pct: sdMatch ? sdMatch.finalUtilization : null,
+      seven_day_sonnet_pct: sdsMatch ? sdsMatch.finalUtilization : null,
+      extra_usage_pct: euMatch ? euMatch.finalUtilization : null,
+      isActive,
+    };
+  });
+
+  // Sort newest-first by startedAt
+  rows.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+
+  return c.json({ data: rows });
+});
 
 // GET /api/quota/history
 // Query params: window_type (optional), days (optional, default 7)
