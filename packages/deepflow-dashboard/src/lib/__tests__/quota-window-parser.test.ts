@@ -23,7 +23,7 @@ import assert from 'node:assert/strict';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { parseQuotaWindows, type AnyQuotaWindow, type QuotaWindow, type ExtraUsageWindow } from '../quota-window-parser.ts';
+import { parseQuotaWindows, type AnyQuotaWindow, type QuotaWindow, type ExtraUsageWindow } from '../quota-window-parser.js';
 
 // ---------------------------------------------------------------------------
 // Helper: collect async generator into array
@@ -289,7 +289,7 @@ describe('AC-4: malformed JSON line is skipped with stderr warning; surrounding 
     // Capture stderr
     const originalWrite = process.stderr.write.bind(process.stderr);
     stderrOutput = '';
-    process.stderr.write = (chunk: string | Uint8Array, ...args: Parameters<typeof process.stderr.write>): boolean => {
+    process.stderr.write = (chunk: string | Uint8Array): boolean => {
       stderrOutput += chunk.toString();
       return true;
     };
@@ -316,7 +316,7 @@ describe('AC-4: malformed JSON line is skipped with stderr warning; surrounding 
   it('writes a warning to stderr for the malformed line', async () => {
     const originalWrite = process.stderr.write.bind(process.stderr);
     let captured = '';
-    process.stderr.write = (chunk: string | Uint8Array, ...args: Parameters<typeof process.stderr.write>): boolean => {
+    process.stderr.write = (chunk: string | Uint8Array): boolean => {
       captured += chunk.toString();
       return true;
     };
