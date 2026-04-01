@@ -436,54 +436,54 @@ describe('T68 — GET /api/quota/history endpoint', () => {
 
   // -- QuotaStatus.tsx consumes /api/quota/history --
 
-  it('QuotaStatus.tsx defines QuotaHistoryEntry interface with utilization_pct', () => {
+  it('QuotaStatus.tsx defines WindowRow interface with pct fields', () => {
     assert.ok(
-      quotaStatusSrc.includes('interface QuotaHistoryEntry'),
-      'QuotaStatus should define QuotaHistoryEntry interface'
+      quotaStatusSrc.includes('interface WindowRow'),
+      'QuotaStatus should define WindowRow interface'
     );
 
-    const ifaceStart = quotaStatusSrc.indexOf('interface QuotaHistoryEntry');
+    const ifaceStart = quotaStatusSrc.indexOf('interface WindowRow');
     const ifaceEnd = quotaStatusSrc.indexOf('}', ifaceStart);
     const ifaceBody = quotaStatusSrc.slice(ifaceStart, ifaceEnd);
 
     assert.ok(
-      ifaceBody.includes('utilization_pct'),
-      'QuotaHistoryEntry should include utilization_pct field'
+      ifaceBody.includes('five_hour_pct'),
+      'WindowRow should include five_hour_pct field'
     );
     assert.ok(
-      ifaceBody.includes('captured_at'),
-      'QuotaHistoryEntry should include captured_at field'
+      ifaceBody.includes('startedAt'),
+      'WindowRow should include startedAt field'
     );
     assert.ok(
-      ifaceBody.includes('window_type'),
-      'QuotaHistoryEntry should include window_type field'
+      ifaceBody.includes('isActive'),
+      'WindowRow should include isActive field'
     );
   });
 
-  it('QuotaStatus.tsx defines QuotaHistoryResponse with data array', () => {
+  it('QuotaStatus.tsx defines WindowsResponse with data array', () => {
     assert.ok(
-      quotaStatusSrc.includes('interface QuotaHistoryResponse'),
-      'QuotaStatus should define QuotaHistoryResponse interface'
+      quotaStatusSrc.includes('interface WindowsResponse'),
+      'QuotaStatus should define WindowsResponse interface'
     );
 
-    const ifaceStart = quotaStatusSrc.indexOf('interface QuotaHistoryResponse');
+    const ifaceStart = quotaStatusSrc.indexOf('interface WindowsResponse');
     const ifaceEnd = quotaStatusSrc.indexOf('}', ifaceStart);
     const ifaceBody = quotaStatusSrc.slice(ifaceStart, ifaceEnd);
 
     assert.ok(
-      ifaceBody.includes('data: QuotaHistoryEntry[]'),
-      'QuotaHistoryResponse should have data: QuotaHistoryEntry[]'
+      ifaceBody.includes('data: WindowRow[]'),
+      'WindowsResponse should have data: WindowRow[]'
     );
   });
 
-  it('QuotaHistoryEntry.utilization_pct allows null (for zero limit cases)', () => {
-    const ifaceStart = quotaStatusSrc.indexOf('interface QuotaHistoryEntry');
+  it('WindowRow pct fields allow null (for missing match cases)', () => {
+    const ifaceStart = quotaStatusSrc.indexOf('interface WindowRow');
     const ifaceEnd = quotaStatusSrc.indexOf('}', ifaceStart);
     const ifaceBody = quotaStatusSrc.slice(ifaceStart, ifaceEnd);
 
     assert.ok(
-      ifaceBody.includes('utilization_pct: number | null'),
-      'utilization_pct should be typed as number | null'
+      ifaceBody.includes('number | null'),
+      'pct fields in WindowRow should be typed as number | null'
     );
   });
 });
