@@ -65,6 +65,9 @@ export async function initDatabase(mode: 'local' | 'serve' = 'local'): Promise<D
   // One-time backfill of dirty agent_role and model data (REQ-5)
   backfillAgentRoleModel(_db);
 
+  // One-time reset of model/cost on virtual sessions so re-ingest corrects them
+  runMigrationSubagentModelFixV2(_db);
+
   // Persist after schema init
   persistDatabase();
 
@@ -174,6 +177,25 @@ function backfillAgentRoleModel(db: Database): void {
 
   db.run("INSERT INTO _meta (key, value) VALUES (?, 'done')", [migrationKey]);
   console.log('[db:backfill] backfill_agent_role_model_v4 complete');
+}
+
+/**
+ * One-time migration: reset model and cost on virtual sessions so re-ingest
+ * picks up the corrected model values from JSONL.
+ * Virtual sessions are identified by '::' in their id (e.g. session_id::agent_id).
+ */
+export function runMigrationSubagentModelFixV2(db: Database): void {
+  const migrationKey = 'migration:subagent_model_fix_v2';
+  const checkStmt = db.prepare("SELECT value FROM _meta WHERE key = ?");
+  checkStmt.bind([migrationKey]);
+  const alreadyRan = checkStmt.step();
+  checkStmt.free();
+
+  if (alreadyRan) return;
+
+  db.run("UPDATE sessions SET model = 'unknown', cost = 0 WHERE id LIKE '%::%'");
+  db.run("INSERT INTO _meta (key, value) VALUES (?, 'done')", [migrationKey]);
+  console.log('[db:migration] subagent_model_fix_v2 complete');
 }
 
 /** Get the initialized database instance (throws if not initialized) */
