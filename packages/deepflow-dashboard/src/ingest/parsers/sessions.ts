@@ -535,23 +535,28 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
   for (const entry of subagentEntries) {
     const virtualId = `${entry.session_id}::${entry.agent_id}`;
 
-    // Skip if already ingested
-    const existing = db.get('SELECT id FROM sessions WHERE id = ?', [virtualId]);
-    if (existing) continue;
-
     // Look up parent session for user/project context
     const parent = db.get('SELECT user, project, started_at FROM sessions WHERE id = ?', [entry.session_id]);
     const user = (parent?.user as string) ?? 'unknown';
     const project = (parent?.project as string) ?? 'unknown';
 
     // Subagent entries don't have 5m/1h breakdown — treat all as 5m (conservative)
-    const subCost = Math.max(0, computeCost(pricing, entry.model, entry.tokens_in, entry.tokens_out, entry.cache_read, entry.cache_creation));
+    const subCacheCreation5m = entry.cache_creation;
+    const subCacheCreation1h = 0;
+    const subCost = Math.max(0, computeCost(pricing, entry.model, entry.tokens_in, entry.tokens_out, entry.cache_read, subCacheCreation5m, subCacheCreation1h));
 
     try {
       db.run(
-        `INSERT INTO sessions (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation, duration_ms, messages, tool_calls, cost, started_at, ended_at, agent_role, parent_session_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sessions (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation, cache_creation_5m, cache_creation_1h, duration_ms, messages, tool_calls, cost, started_at, ended_at, agent_role, parent_session_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           cache_creation = excluded.cache_creation,
+           cache_creation_5m = excluded.cache_creation_5m,
+           cache_creation_1h = excluded.cache_creation_1h,
+           cost = excluded.cost
+         WHERE sessions.cache_creation = 0 AND excluded.cache_creation > 0`,
         [virtualId, user, project, entry.model, entry.tokens_in, entry.tokens_out, entry.cache_read, entry.cache_creation,
+         subCacheCreation5m, subCacheCreation1h,
          subCost, entry.timestamp, entry.timestamp, entry.agent_type, entry.session_id]
       );
       subagentInserted++;
