@@ -158,6 +158,32 @@ function runMigrationCacheBreakdownV1(): void {
 }
 
 /**
+ * One-time migration: wipe token_events, task_attempts, reset session fields,
+ * and delete all session/token/execution/cache-history ingest offsets so sessions
+ * are re-parsed from scratch with the dedup fix.
+ * Idempotent — tracked via _meta key 'migration:pipeline_critical_v1'.
+ */
+function runMigrationPipelineCriticalV1(): void {
+  const already = get("SELECT value FROM _meta WHERE key = 'migration:pipeline_critical_v1'");
+  if (already) return;
+
+  console.log('[ingest:migration] Running pipeline_critical_v1 — wiping token_events, task_attempts, resetting sessions + offsets…');
+
+  run('DELETE FROM token_events');
+  run('DELETE FROM task_attempts');
+  run(`UPDATE sessions SET cost=0, tokens_in=0, tokens_out=0, cache_read=0, cache_creation=0,
+       cache_creation_5m=0, cache_creation_1h=0, messages=0, tool_calls=0,
+       duration_ms=NULL, model='unknown'`);
+  run("DELETE FROM _meta WHERE key LIKE 'ingest_offset:session:%'");
+  run("DELETE FROM _meta WHERE key LIKE 'ingest_offset:token-%'");
+  run("DELETE FROM _meta WHERE key LIKE 'ingest_offset:execution-%'");
+  run("DELETE FROM _meta WHERE key = 'ingest_offset:cache-history'");
+
+  run("INSERT INTO _meta (key, value) VALUES ('migration:pipeline_critical_v1', '1')");
+  console.log('[ingest:migration] pipeline_critical_v1 complete');
+}
+
+/**
  * One-time migration: delete quota_snapshots with window_type='unknown'
  * (created from error responses) and re-parse from scratch.
  */
@@ -185,6 +211,7 @@ export async function runIngestion(deepflowDir?: string): Promise<void> {
   runMigrationToolQuotaReparseV1();
   runMigrationCostReparseV1();
   runMigrationCacheBreakdownV1();
+  runMigrationPipelineCriticalV1();
   runMigrationQuotaErrorFilterV1();
   console.log(`[ingest]   claudeDir : ${claudeDir}`);
   console.log(`[ingest]   deepflowDir : ${dfDir}`);
