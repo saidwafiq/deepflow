@@ -752,3 +752,100 @@ describe('T6-C — AC-2: subagent file regex covers >95% of expected filenames',
       'sessions.ts must filter for agent-*.jsonl files in subagents/ directory scan');
   });
 });
+
+// ---------------------------------------------------------------------------
+// T6-D: Model resolution from JSONL events — subagent sessions must not be 'unknown'
+//
+// Verifies AC-1: subagent virtual sessions show the correct model from the
+// JSONL event stream (event.message.model) rather than defaulting to 'unknown'.
+// ---------------------------------------------------------------------------
+
+describe('T6-D — subagent model resolution: model from JSONL events, not unknown', () => {
+
+  // Haiku events: model lives in event.message.model (the real subagent JSONL structure)
+  const HAIKU_EVENTS_MSG_MODEL = [
+    {
+      type: 'user',
+      timestamp: '2026-03-20T10:00:00Z',
+      message: { role: 'user' },
+    },
+    {
+      type: 'assistant',
+      timestamp: '2026-03-20T10:00:01Z',
+      message: {
+        role: 'assistant',
+        model: 'claude-haiku-4-5-20251001',
+        usage: {
+          input_tokens: 150,
+          output_tokens: 40,
+        },
+      },
+    },
+  ];
+
+  // Haiku events: model lives in top-level event.model (alternative JSONL structure)
+  const HAIKU_EVENTS_TOP_MODEL = [
+    {
+      type: 'user',
+      timestamp: '2026-03-20T10:00:00Z',
+    },
+    {
+      type: 'assistant',
+      timestamp: '2026-03-20T10:00:01Z',
+      model: 'claude-haiku-4-5-20251001',
+      usage: {
+        input_tokens: 150,
+        output_tokens: 40,
+      },
+    },
+  ];
+
+  it('model is extracted from event.message.model (real subagent JSONL structure)', () => {
+    // Start with metaModel = 'unknown' (meta.json has no model field)
+    const acc = simulateSubagentParsing(HAIKU_EVENTS_MSG_MODEL, 'unknown');
+    assert.equal(acc.model, 'claude-haiku-4-5-20251001',
+      `model should be 'claude-haiku-4-5-20251001' from event.message.model, got '${acc.model}'`);
+  });
+
+  it('model is not unknown when events contain event.message.model', () => {
+    const acc = simulateSubagentParsing(HAIKU_EVENTS_MSG_MODEL, 'unknown');
+    assert.notEqual(acc.model, 'unknown',
+      `model must not be 'unknown' when events carry event.message.model`);
+  });
+
+  it('model is extracted from top-level event.model (alternative JSONL structure)', () => {
+    const acc = simulateSubagentParsing(HAIKU_EVENTS_TOP_MODEL, 'unknown');
+    assert.equal(acc.model, 'claude-haiku-4-5-20251001',
+      `model should be 'claude-haiku-4-5-20251001' from event.model, got '${acc.model}'`);
+  });
+
+  it('model is not unknown when events contain top-level event.model', () => {
+    const acc = simulateSubagentParsing(HAIKU_EVENTS_TOP_MODEL, 'unknown');
+    assert.notEqual(acc.model, 'unknown',
+      `model must not be 'unknown' when events carry top-level event.model`);
+  });
+
+  it('sessions.ts upsert includes model = excluded.model in SET clause (AC-1 source check)', () => {
+    const sessionsSrc = readFileSync(resolve(SRC_ROOT, 'ingest', 'parsers', 'sessions.ts'), 'utf8');
+    assert.ok(
+      sessionsSrc.includes('model = excluded.model'),
+      'sessions.ts upsert must include "model = excluded.model" so virtual sessions get the correct model on re-ingest'
+    );
+  });
+
+  it('sessions.ts upsert WHERE clause triggers when sessions.model = unknown (AC-1 source check)', () => {
+    const sessionsSrc = readFileSync(resolve(SRC_ROOT, 'ingest', 'parsers', 'sessions.ts'), 'utf8');
+    assert.ok(
+      sessionsSrc.includes("sessions.model = 'unknown'"),
+      "sessions.ts upsert WHERE clause must include \"sessions.model = 'unknown'\" to trigger model update"
+    );
+  });
+
+  it('sessions.ts references runMigrationSubagentModelFixV1 (AC-3: migration runs on ingest)', () => {
+    const ingestSrc = readFileSync(resolve(SRC_ROOT, 'ingest', 'index.ts'), 'utf8');
+    assert.ok(
+      ingestSrc.includes('runMigrationSubagentModelFixV1'),
+      'ingest/index.ts must call runMigrationSubagentModelFixV1 to reset stale unknown models'
+    );
+  });
+});
