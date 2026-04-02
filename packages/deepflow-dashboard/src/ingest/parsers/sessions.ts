@@ -491,6 +491,7 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         if (subCacheCreation5m < 0) subCacheCreation5m = 0;
         if (subCacheCreation1h < 0) subCacheCreation1h = 0;
 
+        // T4: 5m/1h breakdown extracted above from usage.cache_creation object; passed here correctly
         const rawSubCost = computeCost(pricing, subModel, subTokensIn, subTokensOut, subCacheRead, subCacheCreation5m, subCacheCreation1h);
         const subCost = Math.max(0, rawSubCost);
 
