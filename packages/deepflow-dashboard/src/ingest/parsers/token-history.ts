@@ -1,6 +1,49 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { resolve, basename } from 'node:path';
+import { resolve } from 'node:path';
 import type { DbHelpers } from '../../db/index.js';
+import { projectNameFromDir } from './utils.js';
+
+/**
+ * Reconstruct the real filesystem path from a Claude project dir name.
+ * Dir names encode the absolute path by replacing `/` with `-`, so naive
+ * reverse-decoding is ambiguous when project names also contain hyphens.
+ *
+ * Strategy: split the encoded name into segments and walk the filesystem,
+ * consuming segments greedily until we find an existing directory. This
+ * handles multi-hyphen project names like `my-app`, `bingo-rgs`, `foo-bar-baz`.
+ */
+function decodeDirNameToPath(dirName: string): string | null {
+  // Strip leading hyphen and split on hyphens
+  const stripped = dirName.replace(/^-+/, '');
+  const parts = stripped.split('-');
+
+  // Build path incrementally; the first segment is always a root dir (e.g. "Users")
+  let path = '/';
+  let i = 0;
+
+  while (i < parts.length) {
+    // Try consuming more segments to find the longest matching dir entry
+    let matched = false;
+    // Try longest match first (greedy from current position to end)
+    for (let end = parts.length; end > i; end--) {
+      const candidate = parts.slice(i, end).join('-');
+      const fullPath = resolve(path, candidate);
+      if (existsSync(fullPath)) {
+        path = fullPath;
+        i = end;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      // No existing entry found — fall back to single-segment advance
+      path = resolve(path, parts[i]);
+      i++;
+    }
+  }
+
+  return path === '/' ? null : path;
+}
 
 /**
  * Discover all .deepflow/token-history.jsonl files across projects.
@@ -18,18 +61,13 @@ function discoverTokenHistoryFiles(claudeDir: string): Array<{ path: string; pro
       .map(d => d.name);
 
     for (const dirName of projectDirs) {
-      // Decode dir name to real path: "-Users-saidsalles-apps-foo" → "/Users/saidsalles/apps/foo"
-      const realPath = '/' + dirName.replace(/^-/, '').replace(/-/g, '/');
+      const realPath = decodeDirNameToPath(dirName);
+      if (!realPath) continue;
+
       const tokenFile = resolve(realPath, '.deepflow', 'token-history.jsonl');
 
       if (existsSync(tokenFile)) {
-        // Extract project name from path
-        const segments = realPath.split('/');
-        const appsIdx = segments.lastIndexOf('apps');
-        const project = appsIdx >= 0 && appsIdx < segments.length - 1
-          ? segments.slice(appsIdx + 1).join('-')
-          : basename(realPath);
-
+        const project = projectNameFromDir(dirName);
         results.push({ path: tokenFile, project });
       }
     }
