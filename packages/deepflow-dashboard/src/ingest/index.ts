@@ -219,6 +219,26 @@ function runMigrationQuotaErrorFilterV1(): void {
   console.log('[ingest:migration] quota_error_filter_v1 complete');
 }
 
+/**
+ * One-time migration: deduplicate quota_snapshots and add a unique index to
+ * prevent future duplicates on (captured_at, window_type, user).
+ * Idempotent — tracked via _meta key 'migration:quota_unique_index_v1'.
+ */
+function runMigrationQuotaUniqueIndexV1(): void {
+  const already = get("SELECT value FROM _meta WHERE key = 'migration:quota_unique_index_v1'");
+  if (already) return;
+
+  console.log('[ingest:migration] Running quota_unique_index_v1 — deduplicating quota_snapshots + adding unique index…');
+
+  run(`DELETE FROM quota_snapshots WHERE rowid NOT IN (
+    SELECT MIN(rowid) FROM quota_snapshots GROUP BY captured_at, window_type, user
+  )`);
+  run('CREATE UNIQUE INDEX IF NOT EXISTS idx_quota_unique ON quota_snapshots(captured_at, window_type, user)');
+
+  run("INSERT INTO _meta (key, value) VALUES ('migration:quota_unique_index_v1', '1')");
+  console.log('[ingest:migration] quota_unique_index_v1 complete');
+}
+
 export async function runIngestion(deepflowDir?: string): Promise<void> {
   const claudeDir = resolve(homedir(), '.claude');
   const dfDir = deepflowDir ?? resolve(process.cwd(), '.deepflow');
@@ -233,6 +253,7 @@ export async function runIngestion(deepflowDir?: string): Promise<void> {
   runMigrationPipelineCriticalV1();
   runMigrationPurgeSyntheticV2();
   runMigrationQuotaErrorFilterV1();
+  runMigrationQuotaUniqueIndexV1();
   console.log(`[ingest]   claudeDir : ${claudeDir}`);
   console.log(`[ingest]   deepflowDir : ${dfDir}`);
 
