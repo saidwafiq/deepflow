@@ -160,6 +160,14 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
       let durationMs = 0;
       let hasNewData = false;
 
+      // Streaming dedup heuristic: track the last-added input-side token values so that when
+      // a streaming chunk repeat is detected (input_tokens stays the same or decreases vs. the
+      // prior event with usage), we replace the previously-added values with the max, rather than
+      // summing duplicates.  output_tokens is always summed (it rarely duplicates).
+      let lastInputTokens = -1;
+      let lastAddedIn = 0, lastAddedCacheRead = 0, lastAddedCacheCreation = 0;
+      let lastAdded5m = 0, lastAdded1h = 0;
+
       for (let i = offset; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
@@ -206,17 +214,55 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         const evtUsage = event.usage as Record<string, unknown> | undefined;
         const usage = msgUsage ?? evtUsage;
         if (usage) {
-          tokensIn += (usage.input_tokens as number) ?? 0;
-          tokensOut += (usage.output_tokens as number) ?? 0;
-          cacheRead += (usage.cache_read_input_tokens as number) ?? 0;
-          cacheCreation += (usage.cache_creation_input_tokens as number) ?? 0;
+          const inputTokens = (usage.input_tokens as number) ?? 0;
+          const outputTokens = (usage.output_tokens as number) ?? 0;
+          const cacheReadTokens = (usage.cache_read_input_tokens as number) ?? 0;
+          const cacheCreationTokens = (usage.cache_creation_input_tokens as number) ?? 0;
 
-          // Extract 5m/1h breakdown from cache_creation object
           const ccBreakdown = usage.cache_creation as Record<string, number> | undefined;
-          if (ccBreakdown && typeof ccBreakdown === 'object') {
-            cacheCreation5m += ccBreakdown.ephemeral_5m_input_tokens ?? 0;
-            cacheCreation1h += ccBreakdown.ephemeral_1h_input_tokens ?? 0;
+          const cc5m = (ccBreakdown && typeof ccBreakdown === 'object')
+            ? (ccBreakdown.ephemeral_5m_input_tokens ?? 0) : 0;
+          const cc1h = (ccBreakdown && typeof ccBreakdown === 'object')
+            ? (ccBreakdown.ephemeral_1h_input_tokens ?? 0) : 0;
+
+          // Streaming dedup: when input_tokens stays the same or decreases vs. the prior
+          // event with usage, this is a streaming chunk repeat.  Replace the previously-added
+          // input-side values with the max of (previously added, current) instead of summing.
+          if (lastInputTokens >= 0 && inputTokens <= lastInputTokens) {
+            // Undo last-added values and substitute the max
+            tokensIn      = tokensIn      - lastAddedIn          + Math.max(lastAddedIn,          inputTokens);
+            cacheRead     = cacheRead     - lastAddedCacheRead    + Math.max(lastAddedCacheRead,    cacheReadTokens);
+            cacheCreation = cacheCreation - lastAddedCacheCreation + Math.max(lastAddedCacheCreation, cacheCreationTokens);
+            cacheCreation5m = cacheCreation5m - lastAdded5m + Math.max(lastAdded5m, cc5m);
+            cacheCreation1h = cacheCreation1h - lastAdded1h + Math.max(lastAdded1h, cc1h);
+
+            // Update "last added" to reflect the new max values
+            lastAddedIn           = Math.max(lastAddedIn,           inputTokens);
+            lastAddedCacheRead    = Math.max(lastAddedCacheRead,    cacheReadTokens);
+            lastAddedCacheCreation = Math.max(lastAddedCacheCreation, cacheCreationTokens);
+            lastAdded5m           = Math.max(lastAdded5m,           cc5m);
+            lastAdded1h           = Math.max(lastAdded1h,           cc1h);
+          } else {
+            // Real new turn: sum normally for input-side tokens
+            tokensIn           += inputTokens;
+            cacheRead          += cacheReadTokens;
+            cacheCreation      += cacheCreationTokens;
+            cacheCreation5m    += cc5m;
+            cacheCreation1h    += cc1h;
+
+            // Remember what we added for this turn (for potential future dedup within same turn)
+            lastAddedIn            = inputTokens;
+            lastAddedCacheRead     = cacheReadTokens;
+            lastAddedCacheCreation = cacheCreationTokens;
+            lastAdded5m            = cc5m;
+            lastAdded1h            = cc1h;
           }
+
+          // output_tokens is always summed (streaming duplicates rarely affect output counts)
+          tokensOut += outputTokens;
+
+          // Advance dedup tracker
+          lastInputTokens = inputTokens;
         }
       }
 
