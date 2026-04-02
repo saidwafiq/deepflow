@@ -246,28 +246,6 @@ function runMigrationQuotaErrorFilterV1(): void {
 }
 
 /**
- * One-time migration: reset model = 'unknown' and cost = 0 on virtual (subagent)
- * sessions that still have model = 'unknown', so the re-ingest can pick up the
- * correct model from subagent JSONL files via extractModelFromJsonl.
- * Idempotent — tracked via _meta key 'migration:subagent_model_fix_v2'.
- */
-function runMigrationSubagentModelFixV2(): void {
-  const already = get("SELECT value FROM _meta WHERE key = 'migration:subagent_model_fix_v2'");
-  if (already) return;
-
-  console.log("[ingest:migration] Running subagent_model_fix_v2 — resetting model/cost on unknown virtual sessions…");
-
-  // Reset only virtual sessions that still show 'unknown' model — cost must be recomputed
-  run("UPDATE sessions SET cost = 0, model = 'unknown' WHERE id LIKE '%::%' AND model = 'unknown'");
-
-  // Reset ingest offsets for session parsers so re-ingest reprocesses the registry entries
-  run("DELETE FROM _meta WHERE key LIKE 'ingest_offset:session:%'");
-
-  run("INSERT INTO _meta (key, value) VALUES ('migration:subagent_model_fix_v2', '1')");
-  console.log('[ingest:migration] subagent_model_fix_v2 complete');
-}
-
-/**
  * One-time migration: deduplicate quota_snapshots and add a unique index to
  * prevent future duplicates on (captured_at, window_type, user).
  * Idempotent — tracked via _meta key 'migration:quota_unique_index_v1'.
@@ -301,7 +279,6 @@ export async function runIngestion(deepflowDir?: string): Promise<void> {
   runMigrationPipelineCriticalV1();
   runMigrationPurgeSyntheticV2();
   runMigrationSubagentModelFixV1();
-  runMigrationSubagentModelFixV2();
   runMigrationQuotaErrorFilterV1();
   runMigrationQuotaUniqueIndexV1();
   console.log(`[ingest]   claudeDir : ${claudeDir}`);
