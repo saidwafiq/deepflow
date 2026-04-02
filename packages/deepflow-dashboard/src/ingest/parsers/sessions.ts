@@ -187,7 +187,7 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
       let lastAddedIn = 0, lastAddedCacheRead = 0, lastAddedCacheCreation = 0;
       let lastAdded5m = 0, lastAdded1h = 0;
 
-      for (let i = offset; i < lines.length; i++) {
+      for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
 
@@ -314,11 +314,11 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         if (existing) {
           try {
             db.run(
-              `UPDATE sessions SET tokens_in = tokens_in + ?, tokens_out = tokens_out + ?,
-               cache_read = cache_read + ?, cache_creation = cache_creation + ?,
-               cache_creation_5m = cache_creation_5m + ?, cache_creation_1h = cache_creation_1h + ?,
-               messages = messages + ?, tool_calls = tool_calls + ?,
-               cost = cost + ?, duration_ms = ?, ended_at = COALESCE(?, ended_at),
+              `UPDATE sessions SET tokens_in = ?, tokens_out = ?,
+               cache_read = ?, cache_creation = ?,
+               cache_creation_5m = ?, cache_creation_1h = ?,
+               messages = ?, tool_calls = ?,
+               cost = ?, duration_ms = ?, ended_at = COALESCE(?, ended_at),
                model = COALESCE(NULLIF(?, 'unknown'), model),
                project = COALESCE(?, project),
                agent_role = ?
@@ -419,7 +419,7 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         let subLastAddedIn = 0, subLastAddedCacheRead = 0, subLastAddedCacheCreation = 0;
         let subLastAdded5m = 0, subLastAdded1h = 0;
 
-        for (let i = subOffset; i < subLines.length; i++) {
+        for (let i = 0; i < subLines.length; i++) {
           const line = subLines[i].trim();
           if (!line) continue;
 
@@ -539,11 +539,11 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
           if (existing) {
             try {
               db.run(
-                `UPDATE sessions SET tokens_in = tokens_in + ?, tokens_out = tokens_out + ?,
-                 cache_read = cache_read + ?, cache_creation = cache_creation + ?,
-                 cache_creation_5m = cache_creation_5m + ?, cache_creation_1h = cache_creation_1h + ?,
-                 messages = messages + ?, tool_calls = tool_calls + ?,
-                 cost = cost + ?, duration_ms = ?, ended_at = COALESCE(?, ended_at),
+                `UPDATE sessions SET tokens_in = ?, tokens_out = ?,
+                 cache_read = ?, cache_creation = ?,
+                 cache_creation_5m = ?, cache_creation_1h = ?,
+                 messages = ?, tool_calls = ?,
+                 cost = ?, duration_ms = ?, ended_at = COALESCE(?, ended_at),
                  model = COALESCE(NULLIF(?, 'unknown'), model),
                  agent_role = ?, parent_session_id = COALESCE(parent_session_id, ?)
                  WHERE id = ?`,
