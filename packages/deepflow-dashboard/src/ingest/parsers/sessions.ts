@@ -1,8 +1,54 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, openSync, readSync, closeSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
 import type { DbHelpers } from '../../db/index.js';
 import { fetchPricing, computeCost } from '../../pricing.js';
 import { projectNameFromDir } from './utils.js';
+
+/**
+ * Reads the first few KB of a subagent JSONL file and returns the normalized
+ * model string from the first `assistant` event's `message.model` field.
+ * Returns null if the file is missing, empty, or has no assistant event with a model.
+ *
+ * Reads only up to MAX_READ_BYTES to avoid scanning large files.
+ */
+export function extractModelFromJsonl(jsonlPath: string): string | null {
+  if (!existsSync(jsonlPath)) return null;
+
+  // Read at most 8 KB — enough to cover the first few JSONL lines without loading the whole file
+  const MAX_READ_BYTES = 8192;
+  let buf: Buffer;
+  try {
+    buf = Buffer.alloc(MAX_READ_BYTES);
+    const fd = openSync(jsonlPath, 'r');
+    const bytesRead = readSync(fd, buf, 0, MAX_READ_BYTES, 0);
+    closeSync(fd);
+    buf = buf.subarray(0, bytesRead);
+  } catch {
+    return null;
+  }
+
+  const text = buf.toString('utf-8');
+  // Split on newlines; the last chunk may be a partial line — ignore it
+  const lines = text.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    // Only look at assistant events that carry a model field on message
+    if (event.type !== 'assistant') continue;
+    const msg = event.message as Record<string, unknown> | undefined;
+    const model = msg?.model as string | undefined;
+    if (model && model !== 'unknown') {
+      return model.replace(/\[\d+[km]\]$/i, '');
+    }
+  }
+  return null;
+}
 
 /** Individual subagent entry from registry */
 interface SubagentEntry {
@@ -539,6 +585,30 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
     const parent = db.get('SELECT user, project, started_at FROM sessions WHERE id = ?', [entry.session_id]);
     const user = (parent?.user as string) ?? 'unknown';
     const project = (parent?.project as string) ?? 'unknown';
+
+    // If the registry entry lacks a model, try to extract it from the subagent JSONL.
+    // The JSONL lives at {projectsDir}/{projectDirEntry}/{session_id}/subagents/agent-{agent_id}.jsonl.
+    // Since we don't store the encoded project dir name on the entry, search across all project dirs.
+    if (entry.model === 'unknown') {
+      let foundModel: string | null = null;
+      try {
+        const projectDirEntries = readdirSync(projectsDir, { withFileTypes: true })
+          .filter((d) => d.isDirectory());
+        for (const pd of projectDirEntries) {
+          const candidatePath = join(projectsDir, pd.name, entry.session_id, 'subagents', `agent-${entry.agent_id}.jsonl`);
+          const extracted = extractModelFromJsonl(candidatePath);
+          if (extracted) {
+            foundModel = extracted;
+            break;
+          }
+        }
+      } catch {
+        // readdirSync failure — leave model as 'unknown'
+      }
+      if (foundModel) {
+        entry.model = foundModel;
+      }
+    }
 
     // Subagent entries don't have 5m/1h breakdown — treat all as 5m (conservative)
     const subCacheCreation5m = entry.cache_creation;
