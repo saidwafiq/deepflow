@@ -63,7 +63,7 @@ export async function parseQuotaHistory(db: DbHelpers, claudeDir: string): Promi
         const resetAt = (w.obj.resets_at ?? w.obj.reset_at ?? null) as string | null;
 
         db.run(
-          `INSERT INTO quota_snapshots (user, window_type, used, limit_val, reset_at, captured_at)
+          `INSERT OR IGNORE INTO quota_snapshots (user, window_type, used, limit_val, reset_at, captured_at)
            VALUES (?, ?, ?, ?, ?, ?)`,
           [user, w.type, used, limitVal, resetAt, ts]
         );
