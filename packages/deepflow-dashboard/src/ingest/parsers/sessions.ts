@@ -329,6 +329,231 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
 
       db.run('INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)', [offsetKey, String(lines.length)]);
     }
+
+    // --- Filesystem scan: ingest subagent JSONL files from {projectDir}/subagents/ ---
+    const subagentsDir = join(projectEntry.path, 'subagents');
+    if (existsSync(subagentsDir)) {
+      let subagentFiles: string[];
+      try {
+        subagentFiles = readdirSync(subagentsDir)
+          .filter((f) => /^agent-[^.]+\.jsonl$/.test(f))
+          .map((f) => join(subagentsDir, f));
+      } catch {
+        subagentFiles = [];
+      }
+
+      for (const subFilePath of subagentFiles) {
+        // Extract agent hash from filename: agent-{hash}.jsonl
+        const subFileBase = basename(subFilePath, '.jsonl');
+        const agentIdMatch = subFileBase.match(/^agent-(.+)$/);
+        if (!agentIdMatch) continue;
+        const agentId = agentIdMatch[1];
+
+        // Read sibling meta.json for session_id (parent), agent_type, model
+        const metaPath = join(subagentsDir, `${subFileBase}.meta.json`);
+        let parentSessionId: string | null = null;
+        let agentType = 'subagent';
+        let subMeta: Record<string, unknown> = {};
+        if (existsSync(metaPath)) {
+          try {
+            subMeta = JSON.parse(readFileSync(metaPath, 'utf-8')) as Record<string, unknown>;
+            parentSessionId = (subMeta.session_id as string | undefined) ?? null;
+            agentType = (subMeta.agent_type as string | undefined) ?? 'subagent';
+          } catch {
+            // ignore malformed meta
+          }
+        }
+
+        // Virtual session ID
+        const virtualId = parentSessionId
+          ? `${parentSessionId}::${agentId}`
+          : `fs::${agentId}`;
+
+        const subOffsetKey = `ingest_offset:session:${virtualId}`;
+        const subOffsetRow = db.get('SELECT value FROM _meta WHERE key = ?', [subOffsetKey]);
+        const subOffset = subOffsetRow ? parseInt(subOffsetRow.value as string, 10) : 0;
+
+        let subLines: string[];
+        try {
+          subLines = readFileSync(subFilePath, 'utf-8').split('\n');
+        } catch (err) {
+          console.warn(`[ingest:sessions] Cannot read subagent file ${subFilePath}:`, err);
+          continue;
+        }
+
+        if (subLines.length <= subOffset) {
+          db.run('INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)', [subOffsetKey, String(subLines.length)]);
+          continue;
+        }
+
+        // Use model from meta if available; will be overridden by event stream
+        let subModel = ((subMeta.model as string | undefined) ?? 'unknown').replace(/\[\d+[km]\]$/i, '');
+        let subTokensIn = 0, subTokensOut = 0, subCacheRead = 0, subCacheCreation = 0;
+        let subCacheCreation5m = 0, subCacheCreation1h = 0;
+        let subMessages = 0, subToolCalls = 0;
+        let subStartedAt: string | null = null, subEndedAt: string | null = null;
+        let subUser = 'unknown';
+        let subHasNewData = false;
+
+        // Streaming dedup heuristic (same as orchestrator)
+        let subLastInputTokens = -1;
+        let subLastAddedIn = 0, subLastAddedCacheRead = 0, subLastAddedCacheCreation = 0;
+        let subLastAdded5m = 0, subLastAdded1h = 0;
+
+        for (let i = subOffset; i < subLines.length; i++) {
+          const line = subLines[i].trim();
+          if (!line) continue;
+
+          let event: Record<string, unknown>;
+          try {
+            event = JSON.parse(line);
+          } catch {
+            continue;
+          }
+
+          subHasNewData = true;
+
+          if (!subStartedAt && event.timestamp) subStartedAt = event.timestamp as string;
+          if (event.timestamp) subEndedAt = event.timestamp as string;
+          if (event.user) subUser = event.user as string;
+
+          const msg = event.message as Record<string, unknown> | undefined;
+          const msgModel = msg?.model as string | undefined;
+          const evtModel = event.model as string | undefined;
+          const resolvedModel = msgModel ?? evtModel;
+          if (resolvedModel && resolvedModel !== 'unknown') {
+            subModel = resolvedModel.replace(/\[\d+[km]\]$/i, '');
+          }
+
+          const eventType = event.type as string | undefined;
+          if (eventType === 'assistant' || event.role === 'assistant') subMessages++;
+          if (eventType === 'user' || eventType === 'human' || event.role === 'human' || event.role === 'user') subMessages++;
+
+          const content = msg?.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              const b = block as Record<string, unknown>;
+              if (b.type === 'tool_use') subToolCalls++;
+            }
+          }
+
+          const msgUsage = msg?.usage as Record<string, unknown> | undefined;
+          const evtUsage = event.usage as Record<string, unknown> | undefined;
+          const usage = msgUsage ?? evtUsage;
+          if (usage) {
+            const inputTokens = (usage.input_tokens as number) ?? 0;
+            const outputTokens = (usage.output_tokens as number) ?? 0;
+            const cacheReadTokens = (usage.cache_read_input_tokens as number) ?? 0;
+            const cacheCreationTokens = (usage.cache_creation_input_tokens as number) ?? 0;
+
+            const ccBreakdown = usage.cache_creation as Record<string, number> | undefined;
+            const cc5m = (ccBreakdown && typeof ccBreakdown === 'object')
+              ? (ccBreakdown.ephemeral_5m_input_tokens ?? 0) : 0;
+            const cc1h = (ccBreakdown && typeof ccBreakdown === 'object')
+              ? (ccBreakdown.ephemeral_1h_input_tokens ?? 0) : 0;
+
+            if (subLastInputTokens >= 0 && inputTokens <= subLastInputTokens) {
+              subTokensIn        = subTokensIn        - subLastAddedIn            + Math.max(subLastAddedIn,           inputTokens);
+              subCacheRead       = subCacheRead       - subLastAddedCacheRead      + Math.max(subLastAddedCacheRead,    cacheReadTokens);
+              subCacheCreation   = subCacheCreation   - subLastAddedCacheCreation  + Math.max(subLastAddedCacheCreation, cacheCreationTokens);
+              subCacheCreation5m = subCacheCreation5m - subLastAdded5m             + Math.max(subLastAdded5m,           cc5m);
+              subCacheCreation1h = subCacheCreation1h - subLastAdded1h             + Math.max(subLastAdded1h,           cc1h);
+
+              subLastAddedIn            = Math.max(subLastAddedIn,           inputTokens);
+              subLastAddedCacheRead     = Math.max(subLastAddedCacheRead,    cacheReadTokens);
+              subLastAddedCacheCreation = Math.max(subLastAddedCacheCreation, cacheCreationTokens);
+              subLastAdded5m            = Math.max(subLastAdded5m,           cc5m);
+              subLastAdded1h            = Math.max(subLastAdded1h,           cc1h);
+            } else {
+              subTokensIn           += inputTokens;
+              subCacheRead          += cacheReadTokens;
+              subCacheCreation      += cacheCreationTokens;
+              subCacheCreation5m    += cc5m;
+              subCacheCreation1h    += cc1h;
+
+              subLastAddedIn            = inputTokens;
+              subLastAddedCacheRead     = cacheReadTokens;
+              subLastAddedCacheCreation = cacheCreationTokens;
+              subLastAdded5m            = cc5m;
+              subLastAdded1h            = cc1h;
+            }
+
+            subTokensOut += outputTokens;
+            subLastInputTokens = inputTokens;
+          }
+        }
+
+        // Clamp to non-negative
+        if (subTokensIn < 0) subTokensIn = 0;
+        if (subTokensOut < 0) subTokensOut = 0;
+        if (subCacheRead < 0) subCacheRead = 0;
+        if (subCacheCreation < 0) subCacheCreation = 0;
+        if (subCacheCreation5m < 0) subCacheCreation5m = 0;
+        if (subCacheCreation1h < 0) subCacheCreation1h = 0;
+
+        const rawSubCost = computeCost(pricing, subModel, subTokensIn, subTokensOut, subCacheRead, subCacheCreation5m, subCacheCreation1h);
+        const subCost = Math.max(0, rawSubCost);
+
+        let subDurationMs = 0;
+        if (subStartedAt && subEndedAt) {
+          const start = new Date(subStartedAt).getTime();
+          const end = new Date(subEndedAt).getTime();
+          if (!isNaN(start) && !isNaN(end)) subDurationMs = end - start;
+        }
+
+        // Fall back to parent session for user/project context if not found in events
+        if (subUser === 'unknown' && parentSessionId) {
+          const parent = db.get('SELECT user, project FROM sessions WHERE id = ?', [parentSessionId]);
+          if (parent?.user) subUser = parent.user as string;
+        }
+        const subProject = (() => {
+          if (parentSessionId) {
+            const parent = db.get('SELECT project FROM sessions WHERE id = ?', [parentSessionId]);
+            if (parent?.project) return parent.project as string;
+          }
+          return projectEntry.name;
+        })();
+
+        if (subHasNewData) {
+          const existing = db.get('SELECT id FROM sessions WHERE id = ?', [virtualId]);
+          if (existing) {
+            try {
+              db.run(
+                `UPDATE sessions SET tokens_in = tokens_in + ?, tokens_out = tokens_out + ?,
+                 cache_read = cache_read + ?, cache_creation = cache_creation + ?,
+                 cache_creation_5m = cache_creation_5m + ?, cache_creation_1h = cache_creation_1h + ?,
+                 messages = messages + ?, tool_calls = tool_calls + ?,
+                 cost = cost + ?, duration_ms = ?, ended_at = COALESCE(?, ended_at),
+                 model = COALESCE(NULLIF(?, 'unknown'), model),
+                 agent_role = ?, parent_session_id = COALESCE(parent_session_id, ?)
+                 WHERE id = ?`,
+                [subTokensIn, subTokensOut, subCacheRead, subCacheCreation, subCacheCreation5m, subCacheCreation1h,
+                 subMessages, subToolCalls, subCost, subDurationMs, subEndedAt,
+                 subModel, agentType, parentSessionId, virtualId]
+              );
+              totalUpdated++;
+            } catch (err) {
+              console.warn(`[ingest:sessions] Subagent FS update failed for ${virtualId}:`, err);
+            }
+          } else {
+            try {
+              db.run(
+                `INSERT INTO sessions (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation, cache_creation_5m, cache_creation_1h, duration_ms, messages, tool_calls, cost, started_at, ended_at, agent_role, parent_session_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [virtualId, subUser, subProject, subModel, subTokensIn, subTokensOut, subCacheRead, subCacheCreation,
+                 subCacheCreation5m, subCacheCreation1h, subDurationMs, subMessages, subToolCalls, subCost,
+                 subStartedAt ?? new Date().toISOString(), subEndedAt, agentType, parentSessionId]
+              );
+              totalInserted++;
+            } catch (err) {
+              console.warn(`[ingest:sessions] Subagent FS insert failed for ${virtualId}:`, err);
+            }
+          }
+        }
+
+        db.run('INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)', [subOffsetKey, String(subLines.length)]);
+      }
+    }
   }
 
   // --- Create virtual sessions for subagents with token data ---
