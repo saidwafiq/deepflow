@@ -89,7 +89,7 @@ function flushStandard(state: StandardWindowState): QuotaWindow {
   return {
     type: state.type,
     startedAt: state.startedAt,
-    endsAt: state.lastTimestamp,
+    endsAt: state.currentResetsAt,
     peakUtilization: state.peakUtilization,
     finalUtilization: state.lastUtilization,
     snapshotCount: state.snapshotCount,
@@ -100,7 +100,7 @@ function flushExtraUsage(state: ExtraUsageWindowState): ExtraUsageWindow {
   return {
     type: 'extra_usage',
     startedAt: state.startedAt,
-    endsAt: state.lastTimestamp,
+    endsAt: state.currentResetsAt ?? state.lastTimestamp,
     isEnabled: state.isEnabled,
     monthlyLimit: state.lastMonthlyLimit,
     usedCredits: state.lastUsedCredits,
@@ -210,7 +210,6 @@ export async function* parseQuotaWindows(
           utilization = monthlyLimit > 0 ? usedCredits / monthlyLimit : 0;
         }
 
-        // Boundary key: use resets_at when available, otherwise null
         const resetsAt = (obj.resets_at as string | null | undefined) ?? null;
 
         const existing = windowStates.get('extra_usage') as ExtraUsageWindowState | undefined;
@@ -230,8 +229,10 @@ export async function* parseQuotaWindows(
             snapshotCount: 1,
           });
         } else {
-          // REQ-2: Detect boundary by resets_at change
-          const boundaryChanged = existing.currentResetsAt !== resetsAt;
+          // New window when snapshot timestamp has passed the current window's end time
+          const boundaryChanged =
+            existing.currentResetsAt !== null &&
+            new Date(timestamp).getTime() > new Date(existing.currentResetsAt).getTime();
 
           if (boundaryChanged) {
             // Flush completed window (REQ-5: apply since filter)
@@ -292,8 +293,8 @@ export async function* parseQuotaWindows(
             snapshotCount: 1,
           });
         } else {
-          // REQ-2: Detect boundary by resets_at change
-          if (existing.currentResetsAt !== resetsAt) {
+          // New window when snapshot timestamp has passed the current window's end time
+          if (new Date(timestamp).getTime() > new Date(existing.currentResetsAt).getTime()) {
             // Flush completed window (REQ-5: apply since filter)
             const completed = flushStandard(existing);
             if (passesFilter(completed)) yield completed;

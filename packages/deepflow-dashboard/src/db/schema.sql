@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS _meta (
 );
 
 -- Insert schema version on first run; ignored on subsequent runs.
-INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '4');
+INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '5');
 
 CREATE TABLE IF NOT EXISTS sessions (
   id               TEXT PRIMARY KEY,
@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   tokens_out       INTEGER NOT NULL DEFAULT 0 CHECK (tokens_out >= 0),
   cache_read       INTEGER NOT NULL DEFAULT 0 CHECK (cache_read >= 0),
   cache_creation   INTEGER NOT NULL DEFAULT 0 CHECK (cache_creation >= 0),
+  cache_creation_5m INTEGER NOT NULL DEFAULT 0 CHECK (cache_creation_5m >= 0),
+  cache_creation_1h INTEGER NOT NULL DEFAULT 0 CHECK (cache_creation_1h >= 0),
   duration_ms      INTEGER,
   messages         INTEGER NOT NULL DEFAULT 0,
   tool_calls       INTEGER NOT NULL DEFAULT 0,

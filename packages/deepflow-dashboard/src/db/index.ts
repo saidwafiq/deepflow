@@ -114,6 +114,23 @@ function migrateDatabase(db: Database): void {
     db.run("INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', '4')");
   }
 
+  // v4 → v5: add cache_creation_5m and cache_creation_1h columns
+  const v5Check = (() => {
+    const s = db.prepare("SELECT value FROM _meta WHERE key = 'schema_version'");
+    const v = s.step() ? (s.getAsObject()['value'] as string) : '1';
+    s.free();
+    return v;
+  })();
+  if (parseInt(v5Check) < 5) {
+    try {
+      db.run("ALTER TABLE sessions ADD COLUMN cache_creation_5m INTEGER NOT NULL DEFAULT 0");
+    } catch { /* column may already exist */ }
+    try {
+      db.run("ALTER TABLE sessions ADD COLUMN cache_creation_1h INTEGER NOT NULL DEFAULT 0");
+    } catch { /* column may already exist */ }
+    db.run("INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', '5')");
+  }
+
   // One-time purge of synthetic sessions (idempotent — gated by _meta key)
   const purgeKey = 'migration:purge_synthetic_sessions_v1';
   const purgeStmt = db.prepare("SELECT value FROM _meta WHERE key = ?");

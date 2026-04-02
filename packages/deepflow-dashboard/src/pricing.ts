@@ -5,10 +5,11 @@ const PRICING_REMOTE_URL =
   'https://raw.githubusercontent.com/nicholasgasior/anthropic-pricing/main/pricing.json';
 
 export interface ModelPricing {
-  input: number;         // USD per 1M tokens
-  output: number;        // USD per 1M tokens
-  cache_read: number;    // USD per 1M tokens
-  cache_creation: number; // USD per 1M tokens
+  input: number;            // USD per 1M tokens
+  output: number;           // USD per 1M tokens
+  cache_read: number;       // USD per 1M tokens
+  cache_creation: number;   // USD per 1M tokens (5-min TTL, 1.25x base)
+  cache_creation_1h: number; // USD per 1M tokens (1-hour TTL, 2x base)
 }
 
 export interface PricingData {
@@ -98,22 +99,38 @@ const MODEL_ALIASES: Record<string, string> = {
 /** Resolve a model string to its pricing entry */
 export function resolveModelPricing(pricing: PricingData, model: string): ModelPricing | undefined {
   // Direct match
-  if (pricing.models[model]) return pricing.models[model];
+  let entry = pricing.models[model];
   // Alias match
-  const alias = MODEL_ALIASES[model];
-  if (alias && pricing.models[alias]) return pricing.models[alias];
-  // Fuzzy: strip version suffix and context window markers
-  const base = model.replace(/\[\d+[km]\]$/i, '').replace(/-\d{8}$/, '');
-  for (const [key, val] of Object.entries(pricing.models)) {
-    const keyBase = key.replace(/-\d{8}$/, '');
-    if (keyBase === base) return val;
+  if (!entry) {
+    const alias = MODEL_ALIASES[model];
+    if (alias) entry = pricing.models[alias];
   }
-  console.warn(`[pricing] No pricing found for model: ${model}`);
-  return undefined;
+  // Fuzzy: strip version suffix and context window markers
+  if (!entry) {
+    const base = model.replace(/\[\d+[km]\]$/i, '').replace(/-\d{8}$/, '');
+    for (const [key, val] of Object.entries(pricing.models)) {
+      const keyBase = key.replace(/-\d{8}$/, '');
+      if (keyBase === base) { entry = val; break; }
+    }
+  }
+  if (!entry) {
+    console.warn(`[pricing] No pricing found for model: ${model}`);
+    return undefined;
+  }
+  // Ensure cache_creation_1h exists (remote JSON may not have it)
+  if (entry.cache_creation_1h == null) {
+    entry = { ...entry, cache_creation_1h: entry.input * 2 };
+  }
+  return entry;
 }
 
 /**
  * Compute cost in USD for a token event.
+ */
+/**
+ * Compute cost in USD for a token event.
+ * cacheCreation5mTokens: tokens cached with 5-min TTL (1.25x base input price)
+ * cacheCreation1hTokens: tokens cached with 1-hour TTL (2x base input price)
  */
 export function computeCost(
   pricing: PricingData,
@@ -121,7 +138,8 @@ export function computeCost(
   inputTokens: number,
   outputTokens: number,
   cacheReadTokens = 0,
-  cacheCreationTokens = 0
+  cacheCreation5mTokens = 0,
+  cacheCreation1hTokens = 0
 ): number {
   const p = resolveModelPricing(pricing, model);
   if (!p) return 0;
@@ -131,6 +149,7 @@ export function computeCost(
     (inputTokens * p.input) / M +
     (outputTokens * p.output) / M +
     (cacheReadTokens * p.cache_read) / M +
-    (cacheCreationTokens * p.cache_creation) / M
+    (cacheCreation5mTokens * p.cache_creation) / M +
+    (cacheCreation1hTokens * p.cache_creation_1h) / M
   );
 }

@@ -1,12 +1,10 @@
 /**
- * Wave-2 tests for T54, T55, T56, T59, T65.
+ * Wave-2 tests for T54, T55, T59, T65.
  *
  * T54: Model resolution from sessions table in cache-history; aggregation UPDATE
  *      for resolving 'unknown' models via sessions join.
  * T55: Idempotent POST ingest (INSERT OR IGNORE on token_events, absolute SET on
  *      sessions UPDATE), transaction wrapping (BEGIN/COMMIT/ROLLBACK).
- * T56: stats-cache upsert preserves non-zero values via CASE WHEN;
- *      COALESCE(NULLIF(?, 'unknown'), model) for richer model/user data.
  * T59: token-history no longer skips worktree dirs (removed '--' skip condition).
  * T65: pricing.ts exports PRICING_TTL_MS constant; fetchPricing checks TTL
  *      before returning cache; stale cache fallback on remote failure.
@@ -207,95 +205,6 @@ describe('T55 — idempotent ingest API', () => {
       fnBody.includes('SELECT id FROM sessions WHERE id = ?'),
       'insertPayload should check for existing session before insert'
     );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// T56: stats-cache upsert preserves non-zero values + COALESCE for model
-// ---------------------------------------------------------------------------
-describe('T56 — stats-cache upsert logic', () => {
-  const statsSrc = readFileSync(resolve(SRC_ROOT, 'ingest', 'parsers', 'stats-cache.ts'), 'utf8');
-
-  it('uses existence check + conditional UPDATE/INSERT instead of INSERT OR IGNORE', () => {
-    // Should NOT use INSERT OR IGNORE for the main upsert
-    // Instead checks existence first
-    assert.ok(
-      statsSrc.includes("SELECT id FROM sessions WHERE id = ?"),
-      'stats-cache should check existence before deciding INSERT vs UPDATE'
-    );
-  });
-
-  it('UPDATE uses CASE WHEN to preserve non-zero token values', () => {
-    const updateIdx = statsSrc.indexOf('UPDATE sessions SET');
-    assert.ok(updateIdx !== -1, 'Should have UPDATE sessions SET');
-    const updateBlock = statsSrc.slice(updateIdx, updateIdx + 800);
-
-    // Each token field should use CASE WHEN ? > 0 THEN ? ELSE field END
-    for (const field of ['tokens_in', 'tokens_out', 'cache_read', 'cache_creation']) {
-      assert.ok(
-        updateBlock.includes(`CASE WHEN ? > 0 THEN ? ELSE ${field} END`),
-        `UPDATE should use CASE WHEN to preserve non-zero ${field}`
-      );
-    }
-  });
-
-  it('UPDATE uses CASE WHEN for cost field too', () => {
-    const updateIdx = statsSrc.indexOf('UPDATE sessions SET');
-    const updateBlock = statsSrc.slice(updateIdx, updateIdx + 800);
-
-    assert.ok(
-      updateBlock.includes('CASE WHEN ? > 0 THEN ? ELSE cost END'),
-      'UPDATE should preserve non-zero cost'
-    );
-  });
-
-  it("UPDATE uses COALESCE(NULLIF(?, 'unknown'), model) for richer model data", () => {
-    const updateIdx = statsSrc.indexOf('UPDATE sessions SET');
-    const updateBlock = statsSrc.slice(updateIdx, updateIdx + 800);
-
-    assert.ok(
-      updateBlock.includes("COALESCE(NULLIF(?, 'unknown'), model)"),
-      "UPDATE should use COALESCE(NULLIF(?, 'unknown'), model) to preserve known model"
-    );
-  });
-
-  it("UPDATE uses COALESCE(NULLIF(?, 'unknown'), user) for richer user data", () => {
-    const updateIdx = statsSrc.indexOf('UPDATE sessions SET');
-    const updateBlock = statsSrc.slice(updateIdx, updateIdx + 800);
-
-    assert.ok(
-      updateBlock.includes("COALESCE(NULLIF(?, 'unknown'), user)"),
-      "UPDATE should use COALESCE(NULLIF(?, 'unknown'), user) to preserve known user"
-    );
-  });
-
-  it('UPDATE uses COALESCE for duration_ms, messages, tool_calls, ended_at', () => {
-    const updateIdx = statsSrc.indexOf('UPDATE sessions SET');
-    const updateBlock = statsSrc.slice(updateIdx, updateIdx + 800);
-
-    for (const field of ['duration_ms', 'messages', 'tool_calls', 'ended_at']) {
-      assert.ok(
-        updateBlock.includes(`COALESCE(?, ${field})`),
-        `UPDATE should COALESCE ${field} to preserve existing value`
-      );
-    }
-  });
-
-  it('INSERT path sets all fields directly for new sessions', () => {
-    // After the UPDATE block, there's an INSERT for new sessions
-    const insertIdx = statsSrc.indexOf('INSERT INTO sessions');
-    assert.ok(insertIdx !== -1, 'Should have INSERT INTO sessions for new records');
-
-    const insertBlock = statsSrc.slice(insertIdx, insertIdx + 500);
-    assert.ok(
-      insertBlock.includes('VALUES'),
-      'INSERT should have VALUES clause'
-    );
-  });
-
-  it('tracks inserted and updated counts separately', () => {
-    assert.ok(statsSrc.includes('inserted++'), 'Should track inserted count');
-    assert.ok(statsSrc.includes('updated++'), 'Should track updated count');
   });
 });
 

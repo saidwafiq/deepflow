@@ -9,7 +9,6 @@ import { parseSessions } from './parsers/sessions.js';
 import { parseCacheHistory } from './parsers/cache-history.js';
 import { parseToolUsage } from './parsers/tool-usage.js';
 import { parseExecutionHistory } from './parsers/execution-history.js';
-import { parseStatsCache } from './parsers/stats-cache.js';
 
 /** Shared db helper bundle passed to every parser */
 const dbHelpers: DbHelpers = { run, get, all };
@@ -22,7 +21,7 @@ const dbHelpers: DbHelpers = { run, get, all };
 async function computeSessionCosts(): Promise<void> {
   const pricing = await fetchPricing();
   const sessions = all(`
-    SELECT id, model, tokens_in, tokens_out, cache_read, cache_creation FROM sessions
+    SELECT id, model, tokens_in, tokens_out, cache_read, cache_creation, cache_creation_5m, cache_creation_1h FROM sessions
     WHERE (cost = 0 OR cost IS NULL) AND (tokens_in > 0 OR tokens_out > 0)
   `);
 
@@ -31,11 +30,18 @@ async function computeSessionCosts(): Promise<void> {
     const modelPricing = resolveModelPricing(pricing, s.model as string);
     if (!modelPricing) continue;
 
+    const cc5m = (s.cache_creation_5m as number) ?? 0;
+    const cc1h = (s.cache_creation_1h as number) ?? 0;
+    // If breakdown is missing (old data), treat total cache_creation as 5m (conservative)
+    const cacheCreation5m = (cc5m > 0 || cc1h > 0) ? cc5m : ((s.cache_creation as number) ?? 0);
+    const cacheCreation1h = cc1h;
+
     const inputCost = ((s.tokens_in as number) ?? 0) * (modelPricing.input ?? 0) / 1_000_000;
     const outputCost = ((s.tokens_out as number) ?? 0) * (modelPricing.output ?? 0) / 1_000_000;
     const cacheReadCost = ((s.cache_read as number) ?? 0) * (modelPricing.cache_read ?? modelPricing.input * 0.1) / 1_000_000;
-    const cacheCreationCost = ((s.cache_creation as number) ?? 0) * (modelPricing.cache_creation ?? modelPricing.input * 1.25) / 1_000_000;
-    const totalCost = inputCost + outputCost + cacheReadCost + cacheCreationCost;
+    const cacheCreation5mCost = cacheCreation5m * (modelPricing.cache_creation ?? modelPricing.input * 1.25) / 1_000_000;
+    const cacheCreation1hCost = cacheCreation1h * (modelPricing.cache_creation_1h ?? modelPricing.input * 2) / 1_000_000;
+    const totalCost = inputCost + outputCost + cacheReadCost + cacheCreation5mCost + cacheCreation1hCost;
 
     if (totalCost > 0) {
       run('UPDATE sessions SET cost = ? WHERE id = ?', [totalCost, s.id as string]);
@@ -128,6 +134,46 @@ function runMigrationCostReparseV1(): void {
   console.log('[ingest:migration] cost_reparse_v1 complete');
 }
 
+/**
+ * One-time migration: reset cost/token fields + session ingest offsets so sessions
+ * are re-parsed with cache_creation_5m/1h breakdown and correct pricing.
+ */
+function runMigrationCacheBreakdownV1(): void {
+  const already = get("SELECT value FROM _meta WHERE key = 'migration:cache_breakdown_v1'");
+  if (already) return;
+
+  console.log('[ingest:migration] Running cache_breakdown_v1 — resetting sessions for cache TTL breakdown re-ingestion…');
+
+  run('UPDATE sessions SET cost = 0, tokens_in = 0, tokens_out = 0, cache_read = 0, cache_creation = 0, cache_creation_5m = 0, cache_creation_1h = 0');
+  run('DELETE FROM token_events');
+  run('DELETE FROM task_attempts');
+  run("DELETE FROM _meta WHERE key LIKE 'ingest_offset:session:%'");
+  run("DELETE FROM _meta WHERE key LIKE 'ingest_offset:token-%'");
+  run("DELETE FROM _meta WHERE key LIKE 'ingest_offset:execution-%'");
+  run("DELETE FROM _meta WHERE key = 'ingest_offset:cache-history'");
+  run("DELETE FROM _meta WHERE key = 'ingest_offset:stats-cache'");
+
+  run("INSERT INTO _meta (key, value) VALUES ('migration:cache_breakdown_v1', '1')");
+  console.log('[ingest:migration] cache_breakdown_v1 complete');
+}
+
+/**
+ * One-time migration: delete quota_snapshots with window_type='unknown'
+ * (created from error responses) and re-parse from scratch.
+ */
+function runMigrationQuotaErrorFilterV1(): void {
+  const already = get("SELECT value FROM _meta WHERE key = 'migration:quota_error_filter_v1'");
+  if (already) return;
+
+  console.log('[ingest:migration] Running quota_error_filter_v1 — removing error-originated quota rows…');
+
+  run("DELETE FROM quota_snapshots WHERE window_type = 'unknown'");
+  run("DELETE FROM _meta WHERE key = 'ingest_offset:quota-history'");
+
+  run("INSERT INTO _meta (key, value) VALUES ('migration:quota_error_filter_v1', '1')");
+  console.log('[ingest:migration] quota_error_filter_v1 complete');
+}
+
 export async function runIngestion(deepflowDir?: string): Promise<void> {
   const claudeDir = resolve(homedir(), '.claude');
   const dfDir = deepflowDir ?? resolve(process.cwd(), '.deepflow');
@@ -138,6 +184,8 @@ export async function runIngestion(deepflowDir?: string): Promise<void> {
   runMigrationSessionReparseV1();
   runMigrationToolQuotaReparseV1();
   runMigrationCostReparseV1();
+  runMigrationCacheBreakdownV1();
+  runMigrationQuotaErrorFilterV1();
   console.log(`[ingest]   claudeDir : ${claudeDir}`);
   console.log(`[ingest]   deepflowDir : ${dfDir}`);
 
@@ -149,7 +197,6 @@ export async function runIngestion(deepflowDir?: string): Promise<void> {
     { name: 'cache-history',  fn: () => parseCacheHistory(dbHelpers, claudeDir) },
     { name: 'tool-usage',     fn: () => parseToolUsage(dbHelpers, claudeDir) },
     { name: 'execution-history', fn: () => parseExecutionHistory(dbHelpers, claudeDir) },
-    { name: 'stats-cache',    fn: () => parseStatsCache(dbHelpers, claudeDir) },
   ];
 
   for (const { name, fn } of parsers) {

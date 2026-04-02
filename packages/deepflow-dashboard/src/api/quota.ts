@@ -18,6 +18,8 @@ interface WindowRow {
   seven_day_sonnet_pct: number | null;
   extra_usage_pct: number | null;
   isActive: boolean;
+  sevenDayEndsAt: string | null;
+  cost: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -60,6 +62,17 @@ quotaRouter.get('/windows', async (c) => {
 
   const now = Date.now();
 
+  // Bulk query: session costs indexed by started_at for cost-per-window assignment
+  const sessionRows = fiveHour.length > 0
+    ? all(
+        `SELECT started_at, COALESCE(cost, 0) AS cost
+         FROM sessions
+         WHERE started_at >= ? AND started_at <= ?
+           AND model NOT IN ('<synthetic>', 'unknown')`,
+        [fiveHour[0].startedAt, fiveHour[fiveHour.length - 1].endsAt] as import('sql.js').SqlValue[]
+      )
+    : [];
+
   const rows: WindowRow[] = fiveHour.map((fh) => {
     const sdMatch = findOverlap(sevenDay, fh.startedAt);
     const sdsMatch = findOverlap(sevenDaySonnet, fh.startedAt);
@@ -69,6 +82,13 @@ quotaRouter.get('/windows', async (c) => {
     const fhStartMs = new Date(fh.startedAt).getTime();
     const isActive = fhEndsMs > now && fhStartMs <= now;
 
+    const cost = sessionRows
+      .filter((s) => {
+        const ts = new Date(s.started_at as string).getTime();
+        return ts >= fhStartMs && ts <= fhEndsMs;
+      })
+      .reduce((sum, s) => sum + (s.cost as number), 0);
+
     return {
       startedAt: fh.startedAt,
       endsAt: fh.endsAt,
@@ -77,6 +97,8 @@ quotaRouter.get('/windows', async (c) => {
       seven_day_sonnet_pct: sdsMatch ? sdsMatch.finalUtilization : null,
       extra_usage_pct: euMatch ? euMatch.finalUtilization : null,
       isActive,
+      sevenDayEndsAt: sdMatch ? sdMatch.endsAt : null,
+      cost,
     };
   });
 

@@ -42,6 +42,16 @@ export async function startServer(opts: ServerOptions): Promise<void> {
     await runIngestion();
     persistDatabase();
     console.log('[server] Database persisted to disk after ingestion');
+
+    // Re-ingest periodically so dashboard stays fresh
+    setInterval(async () => {
+      try {
+        await runIngestion();
+        persistDatabase();
+      } catch (err) {
+        console.warn('[server] Periodic re-ingestion failed:', err);
+      }
+    }, 60_000);
   }
 
   console.log(`[server] Pricing loaded: ${Object.keys(pricing.models).length} models`);

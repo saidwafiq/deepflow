@@ -81,7 +81,7 @@ export function CacheEfficiency() {
         <MetricCard
           label="Hit Ratio"
           value={`${summary.hit_ratio.toFixed(2)}%`}
-          sub="cache_read / (input + cache_read)"
+          sub="cache_read / (input + cache_read + cache_creation)"
           trend={summary.hit_ratio > 0 ? 1 : 0}
         />
         <MetricCard

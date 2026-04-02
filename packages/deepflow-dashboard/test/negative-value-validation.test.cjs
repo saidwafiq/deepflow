@@ -7,7 +7,7 @@
  * Validates three defensive layers:
  *   1. schema.sql CHECK constraints reject negative values at DB level
  *   2. api/ingest.ts validatePayload() rejects negative token/cost values
- *   3. parsers (cache-history, stats-cache, token-history, sessions) clamp
+ *   3. parsers (cache-history, token-history, sessions) clamp
  *      negative values via Math.max(0, v) with console.warn logging
  *
  * Strategy:
@@ -28,7 +28,6 @@ const ROOT = path.resolve(__dirname, '..');
 const SCHEMA_PATH = path.join(ROOT, 'src', 'db', 'schema.sql');
 const INGEST_SRC_PATH = path.join(ROOT, 'src', 'api', 'ingest.ts');
 const CACHE_HISTORY_SRC = path.join(ROOT, 'src', 'ingest', 'parsers', 'cache-history.ts');
-const STATS_CACHE_SRC = path.join(ROOT, 'src', 'ingest', 'parsers', 'stats-cache.ts');
 const TOKEN_HISTORY_SRC = path.join(ROOT, 'src', 'ingest', 'parsers', 'token-history.ts');
 const SESSIONS_SRC = path.join(ROOT, 'src', 'ingest', 'parsers', 'sessions.ts');
 
@@ -164,39 +163,6 @@ describe('parsers/cache-history.ts — clamping negative values', () => {
   it('inserts clamped values (not raw) into DB', () => {
     // Verify the INSERT uses clampedCacheRead/clampedCacheCreation, not raw
     assert.match(src, /clampedCacheRead,\n\s+clampedCacheCreation/);
-  });
-});
-
-// ===========================================================================
-// Layer 3: Parser clamping — stats-cache.ts
-// ===========================================================================
-
-describe('parsers/stats-cache.ts — clamping negative values', () => {
-  const src = readFile(STATS_CACHE_SRC);
-
-  it('clamps all five fields: tokens_in, tokens_out, cache_read, cache_creation, cost', () => {
-    assert.match(src, /Math\.max\(0, rawTokensIn\)/);
-    assert.match(src, /Math\.max\(0, rawTokensOut\)/);
-    assert.match(src, /Math\.max\(0, rawCacheRead\)/);
-    assert.match(src, /Math\.max\(0, rawCacheCreation\)/);
-    assert.match(src, /Math\.max\(0, rawCost\)/);
-  });
-
-  it('logs warnings for each negative field', () => {
-    assert.match(src, /Clamping negative tokens_in/);
-    assert.match(src, /Clamping negative tokens_out/);
-    assert.match(src, /Clamping negative cache_read/);
-    assert.match(src, /Clamping negative cache_creation/);
-    assert.match(src, /Clamping negative cost/);
-  });
-
-  it('inserts clamped values into sessions table', () => {
-    // The INSERT uses clampedTokensIn, etc.
-    assert.match(src, /clampedTokensIn,/);
-    assert.match(src, /clampedTokensOut,/);
-    assert.match(src, /clampedCacheRead,/);
-    assert.match(src, /clampedCacheCreation,/);
-    assert.match(src, /clampedCost,/);
   });
 });
 
@@ -406,87 +372,3 @@ describe('parseCacheHistory — behavioral clamping with mock DB', () => {
   });
 });
 
-// ===========================================================================
-// Behavioral test: parseStatsCache with mock DbHelpers
-// ===========================================================================
-
-describe('parseStatsCache — behavioral clamping with mock DB', () => {
-  let tmpDir;
-  let insertedParams;
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-stats-cache-'));
-    insertedParams = [];
-  });
-
-  function makeMockDb() {
-    return {
-      run: (sql, params) => { if (sql.includes('INSERT') && sql.includes('sessions')) insertedParams.push(params); },
-      get: () => undefined,
-      all: () => [],
-    };
-  }
-
-  it('clamps all negative session fields to 0', async () => {
-    const filePath = path.join(tmpDir, 'stats-cache.json');
-    fs.writeFileSync(filePath, JSON.stringify([{
-      id: 'neg-session-1',
-      user: 'testuser',
-      model: 'claude-3',
-      tokens_in: -100,
-      tokens_out: -200,
-      cache_read: -300,
-      cache_creation: -400,
-      cost: -5.50,
-      started_at: '2025-01-01T00:00:00Z',
-    }]));
-
-    const { parseStatsCache } = await import(
-      path.join(ROOT, 'dist', 'ingest', 'parsers', 'stats-cache.js')
-    );
-
-    await parseStatsCache(makeMockDb(), tmpDir);
-
-    // Filter to session inserts only (skip _meta inserts)
-    const sessionInserts = insertedParams.filter(p => p.length > 5);
-    assert.equal(sessionInserts.length, 1, 'should insert one session');
-    const params = sessionInserts[0];
-    // params: [id, user, project, model, tokensIn, tokensOut, cacheRead, cacheCreation,
-    //          durationMs, messages, toolCalls, cost, startedAt, endedAt]
-    assert.equal(params[4], 0, 'negative tokens_in clamped to 0');
-    assert.equal(params[5], 0, 'negative tokens_out clamped to 0');
-    assert.equal(params[6], 0, 'negative cache_read clamped to 0');
-    assert.equal(params[7], 0, 'negative cache_creation clamped to 0');
-    assert.equal(params[11], 0, 'negative cost clamped to 0');
-  });
-
-  it('preserves positive values unchanged', async () => {
-    const filePath = path.join(tmpDir, 'stats-cache.json');
-    fs.writeFileSync(filePath, JSON.stringify([{
-      id: 'pos-session-1',
-      user: 'testuser',
-      model: 'claude-3',
-      tokens_in: 100,
-      tokens_out: 200,
-      cache_read: 300,
-      cache_creation: 400,
-      cost: 5.50,
-      started_at: '2025-01-01T00:00:00Z',
-    }]));
-
-    const { parseStatsCache } = await import(
-      path.join(ROOT, 'dist', 'ingest', 'parsers', 'stats-cache.js')
-    );
-
-    await parseStatsCache(makeMockDb(), tmpDir);
-
-    const sessionInserts = insertedParams.filter(p => p.length > 5);
-    assert.equal(sessionInserts.length, 1);
-    const params = sessionInserts[0];
-    assert.equal(params[4], 100, 'tokens_in preserved');
-    assert.equal(params[5], 200, 'tokens_out preserved');
-    assert.equal(params[6], 300, 'cache_read preserved');
-    assert.equal(params[7], 400, 'cache_creation preserved');
-    assert.equal(params[11], 5.50, 'cost preserved');
-  });
-});

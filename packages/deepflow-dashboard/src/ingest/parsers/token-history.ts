@@ -105,8 +105,8 @@ export async function parseTokenHistory(db: DbHelpers, claudeDir: string): Promi
       try {
         const rawInputTokens = (record.input_tokens ?? record.inputTokens ?? 0) as number;
         const rawOutputTokens = (record.output_tokens ?? record.outputTokens ?? 0) as number;
-        const rawCacheRead = (record.cache_read_input_tokens ?? record.cache_read_tokens ?? record.cacheReadTokens ?? 0) as number;
-        const rawCacheCreation = (record.cache_creation_input_tokens ?? record.cache_creation_tokens ?? record.cacheCreationTokens ?? 0) as number;
+        const rawCacheRead = (record.cache_read_input_tokens ?? 0) as number;
+        const rawCacheCreation = (record.cache_creation_input_tokens ?? 0) as number;
         const clampedInputTokens = Math.max(0, rawInputTokens);
         const clampedOutputTokens = Math.max(0, rawOutputTokens);
         const clampedCacheRead = Math.max(0, rawCacheRead);

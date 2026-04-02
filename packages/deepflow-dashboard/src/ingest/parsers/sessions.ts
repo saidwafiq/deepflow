@@ -152,7 +152,7 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
       const fileSessionId = basename(filePath, '.jsonl');
 
       let sessionId: string = fileSessionId;
-      let tokensIn = 0, tokensOut = 0, cacheRead = 0, cacheCreation = 0;
+      let tokensIn = 0, tokensOut = 0, cacheRead = 0, cacheCreation = 0, cacheCreation5m = 0, cacheCreation1h = 0;
       let messages = 0, toolCalls = 0;
       let model = 'unknown', user = 'unknown';
       const project = projectEntry.name;
@@ -202,15 +202,21 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         }
 
         // Accumulate tokens: prefer event.message.usage, fall back to event.usage
-        const msgUsage = msg?.usage as Record<string, number> | undefined;
-        const evtUsage = event.usage as Record<string, number> | undefined;
+        const msgUsage = msg?.usage as Record<string, unknown> | undefined;
+        const evtUsage = event.usage as Record<string, unknown> | undefined;
         const usage = msgUsage ?? evtUsage;
         if (usage) {
-          tokensIn += usage.input_tokens ?? 0;
-          tokensOut += usage.output_tokens ?? 0;
-          cacheRead += usage.cache_read_tokens ?? usage.cache_read_input_tokens ?? 0;
-          cacheCreation += usage.cache_creation_tokens ?? usage.cache_creation_input_tokens ?? 0;
+          tokensIn += (usage.input_tokens as number) ?? 0;
+          tokensOut += (usage.output_tokens as number) ?? 0;
+          cacheRead += (usage.cache_read_input_tokens as number) ?? 0;
+          cacheCreation += (usage.cache_creation_input_tokens as number) ?? 0;
 
+          // Extract 5m/1h breakdown from cache_creation object
+          const ccBreakdown = usage.cache_creation as Record<string, number> | undefined;
+          if (ccBreakdown && typeof ccBreakdown === 'object') {
+            cacheCreation5m += ccBreakdown.ephemeral_5m_input_tokens ?? 0;
+            cacheCreation1h += ccBreakdown.ephemeral_1h_input_tokens ?? 0;
+          }
         }
       }
 
@@ -220,9 +226,11 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
       if (tokensOut < 0) { console.warn(`[ingest:sessions] Clamping negative tokensOut (${tokensOut}) to 0 for session ${sessionId}`); tokensOut = 0; }
       if (cacheRead < 0) { console.warn(`[ingest:sessions] Clamping negative cacheRead (${cacheRead}) to 0 for session ${sessionId}`); cacheRead = 0; }
       if (cacheCreation < 0) { console.warn(`[ingest:sessions] Clamping negative cacheCreation (${cacheCreation}) to 0 for session ${sessionId}`); cacheCreation = 0; }
+      if (cacheCreation5m < 0) cacheCreation5m = 0;
+      if (cacheCreation1h < 0) cacheCreation1h = 0;
 
       // Compute cost after loop using accumulated tokens + resolved model
-      const rawCost = computeCost(pricing, model, tokensIn, tokensOut, cacheRead, cacheCreation);
+      const rawCost = computeCost(pricing, model, tokensIn, tokensOut, cacheRead, cacheCreation5m, cacheCreation1h);
       const cost = Math.max(0, rawCost);
       if (rawCost < 0) console.warn(`[ingest:sessions] Clamping negative cost (${rawCost}) to 0 for session ${sessionId}`);
 
@@ -243,14 +251,15 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
             db.run(
               `UPDATE sessions SET tokens_in = tokens_in + ?, tokens_out = tokens_out + ?,
                cache_read = cache_read + ?, cache_creation = cache_creation + ?,
+               cache_creation_5m = cache_creation_5m + ?, cache_creation_1h = cache_creation_1h + ?,
                messages = messages + ?, tool_calls = tool_calls + ?,
                cost = cost + ?, duration_ms = ?, ended_at = COALESCE(?, ended_at),
                model = COALESCE(NULLIF(?, 'unknown'), model),
                project = COALESCE(?, project),
                agent_role = ?
                WHERE id = ?`,
-              [tokensIn, tokensOut, cacheRead, cacheCreation, messages, toolCalls, cost,
-               durationMs, endedAt, model, project, agentRole, sessionId]
+              [tokensIn, tokensOut, cacheRead, cacheCreation, cacheCreation5m, cacheCreation1h,
+               messages, toolCalls, cost, durationMs, endedAt, model, project, agentRole, sessionId]
             );
             totalUpdated++;
           } catch (err) {
@@ -259,9 +268,9 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
         } else {
           try {
             db.run(
-              `INSERT INTO sessions (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation, duration_ms, messages, tool_calls, cost, started_at, ended_at, agent_role, parent_session_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-              [sessionId, user, project, model, tokensIn, tokensOut, cacheRead, cacheCreation,
+              `INSERT INTO sessions (id, user, project, model, tokens_in, tokens_out, cache_read, cache_creation, cache_creation_5m, cache_creation_1h, duration_ms, messages, tool_calls, cost, started_at, ended_at, agent_role, parent_session_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+              [sessionId, user, project, model, tokensIn, tokensOut, cacheRead, cacheCreation, cacheCreation5m, cacheCreation1h,
                durationMs, messages, toolCalls, cost,
                startedAt ?? new Date().toISOString(), endedAt, agentRole]
             );
@@ -290,6 +299,7 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
     const user = (parent?.user as string) ?? 'unknown';
     const project = (parent?.project as string) ?? 'unknown';
 
+    // Subagent entries don't have 5m/1h breakdown — treat all as 5m (conservative)
     const subCost = Math.max(0, computeCost(pricing, entry.model, entry.tokens_in, entry.tokens_out, entry.cache_read, entry.cache_creation));
 
     try {

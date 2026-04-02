@@ -3,6 +3,9 @@ import { all } from '../db/index.js';
 
 export const costsRouter = new Hono();
 
+/** Filter out junk model names injected by synthetic parsers */
+const JUNK_MODELS = "AND s.model NOT IN ('<synthetic>', 'unknown')";
+
 // GET /api/costs
 // Query params: user, days (default 90)
 // Returns: per-model totals, daily time series per model, per-project breakdown
@@ -13,29 +16,31 @@ costsRouter.get('/', async (c) => {
   const userFilter = user ? 'AND s.user = ?' : '';
   const userParam = user ? [user] : [];
 
-  // Per-model totals — aggregate directly from sessions table which has pre-computed cost
+  // Per-model totals
   const modelCosts = all(
-    `SELECT model,
-            SUM(tokens_in)        AS input_tokens,
-            SUM(tokens_out)       AS output_tokens,
-            SUM(cache_read)       AS cache_read_tokens,
-            SUM(cache_creation)   AS cache_creation_tokens,
-            SUM(cost)             AS cost
-     FROM sessions
-     WHERE started_at >= datetime('now', ? || ' days')
-     ${user ? 'AND user = ?' : ''}
-     GROUP BY model
+    `SELECT s.model,
+            SUM(s.tokens_in)        AS input_tokens,
+            SUM(s.tokens_out)       AS output_tokens,
+            SUM(s.cache_read)       AS cache_read_tokens,
+            SUM(s.cache_creation)   AS cache_creation_tokens,
+            SUM(s.cost)             AS cost
+     FROM sessions s
+     WHERE s.started_at >= datetime('now', ? || ' days')
+     ${JUNK_MODELS}
+     ${userFilter}
+     GROUP BY s.model
      ORDER BY cost DESC`,
     [`-${days}`, ...userParam] as import('sql.js').SqlValue[]
   );
 
-  // Daily time series — cost already stored on sessions
+  // Daily time series
   const dailySeries = all(
     `SELECT date(s.started_at) AS day,
             s.model,
             SUM(s.cost) AS cost
      FROM sessions s
      WHERE s.started_at >= datetime('now', ? || ' days')
+     ${JUNK_MODELS}
      ${userFilter}
      GROUP BY day, s.model
      ORDER BY day ASC`,
@@ -51,6 +56,7 @@ costsRouter.get('/', async (c) => {
             COUNT(*)           AS sessions
      FROM sessions s
      WHERE s.started_at >= datetime('now', ? || ' days')
+     ${JUNK_MODELS}
      ${userFilter}
      GROUP BY project
      ORDER BY cost DESC`,
@@ -59,29 +65,31 @@ costsRouter.get('/', async (c) => {
 
   // Per-agent-role breakdown
   const byAgentRole = all(
-    `SELECT agent_role,
-            SUM(cost)       AS cost,
-            SUM(tokens_in)  AS input_tokens,
-            SUM(tokens_out) AS output_tokens
-     FROM sessions
-     WHERE started_at >= datetime('now', ? || ' days')
-     ${user ? 'AND user = ?' : ''}
-     GROUP BY agent_role
+    `SELECT s.agent_role,
+            SUM(s.cost)       AS cost,
+            SUM(s.tokens_in)  AS input_tokens,
+            SUM(s.tokens_out) AS output_tokens
+     FROM sessions s
+     WHERE s.started_at >= datetime('now', ? || ' days')
+     ${JUNK_MODELS}
+     ${userFilter}
+     GROUP BY s.agent_role
      ORDER BY cost DESC`,
     [`-${days}`, ...userParam] as import('sql.js').SqlValue[]
   );
 
   // Per-agent-role-model breakdown
   const byAgentRoleModel = all(
-    `SELECT agent_role,
-            model,
-            SUM(cost)       AS cost,
-            SUM(tokens_in)  AS input_tokens,
-            SUM(tokens_out) AS output_tokens
-     FROM sessions
-     WHERE started_at >= datetime('now', ? || ' days')
-     ${user ? 'AND user = ?' : ''}
-     GROUP BY agent_role, model
+    `SELECT s.agent_role,
+            s.model,
+            SUM(s.cost)       AS cost,
+            SUM(s.tokens_in)  AS input_tokens,
+            SUM(s.tokens_out) AS output_tokens
+     FROM sessions s
+     WHERE s.started_at >= datetime('now', ? || ' days')
+     ${JUNK_MODELS}
+     ${userFilter}
+     GROUP BY s.agent_role, s.model
      ORDER BY cost DESC`,
     [`-${days}`, ...userParam] as import('sql.js').SqlValue[]
   );

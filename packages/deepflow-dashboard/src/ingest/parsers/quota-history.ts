@@ -33,6 +33,10 @@ export async function parseQuotaHistory(db: DbHelpers, claudeDir: string): Promi
       continue;
     }
 
+    // Skip error responses (e.g. 404 from API)
+    if (record.statusCode && (record.statusCode as number) >= 400) continue;
+    if ((record.data as Record<string, unknown>)?.type === 'error') continue;
+
     const ts = (record.captured_at ?? record.capturedAt ?? record.timestamp ?? new Date().toISOString()) as string;
     const user = (record.user as string) ?? 'unknown';
 

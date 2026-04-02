@@ -156,6 +156,7 @@ export async function parseExecutionHistory(db: DbHelpers, claudeDir: string): P
         }
       }
 
+      // token_events don't have 5m/1h breakdown — treat all as 5m (conservative)
       const cost = computeCost(pricing, model, tokensIn, tokensOut, cacheRead, cacheCreation);
 
       try {
