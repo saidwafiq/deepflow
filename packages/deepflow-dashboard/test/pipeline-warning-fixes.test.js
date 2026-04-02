@@ -162,7 +162,7 @@ describe('W4 — subagent virtual session upsert respects cache_creation guard',
     const conflictIdx = sessionsSrc.indexOf('ON CONFLICT(id) DO UPDATE SET');
     assert.ok(conflictIdx !== -1, 'ON CONFLICT block not found');
 
-    const upsertBlock = sessionsSrc.slice(conflictIdx, conflictIdx + 300);
+    const upsertBlock = sessionsSrc.slice(conflictIdx, conflictIdx + 500);
 
     assert.ok(
       upsertBlock.includes('sessions.cache_creation = 0'),

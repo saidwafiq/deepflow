@@ -203,6 +203,32 @@ function runMigrationPurgeSyntheticV2(): void {
 }
 
 /**
+ * One-time migration: reset cost and model on virtual (subagent) sessions
+ * so the fixed upsert (which now includes model = excluded.model) can
+ * re-apply the correct model and recompute cost on the next ingest.
+ * Idempotent — tracked via _meta key 'migration:subagent_model_fix_v1'.
+ */
+function runMigrationSubagentModelFixV1(): void {
+  const already = get("SELECT value FROM _meta WHERE key = 'migration:subagent_model_fix_v1'");
+  if (already) return;
+
+  console.log("[ingest:migration] Running subagent_model_fix_v1 — resetting model/cost on virtual sessions…");
+
+  // Reset model and cost on all virtual (subagent) sessions so the corrected
+  // upsert will re-apply the right model string and recompute cost on ingest.
+  run("UPDATE sessions SET cost = 0, model = 'unknown' WHERE id LIKE '%::%'");
+
+  // Delete token_events for virtual sessions so cost is recomputed cleanly
+  run("DELETE FROM token_events WHERE session_id LIKE '%::%'");
+
+  // Reset ingest offsets for session parsers so virtual sessions are re-processed
+  run("DELETE FROM _meta WHERE key LIKE 'ingest_offset:session:%'");
+
+  run("INSERT INTO _meta (key, value) VALUES ('migration:subagent_model_fix_v1', '1')");
+  console.log('[ingest:migration] subagent_model_fix_v1 complete');
+}
+
+/**
  * One-time migration: delete quota_snapshots with window_type='unknown'
  * (created from error responses) and re-parse from scratch.
  */
@@ -252,6 +278,7 @@ export async function runIngestion(deepflowDir?: string): Promise<void> {
   runMigrationCacheBreakdownV1();
   runMigrationPipelineCriticalV1();
   runMigrationPurgeSyntheticV2();
+  runMigrationSubagentModelFixV1();
   runMigrationQuotaErrorFilterV1();
   runMigrationQuotaUniqueIndexV1();
   console.log(`[ingest]   claudeDir : ${claudeDir}`);

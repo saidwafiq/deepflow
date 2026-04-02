@@ -553,8 +553,9 @@ export async function parseSessions(db: DbHelpers, claudeDir: string): Promise<v
            cache_creation = excluded.cache_creation,
            cache_creation_5m = excluded.cache_creation_5m,
            cache_creation_1h = excluded.cache_creation_1h,
-           cost = excluded.cost
-         WHERE sessions.cache_creation = 0 AND excluded.cache_creation > 0`,
+           cost = excluded.cost,
+           model = excluded.model
+         WHERE (sessions.cache_creation = 0 AND excluded.cache_creation > 0) OR sessions.model = 'unknown'`,
         [virtualId, user, project, entry.model, entry.tokens_in, entry.tokens_out, entry.cache_read, entry.cache_creation,
          subCacheCreation5m, subCacheCreation1h,
          subCost, entry.timestamp, entry.timestamp, entry.agent_type, entry.session_id]
