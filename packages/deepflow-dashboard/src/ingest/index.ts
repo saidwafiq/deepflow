@@ -184,6 +184,25 @@ function runMigrationPipelineCriticalV1(): void {
 }
 
 /**
+ * One-time migration: purge sessions where model = '<synthetic>' and their
+ * associated token_events. Synthetic sessions are placeholders created during
+ * pipeline dedup and should not appear in any view.
+ * Idempotent — tracked via _meta key 'migration:purge_synthetic_v2'.
+ */
+function runMigrationPurgeSyntheticV2(): void {
+  const already = get("SELECT value FROM _meta WHERE key = 'migration:purge_synthetic_v2'");
+  if (already) return;
+
+  console.log("[ingest:migration] Running purge_synthetic_v2 — removing '<synthetic>' sessions…");
+
+  run("DELETE FROM token_events WHERE session_id IN (SELECT id FROM sessions WHERE model = '<synthetic>')");
+  run("DELETE FROM sessions WHERE model = '<synthetic>'");
+
+  run("INSERT INTO _meta (key, value) VALUES ('migration:purge_synthetic_v2', '1')");
+  console.log('[ingest:migration] purge_synthetic_v2 complete');
+}
+
+/**
  * One-time migration: delete quota_snapshots with window_type='unknown'
  * (created from error responses) and re-parse from scratch.
  */
@@ -212,6 +231,7 @@ export async function runIngestion(deepflowDir?: string): Promise<void> {
   runMigrationCostReparseV1();
   runMigrationCacheBreakdownV1();
   runMigrationPipelineCriticalV1();
+  runMigrationPurgeSyntheticV2();
   runMigrationQuotaErrorFilterV1();
   console.log(`[ingest]   claudeDir : ${claudeDir}`);
   console.log(`[ingest]   deepflowDir : ${dfDir}`);
