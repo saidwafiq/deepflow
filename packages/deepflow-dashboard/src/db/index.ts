@@ -68,6 +68,9 @@ export async function initDatabase(mode: 'local' | 'serve' = 'local'): Promise<D
   // One-time reset of model/cost on virtual sessions so re-ingest corrects them
   runMigrationSubagentModelFixV2(_db);
 
+  // One-time deletion of stale ingest_offset:session:* keys so re-ingest starts clean
+  runMigrationTokenDedupCorrectionV1(_db);
+
   // Persist after schema init
   persistDatabase();
 
@@ -196,6 +199,24 @@ export function runMigrationSubagentModelFixV2(db: Database): void {
   db.run("UPDATE sessions SET model = 'unknown', cost = 0 WHERE id LIKE '%::%'");
   db.run("INSERT INTO _meta (key, value) VALUES (?, 'done')", [migrationKey]);
   console.log('[db:migration] subagent_model_fix_v2 complete');
+}
+
+/**
+ * One-time migration: delete all stale ingest_offset:session:* keys from _meta
+ * so that re-ingest starts from line 0 and avoids token double-counting.
+ */
+export function runMigrationTokenDedupCorrectionV1(db: Database): void {
+  const migrationKey = 'migration:token_dedup_correction_v1';
+  const checkStmt = db.prepare("SELECT value FROM _meta WHERE key = ?");
+  checkStmt.bind([migrationKey]);
+  const alreadyRan = checkStmt.step();
+  checkStmt.free();
+
+  if (alreadyRan) return;
+
+  db.run("DELETE FROM _meta WHERE key LIKE 'ingest_offset:session:%'");
+  db.run("INSERT INTO _meta (key, value) VALUES (?, '1')", [migrationKey]);
+  console.log('[db:migration] token_dedup_correction_v1 complete');
 }
 
 /** Get the initialized database instance (throws if not initialized) */
