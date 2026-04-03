@@ -11,7 +11,7 @@ import { projectNameFromDir } from './utils.js';
  *
  * Reads only up to MAX_READ_BYTES to avoid scanning large files.
  */
-export function extractModelFromJsonl(jsonlPath: string): string | null {
+function extractModelFromJsonl(jsonlPath: string): string | null {
   if (!existsSync(jsonlPath)) return null;
 
   // Read at most 8 KB — enough to cover the first few JSONL lines without loading the whole file
