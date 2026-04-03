@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useState } from 'react';
+import { useCallback, useContext, useEffect, useState } from 'react';
 import { MetricCard } from '../components/MetricCard';
 import { StackedAreaChart, type AreaKey } from '../components/charts/StackedAreaChart';
 import { useApi } from '../hooks/useApi';
