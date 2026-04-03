@@ -51,9 +51,11 @@ costsRouter.get('/', async (c) => {
   const projectBreakdown = all(
     `SELECT COALESCE(s.project, '(no project)') AS project,
             SUM(s.cost)        AS cost,
-            SUM(s.tokens_in)   AS tokens_in,
-            SUM(s.tokens_out)  AS tokens_out,
-            COUNT(*)           AS sessions
+            SUM(s.tokens_in)        AS tokens_in,
+            SUM(s.tokens_out)       AS tokens_out,
+            SUM(s.cache_read)       AS cache_read_tokens,
+            SUM(s.cache_creation)   AS cache_creation_tokens,
+            COUNT(*)                AS sessions
      FROM sessions s
      WHERE s.started_at >= datetime('now', ? || ' days')
      ${JUNK_MODELS}
@@ -66,9 +68,11 @@ costsRouter.get('/', async (c) => {
   // Per-agent-role breakdown
   const byAgentRole = all(
     `SELECT s.agent_role,
-            SUM(s.cost)       AS cost,
-            SUM(s.tokens_in)  AS input_tokens,
-            SUM(s.tokens_out) AS output_tokens
+            SUM(s.cost)             AS cost,
+            SUM(s.tokens_in)        AS input_tokens,
+            SUM(s.tokens_out)       AS output_tokens,
+            SUM(s.cache_read)       AS cache_read_tokens,
+            SUM(s.cache_creation)   AS cache_creation_tokens
      FROM sessions s
      WHERE s.started_at >= datetime('now', ? || ' days')
      ${JUNK_MODELS}
@@ -82,9 +86,11 @@ costsRouter.get('/', async (c) => {
   const byAgentRoleModel = all(
     `SELECT s.agent_role,
             s.model,
-            SUM(s.cost)       AS cost,
-            SUM(s.tokens_in)  AS input_tokens,
-            SUM(s.tokens_out) AS output_tokens
+            SUM(s.cost)             AS cost,
+            SUM(s.tokens_in)        AS input_tokens,
+            SUM(s.tokens_out)       AS output_tokens,
+            SUM(s.cache_read)       AS cache_read_tokens,
+            SUM(s.cache_creation)   AS cache_creation_tokens
      FROM sessions s
      WHERE s.started_at >= datetime('now', ? || ' days')
      ${JUNK_MODELS}

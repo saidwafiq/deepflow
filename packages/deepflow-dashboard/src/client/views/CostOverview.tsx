@@ -36,6 +36,8 @@ interface AgentRoleRow {
   cost: number;
   input_tokens: number;
   output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
 }
 
 interface AgentRoleModelRow {
@@ -44,6 +46,8 @@ interface AgentRoleModelRow {
   cost: number;
   input_tokens: number;
   output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
 }
 
 interface CostsResponse {
@@ -128,6 +132,7 @@ export function CostOverview() {
   }
 
   const totalCost = data.models.reduce((s, m) => s + m.cost, 0);
+  const totalTokens = data.models.reduce((s, m) => s + m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens, 0);
   const models = data.models.map((m) => m.model);
   const areas: AreaKey[] = models.map((m, i) => ({
     dataKey: m,
@@ -142,13 +147,13 @@ export function CostOverview() {
 
       {/* Per-model metric cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        <MetricCard label="Total Cost" value={fmtDollars(totalCost)} />
+        <MetricCard label="Total Cost" value={fmtDollars(totalCost)} sub={`${fmtTokens(totalTokens)} tokens`} />
         {data.models.map((m) => (
           <MetricCard
             key={m.model}
             label={m.model}
             value={fmtDollars(m.cost)}
-            sub={`${fmtTokens(m.input_tokens + m.output_tokens)} tokens`}
+            sub={`${fmtTokens(m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens)} tokens`}
           />
         ))}
       </div>
@@ -184,7 +189,7 @@ export function CostOverview() {
                 key={r.agent_role}
                 label={r.agent_role}
                 value={fmtDollars(r.cost)}
-                sub={`${fmtTokens(r.input_tokens + r.output_tokens)} tokens`}
+                sub={`${fmtTokens(r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_creation_tokens)} tokens`}
               />
             ))}
           </div>
@@ -206,7 +211,7 @@ export function CostOverview() {
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--bg-secondary)' }}>
               <tr>
-                {['Agent Role', 'Model', 'Cost', 'Tokens In', 'Tokens Out'].map((h) => (
+                {['Agent Role', 'Model', 'Cost', 'Tokens In', 'Tokens Out', 'Cache Read', 'Cache Creation'].map((h) => (
                   <th
                     key={h}
                     className="px-4 py-2 text-left font-medium"
@@ -228,6 +233,8 @@ export function CostOverview() {
                   <td className="px-4 py-2 tabular-nums font-medium" style={{ color: 'var(--text)' }}>{fmtDollars(r.cost)}</td>
                   <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(r.input_tokens)}</td>
                   <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(r.output_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(r.cache_read_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(r.cache_creation_tokens)}</td>
                 </tr>
               ))}
             </tbody>
