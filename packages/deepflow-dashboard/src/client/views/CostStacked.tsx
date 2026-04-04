@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useState } from 'react';
+import { useCallback, useContext, useEffect, useState } from 'react';
 import {
   BarChart,
   Bar,
@@ -9,6 +9,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import { ChartCard } from '../components/ChartCard';
 import { MetricCard } from '../components/MetricCard';
 import { useApi } from '../hooks/useApi';
 import { usePolling } from '../hooks/usePolling';
