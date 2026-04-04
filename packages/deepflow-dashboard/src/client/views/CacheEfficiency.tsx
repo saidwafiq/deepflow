@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { MetricCard } from '../components/MetricCard';
+import { ChartCard } from '../components/ChartCard';
 import { LineChart } from '../components/charts/LineChart';
 import { useApi } from '../hooks/useApi';
 import { usePolling } from '../hooks/usePolling';
@@ -103,12 +104,7 @@ export function CacheEfficiency() {
 
       {/* Daily trend — stacked area of input / cache_read / cache_creation */}
       {daily.length > 0 && (
-        <div
-          className="rounded-xl p-4 bg-[var(--bg-card)] border border-[var(--border)]"
-        >
-          <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
-            Daily token breakdown (30 days)
-          </p>
+        <ChartCard title="Daily token breakdown (30 days)">
           <LineChart
             data={daily as unknown as Record<string, unknown>[]}
             lines={HIT_RATIO_LINE}
@@ -119,7 +115,7 @@ export function CacheEfficiency() {
             yDomain={[0, 100]}
             referenceLines={[{ y: 80, label: '80%', color: '#f59e0b' }]}
           />
-        </div>
+        </ChartCard>
       )}
 
       {/* Cache read vs creation ratio bar */}

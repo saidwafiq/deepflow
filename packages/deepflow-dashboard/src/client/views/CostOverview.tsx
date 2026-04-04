@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { MetricCard } from '../components/MetricCard';
+import { ChartCard } from '../components/ChartCard';
 import { StackedBarChart, type BarKey } from '../components/charts/StackedBarChart';
 import { useApi } from '../hooks/useApi';
 import { usePolling } from '../hooks/usePolling';
@@ -166,12 +167,7 @@ export function CostOverview() {
 
       {/* Stacked bar chart — daily cost per model */}
       {chartData.length > 0 && (
-        <div
-          className="rounded-xl p-4 bg-[var(--bg-card)] border border-[var(--border)]"
-        >
-          <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
-            Daily cost by model (90 days)
-          </p>
+        <ChartCard title="Daily cost by model (90 days)">
           <StackedBarChart
             data={chartData}
             bars={bars}
@@ -179,7 +175,7 @@ export function CostOverview() {
             yTickFormatter={(v) => fmt$$(v as number)}
             tooltipFormatter={(value, name) => [fmtDollars(value as number), String(name)]}
           />
-        </div>
+        </ChartCard>
       )}
 
       {/* Agent role cost breakdown — MetricCards */}
