@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
-import { UserFilter } from './components/UserFilter';
+import { Header } from './components/Header';
 import { DashboardProvider, type DashboardMode } from './context/DashboardContext';
 import { useTheme } from './hooks/useTheme';
 import { CostOverview } from './views/CostOverview';
@@ -17,17 +18,14 @@ import { TokenByTool } from './views/TokenByTool';
  * Layout — sidebar + header + main content
  * --------------------------------------------------------------------------- */
 function Layout() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
-      <Sidebar />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <header
-          className="flex h-12 shrink-0 items-center justify-end gap-4 border-b px-4"
-          style={{ borderColor: 'var(--border)', background: 'var(--bg-secondary)' }}
-        >
-          <UserFilter />
-        </header>
+        <Header onToggleSidebar={() => setSidebarOpen((prev) => !prev)} />
         {/* Main */}
         <main className="flex-1 overflow-auto p-6">
           <Routes>
