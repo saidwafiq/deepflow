@@ -1,6 +1,6 @@
-import React, { useCallback, useContext, useEffect, useState } from 'react';
+import { useCallback, useContext, useEffect, useState } from 'react';
 import { MetricCard } from '../components/MetricCard';
-import { StackedAreaChart } from '../components/charts/StackedAreaChart';
+import { LineChart } from '../components/charts/LineChart';
 import { useApi } from '../hooks/useApi';
 import { usePolling } from '../hooks/usePolling';
 import { DashboardContext } from '../context/DashboardContext';
@@ -33,11 +33,7 @@ function fmtTokens(n: number) {
   return String(n);
 }
 
-const AREA_KEYS = [
-  { dataKey: 'cache_read_tokens', name: 'Cache Read', color: '#10b981' },
-  { dataKey: 'cache_creation_tokens', name: 'Cache Creation', color: '#f59e0b' },
-  { dataKey: 'input_tokens', name: 'Regular Input', color: 'var(--accent)' },
-];
+const HIT_RATIO_LINE = [{ dataKey: 'hit_ratio', name: 'Cache Hit Ratio', color: '#10b981' }];
 
 /* ---- Component ---- */
 export function CacheEfficiency() {
@@ -110,13 +106,15 @@ export function CacheEfficiency() {
           <p className="mb-3 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
             Daily token breakdown (30 days)
           </p>
-          <StackedAreaChart
+          <LineChart
             data={daily as unknown as Record<string, unknown>[]}
-            areas={AREA_KEYS}
+            lines={HIT_RATIO_LINE}
             xKey="day"
-            xTickFormatter={(v) => (v as string).slice(5)} /* MM-DD */
-            yTickFormatter={(v) => fmtTokens(v as number)}
-            tooltipFormatter={(value, name) => [fmtTokens(value as number), name]}
+            xTickFormatter={(v) => String(v).slice(5)}
+            yTickFormatter={(v) => `${v}%`}
+            tooltipFormatter={(value, name) => [`${value}%`, String(name)]}
+            yDomain={[0, 100]}
+            referenceLines={[{ y: 80, label: '80%', color: '#f59e0b' }]}
           />
         </div>
       )}

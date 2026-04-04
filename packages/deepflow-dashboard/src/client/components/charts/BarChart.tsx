@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   BarChart as RechartsBarChart,
   Bar,
@@ -23,8 +22,6 @@ interface BarChartProps {
   yTickFormatter?: (v: unknown) => string;
   /** Format tooltip values */
   tooltipFormatter?: (value: unknown) => [string, string];
-  /** Highlight index (renders slightly lighter) */
-  highlightIndex?: number;
 }
 
 export function BarChart({

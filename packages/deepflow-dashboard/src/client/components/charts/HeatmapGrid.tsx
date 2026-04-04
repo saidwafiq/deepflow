@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 
 export interface HeatmapDay {
   day: string;        // ISO date YYYY-MM-DD

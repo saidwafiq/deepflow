@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { UserFilter } from './components/UserFilter';
@@ -11,7 +10,6 @@ import { ActivityHeatmap } from './views/ActivityHeatmap';
 import { ModelDonut } from './views/ModelDonut';
 import { CostStacked } from './views/CostStacked';
 import { PeakHours } from './views/PeakHours';
-import { TaskTracking } from './views/TaskTracking';
 import { QuotaStatus } from './views/QuotaStatus';
 import { TokenByTool } from './views/TokenByTool';
 
@@ -35,7 +33,6 @@ function Layout() {
           <Routes>
             <Route path="/" element={<CostOverview />} />
             <Route path="/sessions" element={<SessionList />} />
-            <Route path="/tasks" element={<TaskTracking />} />
             <Route path="/quota" element={<QuotaStatus />} />
             <Route path="/tools" element={<TokenByTool />} />
             <Route path="/costs" element={<CostOverview />} />
