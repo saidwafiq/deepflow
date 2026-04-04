@@ -91,11 +91,30 @@ export function PeakHours() {
     <div className="space-y-6">
       <h1 className="text-xl font-semibold text-[var(--text)]">Peak Hours</h1>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MetricCard label="Sessions Analyzed" value={sessions.length} sub={total > sessions.length ? `of ${total} total` : undefined} />
-        <MetricCard label="Peak Hour" value={peakBucket?.label ?? '—'} sub={`${peakBucket?.count ?? 0} sessions`} />
-        <MetricCard label="Active Hours" value={activeBuckets} sub="hours with activity" />
-        <MetricCard label="Avg per hour" value={sessions.length > 0 ? (sessions.length / 24).toFixed(1) : '0'} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <MetricCard
+          label="Sessions Analyzed"
+          value={sessions.length}
+          sub={total > sessions.length ? `of ${total} total` : undefined}
+          icon={<svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>}
+        />
+        <MetricCard
+          label="Peak Hour"
+          value={peakBucket?.label ?? '—'}
+          sub={`${peakBucket?.count ?? 0} sessions`}
+          icon={<svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+        />
+        <MetricCard
+          label="Active Hours"
+          value={activeBuckets}
+          sub="hours with activity"
+          icon={<svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>}
+        />
+        <MetricCard
+          label="Avg per hour"
+          value={sessions.length > 0 ? (sessions.length / 24).toFixed(1) : '0'}
+          icon={<svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
+        />
       </div>
 
       <div
