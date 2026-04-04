@@ -1,5 +1,6 @@
-import React, { useCallback, useContext, useEffect, useState } from 'react';
+import { useCallback, useContext, useEffect, useState } from 'react';
 import { BarChart } from '../components/charts/BarChart';
+import { ChartCard } from '../components/ChartCard';
 import { useApi } from '../hooks/useApi';
 import { usePolling } from '../hooks/usePolling';
 import { DashboardContext } from '../context/DashboardContext';
@@ -102,12 +103,7 @@ export function TokenByTool() {
 
       {/* Bar chart */}
       {chartData.length > 0 && (
-        <div
-          className="rounded-xl p-4 bg-[var(--bg-card)] border border-[var(--border)]"
-        >
-          <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
-            Total tokens per tool (top 15)
-          </p>
+        <ChartCard title="Total tokens per tool (top 15)">
           <BarChart
             data={chartData}
             categoryKey="name"
@@ -116,7 +112,7 @@ export function TokenByTool() {
             yTickFormatter={(v) => fmtTokens(v as number)}
             tooltipFormatter={(v) => [fmtTokens(v as number), 'Tokens']}
           />
-        </div>
+        </ChartCard>
       )}
 
       {/* Sortable table */}

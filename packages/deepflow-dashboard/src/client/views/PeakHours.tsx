@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useState } from 'react';
+import { useCallback, useContext, useEffect, useState } from 'react';
 import {
   BarChart,
   Bar,
@@ -9,6 +9,7 @@ import {
   Cell,
   ResponsiveContainer,
 } from 'recharts';
+import { ChartCard } from '../components/ChartCard';
 import { MetricCard } from '../components/MetricCard';
 import { useApi } from '../hooks/useApi';
 import { usePolling } from '../hooks/usePolling';
@@ -117,12 +118,7 @@ export function PeakHours() {
         />
       </div>
 
-      <div
-        className="rounded-xl p-4 bg-[var(--bg-card)] border border-[var(--border)]"
-      >
-        <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
-          Session count by hour of day (local time)
-        </p>
+      <ChartCard title="Session count by hour of day (local time)">
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={buckets} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -164,7 +160,7 @@ export function PeakHours() {
         <p className="mt-2 text-xs text-[var(--text-secondary)]">
           Highlighted bar = peak hour. Based on last {sessions.length} sessions.
         </p>
-      </div>
+      </ChartCard>
     </div>
   );
 }
