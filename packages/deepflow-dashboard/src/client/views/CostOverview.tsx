@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useState } from 'react';
 import { MetricCard } from '../components/MetricCard';
 import { ChartCard } from '../components/ChartCard';
 import { StackedBarChart, type BarKey } from '../components/charts/StackedBarChart';
+import { DataTable, tableHeaderClass, tableHeaderCellClass, tableCellClass, tableRowClass } from '../components/DataTable';
 import { useApi } from '../hooks/useApi';
 import { usePolling } from '../hooks/usePolling';
 import { DashboardContext } from '../context/DashboardContext';
@@ -200,83 +201,63 @@ export function CostOverview() {
 
       {/* Agent role × model breakdown table */}
       {data.by_agent_role_model && data.by_agent_role_model.length > 0 && (
-        <div
-          className="rounded-xl overflow-hidden border border-[var(--border)]"
-        >
-          <p
-            className="px-4 py-2 text-sm font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-b border-[var(--border)]"
-          >
+        <div>
+          <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
             Cost by agent role × model
           </p>
-          <table className="w-full text-sm">
-            <thead className="bg-[var(--bg-secondary)]">
+          <DataTable>
+            <thead className={tableHeaderClass}>
               <tr>
                 {['Agent Role', 'Model', 'Cost', 'Tokens In', 'Tokens Out', 'Cache Read', 'Cache Creation'].map((h) => (
-                  <th
-                    key={h}
-                    className="px-4 py-2 text-left font-medium text-[var(--text-secondary)] border-b border-[var(--border)]"
-                  >
+                  <th key={h} className={tableHeaderCellClass}>
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {data.by_agent_role_model.map((r, i) => (
-                <tr
-                  key={`${r.agent_role}|${r.model}`}
-                  className={i % 2 === 0 ? 'bg-[var(--bg)]' : 'bg-[var(--bg-secondary)]'}
-                >
-                  <td className="px-4 py-2 font-mono text-xs text-[var(--text)]">{r.agent_role}</td>
-                  <td className="px-4 py-2 font-mono text-xs text-[var(--text)]">{r.model}</td>
-                  <td className="px-4 py-2 tabular-nums font-medium text-[var(--text)]">{fmtDollars(r.cost)}</td>
-                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(r.input_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(r.output_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(r.cache_read_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(r.cache_creation_tokens)}</td>
+              {data.by_agent_role_model.map((r) => (
+                <tr key={`${r.agent_role}|${r.model}`} className={tableRowClass}>
+                  <td className={tableCellClass + ' font-mono text-xs'}>{r.agent_role}</td>
+                  <td className={tableCellClass + ' font-mono text-xs'}>{r.model}</td>
+                  <td className={tableCellClass + ' font-medium'}>{fmtDollars(r.cost)}</td>
+                  <td className={tableCellClass}>{fmtTokens(r.input_tokens)}</td>
+                  <td className={tableCellClass}>{fmtTokens(r.output_tokens)}</td>
+                  <td className={tableCellClass}>{fmtTokens(r.cache_read_tokens)}</td>
+                  <td className={tableCellClass}>{fmtTokens(r.cache_creation_tokens)}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </div>
       )}
 
       {/* Per-project breakdown table */}
       {data.projects.length > 0 && (
-        <div
-          className="rounded-xl overflow-hidden border border-[var(--border)]"
-        >
-          <table className="w-full text-sm">
-            <thead className="bg-[var(--bg-secondary)]">
-              <tr>
-                {['Project', 'Sessions', 'Tokens In', 'Tokens Out', 'Cache Read', 'Cache Creation', 'Cost'].map((h) => (
-                  <th
-                    key={h}
-                    className="px-4 py-2 text-left font-medium text-[var(--text-secondary)] border-b border-[var(--border)]"
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.projects.map((p, i) => (
-                <tr
-                  key={p.project}
-                  className={i % 2 === 0 ? 'bg-[var(--bg)]' : 'bg-[var(--bg-secondary)]'}
-                >
-                  <td className="px-4 py-2 font-mono text-xs text-[var(--text)]">{p.project}</td>
-                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{p.sessions}</td>
-                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(p.tokens_in)}</td>
-                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(p.tokens_out)}</td>
-                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(p.cache_read_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(p.cache_creation_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums font-medium text-[var(--text)]">{fmtDollars(p.cost)}</td>
-                </tr>
+        <DataTable>
+          <thead className={tableHeaderClass}>
+            <tr>
+              {['Project', 'Sessions', 'Tokens In', 'Tokens Out', 'Cache Read', 'Cache Creation', 'Cost'].map((h) => (
+                <th key={h} className={tableHeaderCellClass}>
+                  {h}
+                </th>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </tr>
+          </thead>
+          <tbody>
+            {data.projects.map((p) => (
+              <tr key={p.project} className={tableRowClass}>
+                <td className={tableCellClass + ' font-mono text-xs'}>{p.project}</td>
+                <td className={tableCellClass}>{p.sessions}</td>
+                <td className={tableCellClass}>{fmtTokens(p.tokens_in)}</td>
+                <td className={tableCellClass}>{fmtTokens(p.tokens_out)}</td>
+                <td className={tableCellClass}>{fmtTokens(p.cache_read_tokens)}</td>
+                <td className={tableCellClass}>{fmtTokens(p.cache_creation_tokens)}</td>
+                <td className={tableCellClass + ' font-medium'}>{fmtDollars(p.cost)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
       )}
     </div>
   );
