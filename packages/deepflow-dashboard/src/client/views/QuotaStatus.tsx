@@ -69,8 +69,7 @@ function InlineBar({ label, pct, color }: InlineBarProps) {
   return (
     <div className="flex items-center gap-1" style={{ minWidth: 0 }}>
       <span
-        className="text-xs font-medium shrink-0"
-        style={{ color: 'var(--text-secondary)', width: '3.5rem' }}
+        className="text-xs font-medium shrink-0 w-14 text-[var(--text-secondary)]"
       >
         {label}
       </span>
@@ -93,8 +92,7 @@ function InlineBar({ label, pct, color }: InlineBarProps) {
         />
       </div>
       <span
-        className="text-xs tabular-nums shrink-0"
-        style={{ color: 'var(--text-secondary)', width: '2.5rem' }}
+        className="text-xs tabular-nums shrink-0 w-10 text-[var(--text-secondary)]"
       >
         {display}
       </span>
@@ -107,31 +105,25 @@ function FiveHourCard({ row }: { row: WindowRow }) {
   const cost = fmtCost(row.cost);
   return (
     <div
-      className="rounded-xl p-3"
-      style={{
-        background: row.isActive ? 'var(--bg-card)' : 'var(--bg-secondary)',
-        border: row.isActive ? '1px solid var(--accent)' : '1px solid var(--border)',
-      }}
+      className={`rounded-xl p-3 border ${row.isActive ? 'bg-[var(--bg-card)] border-[var(--accent)]' : 'bg-[var(--bg-secondary)] border-[var(--border)]'}`}
     >
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
           {row.isActive && (
             <span
-              className="text-xs font-semibold px-1.5 py-0.5 rounded"
-              style={{ background: 'var(--accent)', color: '#fff', lineHeight: 1.4 }}
+              className="text-xs font-semibold px-1.5 py-0.5 rounded bg-[var(--accent)] text-white leading-snug"
             >
               active
             </span>
           )}
           <span
-            className="text-xs font-mono"
-            style={{ color: row.isActive ? 'var(--text)' : 'var(--text-secondary)' }}
+            className={`text-xs font-mono ${row.isActive ? 'text-[var(--text)]' : 'text-[var(--text-secondary)]'}`}
           >
             {fmtDate(row.startedAt)} → {fmtDate(row.endsAt)}
           </span>
         </div>
         {cost && (
-          <span className="text-xs font-mono tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+          <span className="text-xs font-mono tabular-nums text-[var(--text-secondary)]">
             {cost}
           </span>
         )}
@@ -154,38 +146,31 @@ function SevenDayCard({ group }: { group: SevenDayGroup }) {
 
   return (
     <div
-      className="rounded-xl p-3"
-      style={{
-        background: group.isActive ? 'var(--bg-card)' : 'var(--bg-secondary)',
-        border: group.isActive ? '1px solid var(--accent)' : '1px solid var(--border)',
-      }}
+      className={`rounded-xl p-3 border ${group.isActive ? 'bg-[var(--bg-card)] border-[var(--accent)]' : 'bg-[var(--bg-secondary)] border-[var(--border)]'}`}
     >
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
           {group.isActive && (
             <span
-              className="text-xs font-semibold px-1.5 py-0.5 rounded"
-              style={{ background: 'var(--accent)', color: '#fff', lineHeight: 1.4 }}
+              className="text-xs font-semibold px-1.5 py-0.5 rounded bg-[var(--accent)] text-white leading-snug"
             >
               active
             </span>
           )}
           <span
-            className="text-xs font-mono"
-            style={{ color: group.isActive ? 'var(--text)' : 'var(--text-secondary)' }}
+            className={`text-xs font-mono ${group.isActive ? 'text-[var(--text)]' : 'text-[var(--text-secondary)]'}`}
           >
             {fmtDate(group.startedAt)} → {fmtDate(group.sevenDayEndsAt)}
           </span>
         </div>
         <div className="flex items-center gap-2">
           {cost && (
-            <span className="text-xs font-mono tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+            <span className="text-xs font-mono tabular-nums text-[var(--text-secondary)]">
               {cost}
             </span>
           )}
           <button
-            className="text-xs"
-            style={{ color: 'var(--text-secondary)' }}
+            className="text-xs text-[var(--text-secondary)]"
             onClick={() => setExpanded((v) => !v)}
           >
             {group.windows.length} × 5h {expanded ? '▲' : '▼'}
@@ -204,15 +189,14 @@ function SevenDayCard({ group }: { group: SevenDayGroup }) {
           {group.windows.map((w) => (
             <div
               key={w.startedAt}
-              className="rounded-lg px-2 py-1.5"
-              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}
+              className="rounded-lg px-2 py-1.5 bg-[var(--bg-secondary)] border border-[var(--border)]"
             >
               <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>
+                <span className="text-xs font-mono text-[var(--text-secondary)]">
                   {fmtDate(w.startedAt)} → {fmtDate(w.endsAt)}
                 </span>
                 {fmtCost(w.cost) && (
-                  <span className="text-xs tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+                  <span className="text-xs tabular-nums text-[var(--text-secondary)]">
                     {fmtCost(w.cost)}
                   </span>
                 )}
@@ -275,7 +259,7 @@ export function QuotaStatus() {
     return <p className="text-sm" style={{ color: '#ef4444' }}>Failed to load quota data: {error}</p>;
   }
   if (!data) {
-    return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading…</p>;
+    return <p className="text-sm text-[var(--text-secondary)]">Loading…</p>;
   }
 
   const rows = data.data;
@@ -283,22 +267,15 @@ export function QuotaStatus() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Quota Windows</h1>
+        <h1 className="text-xl font-semibold text-[var(--text)]">Quota Windows</h1>
         <div
-          className="flex rounded-lg overflow-hidden"
-          style={{ border: '1px solid var(--border)' }}
+          className="flex rounded-lg overflow-hidden border border-[var(--border)]"
         >
           {(['5h', '7d'] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
-              className="px-3 py-1 text-sm font-medium"
-              style={{
-                background: view === v ? 'var(--accent)' : 'var(--bg-secondary)',
-                color: view === v ? '#fff' : 'var(--text-secondary)',
-                border: 'none',
-                cursor: 'pointer',
-              }}
+              className={`px-3 py-1 text-sm font-medium cursor-pointer border-none ${view === v ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)]'}`}
             >
               {v}
             </button>
@@ -311,7 +288,7 @@ export function QuotaStatus() {
           <>
             {rows.map((row) => <FiveHourCard key={row.startedAt} row={row} />)}
             {rows.length === 0 && (
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No quota window data available.</p>
+              <p className="text-sm text-[var(--text-secondary)]">No quota window data available.</p>
             )}
           </>
         )}
@@ -322,7 +299,7 @@ export function QuotaStatus() {
               <SevenDayCard key={group.sevenDayEndsAt} group={group} />
             ))}
             {sevenDayGroups.length === 0 && (
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No quota window data available.</p>
+              <p className="text-sm text-[var(--text-secondary)]">No quota window data available.</p>
             )}
           </>
         )}

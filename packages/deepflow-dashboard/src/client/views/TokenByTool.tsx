@@ -27,7 +27,7 @@ function fmtTokens(n: number): string {
 }
 
 function Arrow({ active, dir }: { active: boolean; dir: 'asc' | 'desc' }) {
-  if (!active) return <span style={{ color: 'var(--border)' }}> ↕</span>;
+  if (!active) return <span className="text-[var(--border)]"> ↕</span>;
   return <span>{dir === 'asc' ? ' ▲' : ' ▼'}</span>;
 }
 
@@ -68,7 +68,7 @@ export function TokenByTool() {
     return <p className="text-sm" style={{ color: '#ef4444' }}>Failed to load tool data: {error}</p>;
   }
   if (!data) {
-    return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading…</p>;
+    return <p className="text-sm text-[var(--text-secondary)]">Loading…</p>;
   }
 
   const tools = data.data;
@@ -98,15 +98,14 @@ export function TokenByTool() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Tokens by Tool</h1>
+      <h1 className="text-xl font-semibold text-[var(--text)]">Tokens by Tool</h1>
 
       {/* Bar chart */}
       {chartData.length > 0 && (
         <div
-          className="rounded-xl p-4"
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+          className="rounded-xl p-4 bg-[var(--bg-card)] border border-[var(--border)]"
         >
-          <p className="mb-3 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+          <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
             Total tokens per tool (top 15)
           </p>
           <BarChart
@@ -122,18 +121,14 @@ export function TokenByTool() {
 
       {/* Sortable table */}
       {sorted.length > 0 && (
-        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+        <div className="rounded-xl overflow-hidden border border-[var(--border)]">
           <table className="w-full text-sm">
-            <thead style={{ background: 'var(--bg-secondary)' }}>
+            <thead className="bg-[var(--bg-secondary)]">
               <tr>
                 {headers.map(({ key, label }) => (
                   <th
                     key={key}
-                    className="px-4 py-2 text-left font-medium cursor-pointer select-none"
-                    style={{
-                      color: 'var(--text-secondary)',
-                      borderBottom: '1px solid var(--border)',
-                    }}
+                    className="px-4 py-2 text-left font-medium cursor-pointer select-none text-[var(--text-secondary)] border-b border-[var(--border)]"
                     onClick={() => handleSort(key)}
                   >
                     {label}
@@ -146,21 +141,21 @@ export function TokenByTool() {
               {sorted.map((t, i) => (
                 <tr
                   key={t.tool_name}
-                  style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--bg-secondary)' }}
+                  className={i % 2 === 0 ? 'bg-[var(--bg)]' : 'bg-[var(--bg-secondary)]'}
                 >
-                  <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--text)' }}>
+                  <td className="px-4 py-2 font-mono text-xs text-[var(--text)]">
                     {t.tool_name}
                   </td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">
                     {t.call_count.toLocaleString()}
                   </td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">
                     {fmtTokens(t.total_tokens)}
                   </td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">
                     {fmtTokens(t.avg_tokens)}
                   </td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">
                     {t.pct_of_total.toFixed(1)}%
                   </td>
                 </tr>

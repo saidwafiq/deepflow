@@ -102,8 +102,8 @@ export function HeatmapGrid({ data, weeks = 52, countLabel = 'sessions' }: Heatm
         {labels.map(({ col, label }) => (
           <span
             key={`${col}-${label}`}
-            className="absolute text-xs"
-            style={{ left: col * (CELL + GAP), color: 'var(--text-secondary)', fontSize: 10 }}
+            className="absolute text-xs text-[var(--text-secondary)]"
+            style={{ left: col * (CELL + GAP), fontSize: 10 }}
           >
             {label}
           </span>
@@ -149,18 +149,14 @@ export function HeatmapGrid({ data, weeks = 52, countLabel = 'sessions' }: Heatm
       {/* Tooltip */}
       {tooltip && (
         <div
-          className="pointer-events-none absolute z-10 rounded px-2 py-1 text-xs shadow"
+          className="pointer-events-none absolute z-10 rounded px-2 py-1 text-xs shadow bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text)] whitespace-nowrap"
           style={{
             left: tooltip.x,
             top: tooltip.y,
             transform: 'translate(-50%, -100%)',
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border)',
-            color: 'var(--text)',
-            whiteSpace: 'nowrap',
           }}
         >
-          <span style={{ color: 'var(--text-secondary)' }}>{tooltip.day}</span>
+          <span className="text-[var(--text-secondary)]">{tooltip.day}</span>
           {' — '}
           <strong>{tooltip.count}</strong> {countLabel}
         </div>
@@ -168,14 +164,14 @@ export function HeatmapGrid({ data, weeks = 52, countLabel = 'sessions' }: Heatm
 
       {/* Legend */}
       <div className="mt-2 flex items-center gap-1">
-        <span className="text-xs mr-1" style={{ color: 'var(--text-secondary)' }}>Less</span>
+        <span className="text-xs mr-1 text-[var(--text-secondary)]">Less</span>
         {([0, 1, 2, 3, 4] as const).map((l) => (
           <div
             key={l}
             style={{ width: CELL, height: CELL, borderRadius: 2, background: LEVEL_COLORS[l] }}
           />
         ))}
-        <span className="text-xs ml-1" style={{ color: 'var(--text-secondary)' }}>More</span>
+        <span className="text-xs ml-1 text-[var(--text-secondary)]">More</span>
       </div>
     </div>
   );

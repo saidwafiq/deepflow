@@ -4,6 +4,7 @@ import { MetricCard } from '../components/MetricCard';
 import { useApi } from '../hooks/useApi';
 import { usePolling } from '../hooks/usePolling';
 import { DashboardContext } from '../context/DashboardContext';
+import { cn } from '../lib/utils';
 
 interface ModelCost {
   model: string;
@@ -67,7 +68,7 @@ export function ModelDonut() {
   }
 
   if (!data) {
-    return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading…</p>;
+    return <p className="text-sm text-[var(--text-secondary)]">Loading…</p>;
   }
 
   const { models } = data;
@@ -82,18 +83,19 @@ export function ModelDonut() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Model Distribution</h1>
+        <h1 className="text-xl font-semibold text-[var(--text)]">Model Distribution</h1>
         {/* Toggle cost vs tokens */}
-        <div className="flex gap-1 rounded-lg p-1" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+        <div className="flex gap-1 rounded-lg p-1 bg-[var(--bg-secondary)] border border-[var(--border)]">
           {(['cost', 'tokens'] as const).map((m) => (
             <button
               key={m}
               onClick={() => setMetric(m)}
-              className="rounded px-3 py-1 text-xs font-medium transition-colors capitalize"
-              style={{
-                background: metric === m ? 'var(--accent)' : 'transparent',
-                color: metric === m ? '#fff' : 'var(--text-secondary)',
-              }}
+              className={cn(
+                'rounded px-3 py-1 text-xs font-medium transition-colors capitalize',
+                metric === m
+                  ? 'bg-[var(--accent)] text-white'
+                  : 'bg-transparent text-[var(--text-secondary)]',
+              )}
             >
               {m}
             </button>
@@ -114,10 +116,9 @@ export function ModelDonut() {
 
       {slices.length > 0 && (
         <div
-          className="rounded-xl p-4"
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+          className="rounded-xl p-4 bg-[var(--bg-card)] border border-[var(--border)]"
         >
-          <p className="mb-3 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+          <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
             {metric === 'cost' ? 'Cost' : 'Token'} distribution by model
           </p>
           <DonutChart
@@ -133,17 +134,15 @@ export function ModelDonut() {
       {/* Per-model table */}
       {models.length > 0 && (
         <div
-          className="rounded-xl overflow-hidden"
-          style={{ border: '1px solid var(--border)' }}
+          className="rounded-xl overflow-hidden border border-[var(--border)]"
         >
           <table className="w-full text-sm">
-            <thead style={{ background: 'var(--bg-secondary)' }}>
+            <thead className="bg-[var(--bg-secondary)]">
               <tr>
                 {['Model', 'Input Tokens', 'Output Tokens', 'Cache Read', 'Cache Creation', 'Cost'].map((h) => (
                   <th
                     key={h}
-                    className="px-4 py-2 text-left font-medium"
-                    style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
+                    className="px-4 py-2 text-left font-medium text-[var(--text-secondary)] border-b border-[var(--border)]"
                   >
                     {h}
                   </th>
@@ -154,14 +153,14 @@ export function ModelDonut() {
               {models.map((m, i) => (
                 <tr
                   key={m.model}
-                  style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--bg-secondary)' }}
+                  className={i % 2 === 0 ? 'bg-[var(--bg)]' : 'bg-[var(--bg-secondary)]'}
                 >
-                  <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--text)' }}>{m.model}</td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(m.input_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(m.output_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(m.cache_read_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(m.cache_creation_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums font-medium" style={{ color: 'var(--text)' }}>{fmtDollars(m.cost)}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-[var(--text)]">{m.model}</td>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(m.input_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(m.output_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(m.cache_read_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(m.cache_creation_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums font-medium text-[var(--text)]">{fmtDollars(m.cost)}</td>
                 </tr>
               ))}
             </tbody>

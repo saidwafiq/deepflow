@@ -42,8 +42,7 @@ export function MetricCard({ label, value, sub, trend, icon, sparkData }: Metric
 
   return (
     <div
-      className="rounded-2xl p-6 shadow-card border border-[var(--border)] relative overflow-hidden"
-      style={{ background: 'var(--bg-card)' }}
+      className="rounded-2xl p-6 shadow-card border border-[var(--border)] relative overflow-hidden bg-[var(--bg-card)]"
     >
       {/* Top row: icon left, trend badge right */}
       <div className="flex justify-between items-start">
@@ -58,18 +57,18 @@ export function MetricCard({ label, value, sub, trend, icon, sparkData }: Metric
       </div>
 
       {/* Value */}
-      <p className="mt-3 text-3xl font-bold tabular-nums" style={{ color: 'var(--text)' }}>
+      <p className="mt-3 text-3xl font-bold tabular-nums text-[var(--text)]">
         {value}
       </p>
 
       {/* Label */}
-      <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+      <p className="mt-1 text-sm text-[var(--text-secondary)]">
         {label}
       </p>
 
       {/* Sub text */}
       {sub && (
-        <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+        <p className="mt-1 text-xs text-[var(--text-secondary)]">
           {sub}
         </p>
       )}

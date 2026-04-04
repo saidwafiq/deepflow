@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { MetricCard } from '../components/MetricCard';
-import { StackedAreaChart, type AreaKey } from '../components/charts/StackedAreaChart';
+import { StackedBarChart, type BarKey } from '../components/charts/StackedBarChart';
 import { useApi } from '../hooks/useApi';
 import { usePolling } from '../hooks/usePolling';
 import { DashboardContext } from '../context/DashboardContext';
@@ -128,13 +128,13 @@ export function CostOverview() {
   }
 
   if (!data) {
-    return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading…</p>;
+    return <p className="text-sm text-[var(--text-secondary)]">Loading…</p>;
   }
 
   const totalCost = data.models.reduce((s, m) => s + m.cost, 0);
   const totalTokens = data.models.reduce((s, m) => s + m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens, 0);
   const models = data.models.map((m) => m.model);
-  const areas: AreaKey[] = models.map((m, i) => ({
+  const bars: BarKey[] = models.map((m, i) => ({
     dataKey: m,
     name: m,
     color: MODEL_COLORS[i % MODEL_COLORS.length],
@@ -143,7 +143,7 @@ export function CostOverview() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Cost Overview</h1>
+      <h1 className="text-xl font-semibold text-[var(--text)]">Cost Overview</h1>
 
       {/* Per-model metric cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -158,21 +158,20 @@ export function CostOverview() {
         ))}
       </div>
 
-      {/* Stacked area chart — daily cost per model */}
+      {/* Stacked bar chart — daily cost per model */}
       {chartData.length > 0 && (
         <div
-          className="rounded-xl p-4"
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+          className="rounded-xl p-4 bg-[var(--bg-card)] border border-[var(--border)]"
         >
-          <p className="mb-3 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+          <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
             Daily cost by model (90 days)
           </p>
-          <StackedAreaChart
+          <StackedBarChart
             data={chartData}
-            areas={areas}
-            xTickFormatter={(v) => (v as string).slice(5)} /* MM-DD */
+            bars={bars}
+            xTickFormatter={(v) => String(v).slice(5)}
             yTickFormatter={(v) => fmt$$(v as number)}
-            tooltipFormatter={(value, name) => [fmtDollars(value as number), name]}
+            tooltipFormatter={(value, name) => [fmtDollars(value as number), String(name)]}
           />
         </div>
       )}
@@ -180,7 +179,7 @@ export function CostOverview() {
       {/* Agent role cost breakdown — MetricCards */}
       {data.by_agent_role && data.by_agent_role.length > 0 && (
         <div>
-          <p className="mb-3 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+          <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
             Cost by agent role
           </p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -199,23 +198,20 @@ export function CostOverview() {
       {/* Agent role × model breakdown table */}
       {data.by_agent_role_model && data.by_agent_role_model.length > 0 && (
         <div
-          className="rounded-xl overflow-hidden"
-          style={{ border: '1px solid var(--border)' }}
+          className="rounded-xl overflow-hidden border border-[var(--border)]"
         >
           <p
-            className="px-4 py-2 text-sm font-medium"
-            style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
+            className="px-4 py-2 text-sm font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-b border-[var(--border)]"
           >
             Cost by agent role × model
           </p>
           <table className="w-full text-sm">
-            <thead style={{ background: 'var(--bg-secondary)' }}>
+            <thead className="bg-[var(--bg-secondary)]">
               <tr>
                 {['Agent Role', 'Model', 'Cost', 'Tokens In', 'Tokens Out', 'Cache Read', 'Cache Creation'].map((h) => (
                   <th
                     key={h}
-                    className="px-4 py-2 text-left font-medium"
-                    style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
+                    className="px-4 py-2 text-left font-medium text-[var(--text-secondary)] border-b border-[var(--border)]"
                   >
                     {h}
                   </th>
@@ -226,15 +222,15 @@ export function CostOverview() {
               {data.by_agent_role_model.map((r, i) => (
                 <tr
                   key={`${r.agent_role}|${r.model}`}
-                  style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--bg-secondary)' }}
+                  className={i % 2 === 0 ? 'bg-[var(--bg)]' : 'bg-[var(--bg-secondary)]'}
                 >
-                  <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--text)' }}>{r.agent_role}</td>
-                  <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--text)' }}>{r.model}</td>
-                  <td className="px-4 py-2 tabular-nums font-medium" style={{ color: 'var(--text)' }}>{fmtDollars(r.cost)}</td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(r.input_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(r.output_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(r.cache_read_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(r.cache_creation_tokens)}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-[var(--text)]">{r.agent_role}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-[var(--text)]">{r.model}</td>
+                  <td className="px-4 py-2 tabular-nums font-medium text-[var(--text)]">{fmtDollars(r.cost)}</td>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(r.input_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(r.output_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(r.cache_read_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(r.cache_creation_tokens)}</td>
                 </tr>
               ))}
             </tbody>
@@ -245,17 +241,15 @@ export function CostOverview() {
       {/* Per-project breakdown table */}
       {data.projects.length > 0 && (
         <div
-          className="rounded-xl overflow-hidden"
-          style={{ border: '1px solid var(--border)' }}
+          className="rounded-xl overflow-hidden border border-[var(--border)]"
         >
           <table className="w-full text-sm">
-            <thead style={{ background: 'var(--bg-secondary)' }}>
+            <thead className="bg-[var(--bg-secondary)]">
               <tr>
                 {['Project', 'Sessions', 'Tokens In', 'Tokens Out', 'Cache Read', 'Cache Creation', 'Cost'].map((h) => (
                   <th
                     key={h}
-                    className="px-4 py-2 text-left font-medium"
-                    style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
+                    className="px-4 py-2 text-left font-medium text-[var(--text-secondary)] border-b border-[var(--border)]"
                   >
                     {h}
                   </th>
@@ -266,15 +260,15 @@ export function CostOverview() {
               {data.projects.map((p, i) => (
                 <tr
                   key={p.project}
-                  style={{ background: i % 2 === 0 ? 'var(--bg)' : 'var(--bg-secondary)' }}
+                  className={i % 2 === 0 ? 'bg-[var(--bg)]' : 'bg-[var(--bg-secondary)]'}
                 >
-                  <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--text)' }}>{p.project}</td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{p.sessions}</td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(p.tokens_in)}</td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(p.tokens_out)}</td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(p.cache_read_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text)' }}>{fmtTokens(p.cache_creation_tokens)}</td>
-                  <td className="px-4 py-2 tabular-nums font-medium" style={{ color: 'var(--text)' }}>{fmtDollars(p.cost)}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-[var(--text)]">{p.project}</td>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{p.sessions}</td>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(p.tokens_in)}</td>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(p.tokens_out)}</td>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(p.cache_read_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">{fmtTokens(p.cache_creation_tokens)}</td>
+                  <td className="px-4 py-2 tabular-nums font-medium text-[var(--text)]">{fmtDollars(p.cost)}</td>
                 </tr>
               ))}
             </tbody>

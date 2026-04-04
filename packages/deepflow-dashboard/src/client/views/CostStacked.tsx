@@ -85,7 +85,7 @@ export function CostStacked() {
   }
 
   if (!data) {
-    return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading…</p>;
+    return <p className="text-sm text-[var(--text-secondary)]">Loading…</p>;
   }
 
   const models = data.models.map((m) => m.model);
@@ -100,7 +100,7 @@ export function CostStacked() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Daily Cost by Model</h1>
+      <h1 className="text-xl font-semibold text-[var(--text)]">Daily Cost by Model</h1>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MetricCard label="Total Cost (all time)" value={fmtDollars(totalCost)} />
@@ -111,10 +111,9 @@ export function CostStacked() {
 
       {chartData.length > 0 && (
         <div
-          className="rounded-xl p-4"
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+          className="rounded-xl p-4 bg-[var(--bg-card)] border border-[var(--border)]"
         >
-          <p className="mb-3 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+          <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
             Daily cost stacked by model (90 days)
           </p>
           <ResponsiveContainer width="100%" height={280}>

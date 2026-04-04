@@ -62,7 +62,7 @@ export function CacheEfficiency() {
   }
 
   if (!data) {
-    return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading…</p>;
+    return <p className="text-sm text-[var(--text-secondary)]">Loading…</p>;
   }
 
   const { summary, daily } = data;
@@ -70,7 +70,7 @@ export function CacheEfficiency() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Cache Efficiency</h1>
+      <h1 className="text-xl font-semibold text-[var(--text)]">Cache Efficiency</h1>
 
       {/* Metric cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -100,10 +100,9 @@ export function CacheEfficiency() {
       {/* Daily trend — stacked area of input / cache_read / cache_creation */}
       {daily.length > 0 && (
         <div
-          className="rounded-xl p-4"
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+          className="rounded-xl p-4 bg-[var(--bg-card)] border border-[var(--border)]"
         >
-          <p className="mb-3 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+          <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
             Daily token breakdown (30 days)
           </p>
           <LineChart
@@ -125,13 +124,12 @@ export function CacheEfficiency() {
         const readPct = total > 0 ? (summary.total_cache_read / total) * 100 : 0;
         return (
           <div
-            className="rounded-xl p-4 space-y-2"
-            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+            className="rounded-xl p-4 space-y-2 bg-[var(--bg-card)] border border-[var(--border)]"
           >
-            <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+            <p className="text-sm font-medium text-[var(--text-secondary)]">
               Cache read vs creation split
             </p>
-            <div className="flex h-4 overflow-hidden rounded-full" style={{ background: 'var(--bg-secondary)' }}>
+            <div className="flex h-4 overflow-hidden rounded-full bg-[var(--bg-secondary)]">
               <div
                 style={{ width: `${readPct}%`, background: '#10b981', transition: 'width 0.4s ease' }}
               />
@@ -139,7 +137,7 @@ export function CacheEfficiency() {
                 style={{ width: `${100 - readPct}%`, background: '#f59e0b', transition: 'width 0.4s ease' }}
               />
             </div>
-            <div className="flex justify-between text-xs" style={{ color: 'var(--text-secondary)' }}>
+            <div className="flex justify-between text-xs text-[var(--text-secondary)]">
               <span style={{ color: '#10b981' }}>Read {readPct.toFixed(1)}%</span>
               <span style={{ color: '#f59e0b' }}>Creation {(100 - readPct).toFixed(1)}%</span>
             </div>

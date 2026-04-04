@@ -46,7 +46,7 @@ export function ActivityHeatmap() {
   }
 
   if (!data) {
-    return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading…</p>;
+    return <p className="text-sm text-[var(--text-secondary)]">Loading…</p>;
   }
 
   const rows = data.data;
@@ -59,7 +59,7 @@ export function ActivityHeatmap() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Activity Heatmap</h1>
+      <h1 className="text-xl font-semibold text-[var(--text)]">Activity Heatmap</h1>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MetricCard label="Total Sessions" value={totalSessions} />
@@ -73,10 +73,9 @@ export function ActivityHeatmap() {
       </div>
 
       <div
-        className="rounded-xl p-4"
-        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+        className="rounded-xl p-4 bg-[var(--bg-card)] border border-[var(--border)]"
       >
-        <p className="mb-3 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+        <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
           Session activity — last 52 weeks
         </p>
         <HeatmapGrid data={heatmapData} weeks={52} countLabel="sessions" />

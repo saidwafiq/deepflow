@@ -27,8 +27,7 @@ export function UserFilter() {
     <div className={cn('flex items-center gap-2')}>
       <label
         htmlFor="user-filter"
-        className="text-sm font-medium"
-        style={{ color: 'var(--text-secondary)' }}
+        className="text-sm font-medium text-[var(--text-secondary)]"
       >
         User
       </label>

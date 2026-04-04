@@ -79,7 +79,7 @@ export function PeakHours() {
   }
 
   if (!sessions.length && total === 0) {
-    return <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading…</p>;
+    return <p className="text-sm text-[var(--text-secondary)]">Loading…</p>;
   }
 
   const buckets = buildHourlyBuckets(sessions);
@@ -89,7 +89,7 @@ export function PeakHours() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>Peak Hours</h1>
+      <h1 className="text-xl font-semibold text-[var(--text)]">Peak Hours</h1>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MetricCard label="Sessions Analyzed" value={sessions.length} sub={total > sessions.length ? `of ${total} total` : undefined} />
@@ -99,10 +99,9 @@ export function PeakHours() {
       </div>
 
       <div
-        className="rounded-xl p-4"
-        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+        className="rounded-xl p-4 bg-[var(--bg-card)] border border-[var(--border)]"
       >
-        <p className="mb-3 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+        <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
           Session count by hour of day (local time)
         </p>
         <ResponsiveContainer width="100%" height={260}>
@@ -143,7 +142,7 @@ export function PeakHours() {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
-        <p className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+        <p className="mt-2 text-xs text-[var(--text-secondary)]">
           Highlighted bar = peak hour. Based on last {sessions.length} sessions.
         </p>
       </div>
