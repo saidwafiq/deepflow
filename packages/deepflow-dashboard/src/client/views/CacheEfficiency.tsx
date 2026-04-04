@@ -79,21 +79,25 @@ export function CacheEfficiency() {
           value={`${summary.hit_ratio.toFixed(2)}%`}
           sub="cache_read / (input + cache_read + cache_creation)"
           trend={summary.hit_ratio > 0 ? 1 : 0}
+          icon={<svg className="w-5 h-5 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
         />
         <MetricCard
           label="Cache Read"
           value={fmtTokens(summary.total_cache_read)}
           sub="tokens served from cache"
+          icon={<svg className="w-5 h-5 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>}
         />
         <MetricCard
           label="Cache Creation"
           value={fmtTokens(summary.total_cache_creation)}
           sub="tokens written to cache"
+          icon={<svg className="w-5 h-5 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>}
         />
         <MetricCard
           label="Total Tokens"
           value={fmtTokens(totalTokens)}
           sub={`${fmtTokens(summary.total_input)} input / ${fmtTokens(summary.total_output)} output`}
+          icon={<svg className="w-5 h-5 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" /></svg>}
         />
       </div>
 

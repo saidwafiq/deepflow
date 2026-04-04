@@ -146,14 +146,20 @@ export function CostOverview() {
       <h1 className="text-xl font-semibold text-[var(--text)]">Cost Overview</h1>
 
       {/* Per-model metric cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        <MetricCard label="Total Cost" value={fmtDollars(totalCost)} sub={`${fmtTokens(totalTokens)} tokens`} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <MetricCard
+          label="Total Cost"
+          value={fmtDollars(totalCost)}
+          sub={`${fmtTokens(totalTokens)} tokens`}
+          icon={<svg className="w-5 h-5 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+        />
         {data.models.map((m) => (
           <MetricCard
             key={m.model}
             label={m.model}
             value={fmtDollars(m.cost)}
             sub={`${fmtTokens(m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens)} tokens`}
+            icon={<svg className="w-5 h-5 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" /></svg>}
           />
         ))}
       </div>
@@ -182,13 +188,14 @@ export function CostOverview() {
           <p className="mb-3 text-sm font-medium text-[var(--text-secondary)]">
             Cost by agent role
           </p>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {data.by_agent_role.map((r) => (
               <MetricCard
                 key={r.agent_role}
                 label={r.agent_role}
                 value={fmtDollars(r.cost)}
                 sub={`${fmtTokens(r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_creation_tokens)} tokens`}
+                icon={<svg className="w-5 h-5 text-[var(--accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>}
               />
             ))}
           </div>
