@@ -21,13 +21,13 @@ function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
+    <div className="flex h-screen">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col min-h-screen lg:ml-[280px]">
         {/* Header */}
         <Header onToggleSidebar={() => setSidebarOpen((prev) => !prev)} />
         {/* Main */}
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto p-4 md:p-6 bg-[var(--bg)]">
           <Routes>
             <Route path="/" element={<CostOverview />} />
             <Route path="/sessions" element={<SessionList />} />
