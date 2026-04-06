@@ -159,7 +159,7 @@ The script handles all health checks internally and outputs structured JSON:
 **Broken-tests policy:** Updating pre-existing tests requires a separate dedicated task in PLAN.md with explicit justification — never inline during execution.
 
 **Orchestrator response by exit code:**
-- **Exit 0 (PASS):** Commit stands. TaskUpdate(status: "completed"), update PLAN.md [x] + commit hash.
+- **Exit 0 (PASS):** Commit stands. TaskUpdate(status: "completed"), update PLAN.md [x] + commit hash. **Extract decisions** (see §5.5.1).
 - **Exit 1 (FAIL):** Script already reverted. Set `TaskUpdate(status: "pending")`. Recompute remaining waves:
   ```
   WAVE_JSON=!`node "${HOME}/.claude/bin/wave-runner.js" --json --plan PLAN.md --recalc --failed T{N} 2>/dev/null || echo 'WAVE_ERROR'`
@@ -167,6 +167,18 @@ The script handles all health checks internally and outputs structured JSON:
   (Fall back to text mode if `--json` is unavailable: `node "${HOME}/.claude/bin/wave-runner.js" --plan PLAN.md --recalc --failed T{N}`)
   Report: `"✗ T{n}: reverted"`.
 - **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="sonnet")` to fix lint/typecheck issues. Re-run `node "${HOME}/.claude/bin/ratchet.js"`. If still non-zero → revert both commits, set status pending.
+
+#### 5.5.1. DECISION EXTRACTION (on ratchet pass)
+
+Parse the agent's response for `DECISIONS:` line. If present:
+1. Split by ` | ` to get individual decisions
+2. Each decision has format `[TAG] description — rationale` where TAG ∈ {APPROACH, PROVISIONAL, ASSUMPTION, FUTURE, UPDATE}
+3. Append to `.deepflow/decisions.md` under `### {date} — {spec_name}` header (create header if first decision for this spec today, reuse if exists)
+4. Format: `- [TAG] description — rationale`
+
+If no `DECISIONS:` line in agent output → skip silently (mechanical tasks don't produce decisions).
+
+**This runs on every ratchet pass, not just at verify time.** Decisions are captured incrementally as tasks complete, so they're never lost even if verify fails or merge is manual.
 
 **Edit scope validation:** `git diff HEAD~1 --name-only` vs allowed globs. Violation → revert, report.
 **Impact completeness:** diff vs Impact callers/duplicates. Gap → advisory warning (no revert).
@@ -324,12 +336,42 @@ Prior tasks: {dep_id}: {summary}
 Steps: 1. chub search/get for APIs 2. LSP findReferences, add unlisted callers 3. LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files) 4. Implement 5. Commit
 --- END ---
 Duplicates: [active]→consolidate [dead]→DELETE. ONLY job: code+commit. No merge/rename/checkout.
+DECISIONS: If you made non-obvious choices, append to the LAST LINE BEFORE TASK_STATUS:
+DECISIONS: [TAG] {decision} — {rationale} | [TAG] {decision2} — {rationale2}
+Tags:
+  [APPROACH] — chose X over Y (architectural/design choice)
+  [PROVISIONAL] — works for now but won't scale / needs revisit
+  [ASSUMPTION] — assumed X is true; if wrong, Y breaks
+  [FUTURE] — deferred X because Y; revisit when Z
+  [UPDATE] — changed prior decision from X to Y because Z
+Skip for trivial/mechanical changes.
 Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed) or TASK_STATUS:revert (if reverted)
+```
+
+**Integration Task** (`Agent(model="opus")`):
+```
+--- START ---
+{task_id} [INTEGRATION]: Verify contracts between {spec_a} ↔ {spec_b}
+Integration ACs: {list from PLAN.md}
+--- MIDDLE ---
+Specs involved: {spec file paths}
+Interface Map: {from integration task detail}
+Contract Risks: {from integration task detail}
+--- END ---
+RULES:
+- Fix the CONSUMER to match the PRODUCER's declared interface. Never weaken the producer.
+- Each fix must reference the specific contract being repaired.
+- If a migration conflict exists, make ALL migrations idempotent (IF NOT EXISTS, IF NOT COLUMN, etc.)
+- Do NOT create new variables or intermediate adapters to paper over mismatches. Fix the actual call site.
+- Do NOT modify acceptance criteria or spec definitions.
+- Commit as fix({spec}): {contract description}. One commit per contract fix.
+DECISIONS: Report each contract fix as: [TAG] {what was mismatched} — {which side changed and why}. Use [APPROACH] for definitive fixes, [PROVISIONAL] if the fix is a workaround, [UPDATE] if changing a prior decision.
+Last line: TASK_STATUS:pass or TASK_STATUS:fail
 ```
 
 **Bootstrap:** `BOOTSTRAP: Write tests for edit_scope files. Do NOT change implementation. Commit as test({spec}): bootstrap. Last line: TASK_STATUS:pass or TASK_STATUS:fail`
 
-**Spike:** `{task_id} [SPIKE]: {hypothesis}. Files+Spec. {reverted warnings}. Minimal spike. Commit as spike({spec}): {desc}. Last line: TASK_STATUS:pass or TASK_STATUS:fail`
+**Spike:** `{task_id} [SPIKE]: {hypothesis}. Files+Spec. {reverted warnings}. Minimal spike. Commit as spike({spec}): {desc}. If you discovered constraints, rejected approaches, or made assumptions, report: DECISIONS: [TAG] {finding} — {why it matters} (use PROVISIONAL for "works but needs revisit", ASSUMPTION for "assumed X; if wrong Y breaks", APPROACH for definitive choices). Last line: TASK_STATUS:pass or TASK_STATUS:fail`
 
 **Optimize Task** (`Agent(model="opus")`):
 ```
@@ -399,6 +441,7 @@ Reverted task: `TaskUpdate(status: "pending")`, dependents stay blocked. Repeate
 
 | Rule | Detail |
 |------|--------|
+| Integration tasks run last | [INTEGRATION] tasks execute after all blocked-by tasks complete. Fix tasks from integration failures are prescriptive (name the contract, producer, consumer, and which side to change). Never weaken the producer's declared interface — prefer fixing the consumer. |
 | Zero tests → bootstrap first | Sole task when snapshot empty |
 | 1 task = 1 agent = 1 commit | `atomic-commits` skill |
 | 1 file = 1 writer | Sequential on conflict |

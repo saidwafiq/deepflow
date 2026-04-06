@@ -24,6 +24,21 @@
 <!-- Optional. List specs that must be completed before this one. -->
 <!-- - depends_on: doing-other-spec-name -->
 
+## Interfaces
+
+<!-- Optional but RECOMMENDED for multi-spec projects. Declare what this spec produces and consumes.
+     /df:plan uses these to auto-generate integration tasks when specs share contracts. -->
+
+<!-- ### Produces
+- `POST /api/v1/auth/login` → `{ access_token: string, refresh_token: string }`
+- `table: operators` columns: `id, api_key_hash, scopes`
+- `type: SessionState` from `packages/shared/types.ts` -->
+
+<!-- ### Consumes
+- `POST /api/v1/auth/login` from done-auth-spec (expects `{ access_token }`)
+- `table: operators` expects column `api_key_hash`
+- `type: SessionState` from packages/shared -->
+
 ## Out of Scope
 
 - [Explicitly excluded: e.g., "Video upload is NOT included"]

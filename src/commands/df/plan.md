@@ -286,6 +286,96 @@ Continue processing remaining specs regardless of individual failures. Only succ
 
 **Flow after fan-out:** The consolidator (§5B) reads mini-plans from `.deepflow/plans/` for consolidation (global renumbering, cross-spec conflict detection, prioritization). §5 handles both the single-spec monolithic path and the multi-spec consolidation path.
 
+### 4.8. INTEGRATION TASK DETECTION (MULTI-SPEC)
+
+**When:** >1 plannable spec found in §1. Skip for single-spec plans.
+
+**Purpose:** Specs implemented in isolation often break at integration boundaries — mismatched API contracts, conflicting migrations, incompatible types. This step detects shared interfaces and auto-generates integration tasks to catch these gaps before they cascade into uncontrolled fix spirals.
+
+#### 4.8.1. Detect Shared Interfaces
+
+After §4.7.3 collects mini-plans, spawn a single `Task(subagent_type="default", model="sonnet")` to scan all plannable specs for interface overlap:
+
+```
+You are an integration analyst. Detect shared interfaces across specs AND the existing codebase.
+
+## Spec files (being planned now)
+{list all plannable spec file paths}
+
+## Completed spec files (already implemented)
+{list all specs/done-*.md file paths, or "(none)" if empty}
+
+## Instructions
+
+1. Read each plannable spec file
+2. Read each done-* spec file (for their declared Interfaces/Produces sections)
+3. **Ground-truth check on done-* specs:** For each interface a done-* spec claims to Produce, verify the ACTUAL implementation in the codebase matches the spec declaration:
+   - API routes: grep for the route handler, read the response struct/type to confirm the actual shape
+   - DB tables: read the latest migration files to confirm actual column names and types
+   - Shared types: read the type definition file to confirm actual fields
+   - If the code DIFFERS from the spec declaration, record the CODE's version as the real contract (the spec may be stale after fix cycles)
+4. Extract interfaces from plannable specs (in priority order):
+   a. Explicit `## Interfaces` section (Produces/Consumes declarations)
+   b. `## Dependencies` section (depends_on references)
+   c. Implicit: API routes mentioned in Requirements/ACs, DB tables/migrations in Technical Notes, shared types/packages in Files
+5. Build an interface map: for each interface, list who produces it, who consumes it, and whether the ground-truth matches the spec declaration
+
+## OUTPUT FORMAT — MANDATORY
+
+### Interface Map
+
+- `{interface}` [{type: api|db|type|package}]
+  - Produces: {spec} — declared: `{shape from spec}` | actual: `{shape from code}`
+  - Consumes: {spec2}, {spec3}
+
+### Stale Contracts (spec ≠ code)
+
+- `{interface}`: {done-spec} declares `{spec_shape}` but code has `{actual_shape}` — {what changed and why it matters}
+
+### Contract Risks
+
+- {risk}: {spec_a} produces `{interface}` but {spec_b} consumes it with different assumptions — {detail}
+
+### Migration Conflicts
+
+- {migration_a} ({spec_a}) and {migration_b} ({spec_b}): {conflict description}
+
+If no shared interfaces found, return:
+### Interface Map
+(none detected — specs are independent)
+```
+
+#### 4.8.2. Generate Integration Tasks
+
+**Skip if:** Interface Map returns "(none detected — specs are independent)".
+
+For each group of specs sharing interfaces, generate ONE integration task appended AFTER all spec tasks in the consolidated plan. Integration tasks are always the last wave.
+
+**Integration task format:**
+```markdown
+- [ ] **T{N}** [INTEGRATION]: Verify {spec_a} ↔ {spec_b} contracts
+  - Files: {files at integration boundaries — API handlers, adapters, shared types, migrations}
+  - Integration ACs:
+    - End-to-end flow: {producer} → {consumer} works with real data
+    - Migration idempotency: all migrations run 001→N twice without error
+    - Contract match: {producer API response shape} matches {consumer expected shape}
+    - Type compatibility: shared types compile across all consuming packages
+  - Model: opus
+  - Effort: high
+  - Blocked by: {all implementation task IDs from both specs}
+```
+
+**Rules:**
+- ONE integration task per interface cluster (group of specs connected by shared interfaces)
+- Integration tasks are ALWAYS blocked by ALL implementation tasks of the connected specs
+- Integration ACs are CONCRETE — derived from the actual interfaces detected, not generic
+- **Stale Contracts from §4.8.1 are HIGH PRIORITY ACs** — if a done-spec declares shape X but code has shape Y, the integration task MUST include an AC verifying that the new spec's consumer uses shape Y (the real one), not shape X (the stale one). Include both shapes in the AC for clarity.
+- Contract Risks from §4.8.1 become specific ACs (e.g., "verify endpoint returns byte-exact JSON" if a risk about serialization was detected)
+- Migration Conflicts from §4.8.1 become idempotency ACs
+- Integration tasks use `opus/high` — they require understanding multiple spec contexts
+
+**Pass integration analysis output to §5B consolidator** (append to Opus prompt as `## Integration Analysis` section).
+
 ### 5. COMPARE & PRIORITIZE
 
 **Two paths** — determined by spec count from §1/§4.7:
@@ -387,7 +477,11 @@ You are the plan prioritizer. The mechanical consolidation (global T-numbering, 
 
 {for each plannable spec: spec filename and its Requirements + Acceptance Criteria sections}
 
-## Your job — THREE things only
+## Integration Analysis (from §4.8)
+
+{paste integration analyst output here — Interface Map, Contract Risks, Migration Conflicts}
+
+## Your job — FOUR things only
 
 ### 1. Cross-Spec Prioritization
 Review the task ordering across specs. If a different spec ordering would reduce blocked tasks or improve parallelism, suggest reordering. Otherwise confirm the current ordering is optimal.
@@ -398,7 +492,14 @@ If reordering is needed, output the recommended spec order. The orchestrator wil
 For each spec, map requirements to DONE/PARTIAL/MISSING/CONFLICT. Flag spec gaps.
 Scan ACs for metric patterns `{metric} {operator} {number}[unit]` — flag matches for §6.5 Optimize tasks, flag ambiguous thresholds ("fast", "small") as spec gaps.
 
-### 3. Model + Effort Classification
+### 3. Integration Task Validation
+Review the Integration Analysis. For each Contract Risk and Migration Conflict:
+- Confirm or refine the generated integration task ACs
+- Add missing ACs if you detect interface assumptions not caught by the analyst (e.g., serialization format, column type mismatches, auth flow dependencies)
+- Remove false positives (interfaces that look shared but are actually independent)
+- If no integration tasks were generated but you detect cross-spec coupling, CREATE integration tasks following the §4.8.2 format
+
+### 4. Model + Effort Classification
 Apply routing matrix to each task:
 
 | Task type | Model | Effort |
@@ -428,6 +529,7 @@ Defaults: sonnet / medium.
 |--------|-------|
 | Specs analyzed | {N} |
 | Tasks created | {N} |
+| Integration tasks | {N} |
 | Ready (no blockers) | {N} |
 | Blocked | {N} |
 
@@ -438,6 +540,10 @@ Defaults: sonnet / medium.
 ## Tasks
 
 {Insert the consolidated tasks from plan-consolidator verbatim, adding ` — model/effort` to each task line per the routing matrix. Do NOT alter T-ids, descriptions, Blocked by, or conflict annotations.}
+
+### integration
+
+{Insert integration tasks from §4.8.2, validated/refined by step 3 above. Each task follows the standard format with [INTEGRATION] marker.}
 
 Example transformation:
   Input:  `- [ ] **T3**: Create pkg/engine/go.mod | Blocked by: T8`

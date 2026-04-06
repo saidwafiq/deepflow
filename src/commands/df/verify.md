@@ -25,7 +25,7 @@ context: fork
 
 When invoked with `--diagnostic`:
 
-- Run **L0-L4 only** (skip L5 entirely, even if frontend detected).
+- Run **L0-L4.5 only** (skip L5 entirely, even if frontend detected).
 - Write results to `.deepflow/results/final-test-{spec}.yaml` under a `diagnostics:` key:
   ```yaml
   diagnostics:
@@ -35,7 +35,8 @@ When invoked with `--diagnostic`:
     L1: pass          # or fail
     L2: pass          # or warn (no tool)
     L4: fail          # or pass
-    summary: "L0 ✓ | L1 ✓ | L2 ⚠ | L3 — | L4 ✗"
+    L4.5: pass        # or fail or skip (no deps)
+    summary: "L0 ✓ | L1 ✓ | L2 ⚠ | L3 — | L4 ✗ | L4.5 ✓"
   ```
 - Prefix all report output with `[DIAGNOSTIC]`.
 - **Skip entirely:** Post-Verification merge (§4), fix task creation, spec rename, decision extraction, PLAN.md cleanup (step 6).
@@ -88,6 +89,40 @@ No tool → pass with warning. When available: stash changes → run coverage on
 **L3: Integration** — Subsumed by L0 + L4. No separate check.
 
 **L4: Tests** — Run AFTER L0 passes. Run even if L1-L2 had issues. Exit 0 → pass. Non-zero → FAIL with last 50 lines + fix task. If `quality.test_retry_on_fail: true`: re-run once; second pass → warn (flaky); second fail → genuine failure.
+
+**L4.5: Cross-Spec Integration** (if integration tasks exist)
+
+**Trigger:** Current spec's PLAN.md section contains `[INTEGRATION]` tasks, OR spec has `depends_on` referencing `done-*` specs.
+
+**Check:** Load dependent specs (`specs/done-*.md` referenced in `depends_on` or connected via integration tasks). For each:
+1. Re-run L0 (build) — already covered by standard L0, skip
+2. Re-run L4 (tests) — already covered by standard L4, skip
+3. **Contract verification (code-first, not spec-first):**
+   - For each `Produces` interface in dependent specs, verify against the ACTUAL CODE, not the spec declaration:
+     - API routes: grep for the handler, read the response struct/type → this is the real contract
+     - DB tables: read the latest migration files → actual column names and types
+     - Shared types: read the type definition → actual fields
+   - If the spec declaration differs from the code, the CODE is the source of truth (specs may be stale after fix cycles)
+   - Then verify that the CURRENT spec's consumers match the code's actual shape
+4. **Stale spec detection** — if a done-* spec's `## Interfaces` section doesn't match the code, emit advisory warning:
+   ```
+   ⚠ Stale interface: done-auth-spec declares POST /login → { access_token, refresh_token }
+     but code returns { token, refresh }. Spec should be updated.
+   ```
+5. **Migration idempotency** — if migrations exist: run `{build_command}` twice (the build already runs migrations in most Go/Node projects). If a dedicated migration command exists in config (`quality.migration_command`), run it twice and verify exit 0 both times.
+
+**Outcome:** Pass if all contracts verified against code. Fail with specific mismatches:
+```
+✗ L4.5: Contract mismatch
+  - done-auth code returns POST /api/v1/auth/login → { token: string }
+    but operator SPA sends { api_key } in body (expected { token })
+  - done-backend code stores rounds.result_json as TEXT
+    but current spec reads it with JSONB operators
+⚠ L4.5: Stale spec (advisory, not blocking)
+  - done-auth-spec declares { access_token } but code returns { token }
+```
+
+Fix task on L4.5 failure: prescriptive — names the exact contract from CODE (not spec), the producer, the consumer, and which side should change (prefer changing consumer to match producer's actual implementation).
 
 **L5: Browser Verification** (if frontend detected)
 
@@ -148,24 +183,26 @@ All L5 outcomes: `✓` pass | `⚠` passed on retry | `✗` both failed (same) |
 
 ### 3. GENERATE REPORT
 
-**Success:** `doing-upload.md: L0 ✓ | L1 ✓ (5/5 files) | L2 ⚠ (no coverage tool) | L3 — (subsumed) | L4 ✓ (12 tests) | L5 ✓ | 0 quality issues`
+**Success:** `doing-upload.md: L0 ✓ | L1 ✓ (5/5 files) | L2 ⚠ (no coverage tool) | L3 — (subsumed) | L4 ✓ (12 tests) | L4.5 ✓ (3 contracts) | L5 ✓ | 0 quality issues`
 
 **Failure:**
 ```
-doing-upload.md: L0 ✓ | L1 ✗ (3/5 files) | L2 ⚠ | L3 — | L4 ✗ (3 failed) | L5 ✗ (2 assertions failed)
+doing-upload.md: L0 ✓ | L1 ✗ (3/5 files) | L2 ⚠ | L3 — | L4 ✗ (3 failed) | L4.5 ✗ (1 mismatch) | L5 ✗ (2 assertions failed)
 
 Issues:
   ✗ L1: Missing files: src/api/upload.ts, src/services/storage.ts
   ✗ L4: 3 test failures
     FAIL src/upload.test.ts > should validate file type
+  ✗ L4.5: Contract mismatch — done-auth produces { access_token } but operator sends { api_key }
 
 Fix tasks added to PLAN.md:
   T10: Implement missing upload endpoint and storage service
+  T11: Fix operator login to send access_token per auth spec contract
 
 Run /df:execute --continue to fix in the same worktree.
 ```
 
-**Gate conditions (ALL must pass to merge):** L0 build (or no command) | L1 all files in diff | L2 coverage held (or no tool) | L4 tests pass (or no command) | L5 assertions pass (or no frontend/assertions).
+**Gate conditions (ALL must pass to merge):** L0 build (or no command) | L1 all files in diff | L2 coverage held (or no tool) | L4 tests pass (or no command) | L4.5 contracts match (or no dependencies/integration tasks) | L5 assertions pass (or no frontend/assertions).
 
 **All pass →** Post-Verification merge. **Issues found →** Add fix tasks to worktree PLAN.md (IDs continue from last), register via TaskCreate/TaskUpdate, output report + "Run /df:execute --continue". Do NOT create new specs, worktrees, or merge with issues pending.
 
@@ -194,7 +231,7 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
 3. **Cleanup:** `git worktree remove --force ${PATH} && git branch -d ${BRANCH} && rm -f .deepflow/checkpoint.json`
 4. **Rename spec:** `mv specs/doing-${NAME}.md specs/done-${NAME}.md`
 5. **Cleanup stale plans:** `rm -f .deepflow/plans/doing-${NAME}.md`
-6. **Extract decisions:** Read done spec, extract `[APPROACH]`/`[ASSUMPTION]`/`[PROVISIONAL]` decisions, append to `.deepflow/decisions.md` as `### {date} — {spec}\n- [TAG] decision — rationale`. Delete done spec after successful write; preserve on failure.
+6. **Extract decisions (additive):** Read done spec, extract `[APPROACH]`/`[ASSUMPTION]`/`[PROVISIONAL]`/`[FUTURE]`/`[UPDATE]` decisions, append to `.deepflow/decisions.md` under `### {date} — {spec}` header. If the header already exists (decisions were captured incrementally during execution via §5.5.1), append only NEW decisions not already present (deduplicate by comparing decision text). Delete done spec after successful write; preserve on failure.
 7. **Clean PLAN.md:** Find the `### {spec-name}` section (match on name stem, strip `doing-`/`done-` prefix). Delete from header through the line before the next `### ` header (or EOF). Recalculate Summary table (recount `### ` headers for spec count, `- [ ]`/`- [x]` for task counts). If no spec sections remain, delete PLAN.md entirely. Skip silently if PLAN.md missing or section already gone.
 
 Output: `✓ Merged → main | ✓ Cleaned worktree | ✓ Spec → done | ✓ Decisions extracted | ✓ Cleaned PLAN.md | Workflow complete! Ready: /df:spec <name>`

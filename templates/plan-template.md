@@ -45,6 +45,17 @@ When no experiments exist to validate an approach, start with a minimal validati
 
 Spike tasks are 1-2 tasks to validate an approach before committing to full implementation.
 
+### integration
+
+Auto-generated when multiple specs share interfaces (APIs, DB tables, types).
+
+- [ ] **T5** [INTEGRATION]: Verify auth ↔ operator contracts — opus/high | Blocked by: T2, T4
+  - Files: internal/auth/login.go, apps/operator/src/auth/AuthProvider.tsx
+  - Integration ACs:
+    - End-to-end: operator login → token → player bootstrap works
+    - Contract: POST /api/v1/auth/login response matches operator SPA expectations
+    - Migrations: 001→005 run twice without error (idempotent)
+
 ---
 
 <!--
