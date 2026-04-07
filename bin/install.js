@@ -161,7 +161,7 @@ async function main() {
   // Copy bin utilities (plan-consolidator, wave-runner, ratchet)
   const binDest = path.join(CLAUDE_DIR, 'bin');
   fs.mkdirSync(binDest, { recursive: true });
-  for (const script of ['plan-consolidator.js', 'wave-runner.js', 'ratchet.js']) {
+  for (const script of ['plan-consolidator.js', 'wave-runner.js', 'ratchet.js', 'worktree-deps.js']) {
     const src = path.join(PACKAGE_DIR, 'bin', script);
     if (fs.existsSync(src)) {
       fs.copyFileSync(src, path.join(binDest, script));
@@ -228,7 +228,7 @@ async function main() {
   console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:auto, /df:update');
   console.log('  skills/          — gap-discovery, atomic-commits, code-completeness, browse-fetch, browse-verify, auto-cycle');
   console.log('  agents/          — reasoner (/df:auto — autonomous execution via /loop)');
-  console.log('  bin/             — plan-consolidator, wave-runner, ratchet');
+  console.log('  bin/             — plan-consolidator, wave-runner, ratchet, worktree-deps');
   console.log('  templates/       — explore-protocol (auto-injected into Explore agents via hook)');
   if (level === 'global') {
     console.log('  hooks/           — statusline, update checker, invariant checker, worktree guard, explore protocol');
@@ -631,6 +631,7 @@ async function uninstall() {
     'bin/plan-consolidator.js',
     'bin/wave-runner.js',
     'bin/ratchet.js',
+    'bin/worktree-deps.js',
     'templates'
   ];
 

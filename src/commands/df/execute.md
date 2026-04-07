@@ -44,6 +44,14 @@ Shell: `` !`cat .deepflow/checkpoint.json 2>/dev/null || echo 'NOT_FOUND'` `` / 
 
 Require clean HEAD. Derive SPEC_NAME from `specs/doing-*.md`. Create `.deepflow/worktrees/{spec}` on branch `df/{spec}`. Reuse if exists; `--fresh` deletes first. If `worktree.sparse_paths` non-empty: `git worktree add --no-checkout`, `sparse-checkout set {paths}`, checkout.
 
+### 1.5.1. SYMLINK DEPENDENCIES
+
+After worktree creation, symlink `node_modules` from the main repo so TypeScript/LSP/build can resolve dependencies without a full install:
+```bash
+node "${HOME}/.claude/bin/worktree-deps.js" --source "$(git rev-parse --show-toplevel)" --worktree "${WORKTREE_PATH}"
+```
+The script finds `node_modules` at root and inside monorepo directories (`packages/`, `apps/`, etc.) and creates symlinks in the worktree. Outputs JSON: `{"linked": N, "total": M}`. Errors are non-fatal — log and continue.
+
 ### 1.6. RATCHET SNAPSHOT
 
 Snapshot pre-existing test files — only these count for ratchet (agent-created excluded):
