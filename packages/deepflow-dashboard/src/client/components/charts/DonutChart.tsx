@@ -39,11 +39,13 @@ export function DonutChart({ data, colors, tooltipFormatter, height = 260 }: Don
         </Pie>
         <Tooltip
           contentStyle={{
-            background: 'var(--bg-secondary)',
+            background: 'var(--bg-card)',
             border: '1px solid var(--border)',
             borderRadius: 8,
             color: 'var(--text)',
             fontSize: 12,
+            boxShadow: '0px 8px 13px -3px rgba(0, 0, 0, 0.07)',
+            padding: '8px 12px',
           }}
           formatter={(value: number, name: string) => [
             tooltipFormatter ? tooltipFormatter(value) : value,

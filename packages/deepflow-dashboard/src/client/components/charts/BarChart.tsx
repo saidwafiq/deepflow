@@ -58,18 +58,20 @@ export function BarChart({
         />
         <Tooltip
           contentStyle={{
-            background: 'var(--bg-secondary)',
+            background: 'var(--bg-card)',
             border: '1px solid var(--border)',
             borderRadius: 8,
             color: 'var(--text)',
             fontSize: 12,
+            boxShadow: '0px 8px 13px -3px rgba(0, 0, 0, 0.07)',
+            padding: '8px 12px',
           }}
           formatter={tooltipFormatter as ((...args: unknown[]) => unknown) | undefined}
           cursor={{ fill: 'var(--border)', opacity: 0.3 }}
         />
-        <Bar dataKey={valueKey} radius={[0, 4, 4, 0]}>
+        <Bar dataKey={valueKey} radius={[0, 6, 6, 0]} barSize={20}>
           {data.map((_, i) => (
-            <Cell key={i} fill={color} fillOpacity={0.85} />
+            <Cell key={i} fill={color} fillOpacity={1} />
           ))}
         </Bar>
       </RechartsBarChart>

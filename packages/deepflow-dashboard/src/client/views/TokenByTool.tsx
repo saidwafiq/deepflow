@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { BarChart } from '../components/charts/BarChart';
 import { ChartCard } from '../components/ChartCard';
+import { DataTable, tableHeaderClass, tableHeaderCellClass, tableCellClass, tableRowClass } from '../components/DataTable';
 import { useApi } from '../hooks/useApi';
 import { usePolling } from '../hooks/usePolling';
 import { DashboardContext } from '../context/DashboardContext';
@@ -117,48 +118,33 @@ export function TokenByTool() {
 
       {/* Sortable table */}
       {sorted.length > 0 && (
-        <div className="rounded-xl overflow-hidden border border-[var(--border)]">
-          <table className="w-full text-sm">
-            <thead className="bg-[var(--bg-secondary)]">
-              <tr>
-                {headers.map(({ key, label }) => (
-                  <th
-                    key={key}
-                    className="px-4 py-2 text-left font-medium cursor-pointer select-none text-[var(--text-secondary)] border-b border-[var(--border)]"
-                    onClick={() => handleSort(key)}
-                  >
-                    {label}
-                    <Arrow active={sortKey === key} dir={sortDir} />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((t, i) => (
-                <tr
-                  key={t.tool_name}
-                  className={i % 2 === 0 ? 'bg-[var(--bg)]' : 'bg-[var(--bg-secondary)]'}
+        <DataTable>
+          <thead className={tableHeaderClass}>
+            <tr>
+              {headers.map(({ key, label }) => (
+                <th
+                  key={key}
+                  className={tableHeaderCellClass + ' cursor-pointer select-none'}
+                  onClick={() => handleSort(key)}
                 >
-                  <td className="px-4 py-2 font-mono text-xs text-[var(--text)]">
-                    {t.tool_name}
-                  </td>
-                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">
-                    {t.call_count.toLocaleString()}
-                  </td>
-                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">
-                    {fmtTokens(t.total_tokens)}
-                  </td>
-                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">
-                    {fmtTokens(t.avg_tokens)}
-                  </td>
-                  <td className="px-4 py-2 tabular-nums text-[var(--text)]">
-                    {t.pct_of_total.toFixed(1)}%
-                  </td>
-                </tr>
+                  {label}
+                  <Arrow active={sortKey === key} dir={sortDir} />
+                </th>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((t) => (
+              <tr key={t.tool_name} className={tableRowClass}>
+                <td className={tableCellClass + ' font-mono text-xs'}>{t.tool_name}</td>
+                <td className={tableCellClass}>{t.call_count.toLocaleString()}</td>
+                <td className={tableCellClass}>{fmtTokens(t.total_tokens)}</td>
+                <td className={tableCellClass}>{fmtTokens(t.avg_tokens)}</td>
+                <td className={tableCellClass}>{t.pct_of_total.toFixed(1)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
       )}
     </div>
   );

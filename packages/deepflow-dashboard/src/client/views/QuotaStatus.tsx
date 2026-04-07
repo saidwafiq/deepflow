@@ -74,12 +74,11 @@ function InlineBar({ label, pct, color }: InlineBarProps) {
         {label}
       </span>
       <div
-        className="relative rounded-sm overflow-hidden shrink-0"
+        className="relative rounded-full overflow-hidden shrink-0"
         style={{
           width: 64,
-          height: 8,
-          background: 'rgba(255,255,255,0.08)',
-          border: '1px solid rgba(255,255,255,0.08)',
+          height: 6,
+          background: 'var(--bg)',
         }}
       >
         <div

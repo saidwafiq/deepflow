@@ -41,8 +41,9 @@ cacheRouter.get('/', (c) => {
             SUM(tokens_in)                                     AS input_tokens,
             SUM(cache_read)                                    AS cache_read_tokens,
             SUM(cache_creation)                                AS cache_creation_tokens,
-            AVG(CASE WHEN cache_hit_ratio IS NOT NULL
-                     THEN cache_hit_ratio END)                 AS hit_ratio
+            CASE WHEN SUM(cache_read) + SUM(cache_creation) > 0
+                 THEN ROUND(SUM(cache_read) * 100.0 / (SUM(cache_read) + SUM(cache_creation)), 2)
+                 ELSE NULL END                                 AS hit_ratio
      FROM sessions
      WHERE started_at >= datetime('now', ? || ' days')
      ${userFilter}

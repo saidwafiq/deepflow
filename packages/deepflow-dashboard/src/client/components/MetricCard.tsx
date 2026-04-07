@@ -47,7 +47,7 @@ export function MetricCard({ label, value, sub, trend, icon, sparkData }: Metric
       {/* Top row: icon left, trend badge right */}
       <div className="flex justify-between items-start">
         {icon ? (
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--accent)]/10">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'color-mix(in srgb, var(--accent) 15%, transparent)' }}>
             {icon}
           </div>
         ) : (

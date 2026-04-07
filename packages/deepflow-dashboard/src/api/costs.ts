@@ -47,15 +47,15 @@ costsRouter.get('/', async (c) => {
     [`-${days}`, ...userParam] as import('sql.js').SqlValue[]
   );
 
-  // Per-project breakdown
-  const projectBreakdown = all(
+  // Per-project breakdown (raw — normalized and re-aggregated below)
+  const projectRaw = all(
     `SELECT COALESCE(s.project, '(no project)') AS project,
-            SUM(s.cost)        AS cost,
-            SUM(s.tokens_in)        AS tokens_in,
-            SUM(s.tokens_out)       AS tokens_out,
-            SUM(s.cache_read)       AS cache_read_tokens,
-            SUM(s.cache_creation)   AS cache_creation_tokens,
-            COUNT(*)                AS sessions
+            SUM(s.cost)                         AS cost,
+            SUM(s.tokens_in)                    AS tokens_in,
+            SUM(s.tokens_out)                   AS tokens_out,
+            SUM(s.cache_read)                   AS cache_read_tokens,
+            SUM(s.cache_creation)               AS cache_creation_tokens,
+            COUNT(*)                            AS sessions
      FROM sessions s
      WHERE s.started_at >= datetime('now', ? || ' days')
      ${JUNK_MODELS}
@@ -64,6 +64,32 @@ costsRouter.get('/', async (c) => {
      ORDER BY cost DESC`,
     [`-${days}`, ...userParam] as import('sql.js').SqlValue[]
   );
+
+  /** Strip worktree suffixes " (branch)" and monorepo "-packages-*" */
+  function normalizeProject(name: string): string {
+    return name
+      .replace(/\s+\(.*\)$/, '')   // "proj (worktree)" → "proj"
+      .replace(/-packages-.+$/, '') // "proj-packages-sub" → "proj"
+      .trim() || '(no project)';
+  }
+
+  type ProjectRow = { project: string; cost: number; tokens_in: number; tokens_out: number; cache_read_tokens: number; cache_creation_tokens: number; sessions: number };
+  const projectMap = new Map<string, ProjectRow>();
+  for (const row of projectRaw as ProjectRow[]) {
+    const key = normalizeProject(row.project);
+    const existing = projectMap.get(key);
+    if (existing) {
+      existing.cost += row.cost;
+      existing.tokens_in += row.tokens_in;
+      existing.tokens_out += row.tokens_out;
+      existing.cache_read_tokens += row.cache_read_tokens;
+      existing.cache_creation_tokens += row.cache_creation_tokens;
+      existing.sessions += row.sessions;
+    } else {
+      projectMap.set(key, { ...row, project: key });
+    }
+  }
+  const projectBreakdown = [...projectMap.values()].sort((a, b) => b.cost - a.cost);
 
   // Per-agent-role breakdown
   const byAgentRole = all(

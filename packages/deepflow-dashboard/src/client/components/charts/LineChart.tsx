@@ -58,11 +58,13 @@ export function LineChart({
         />
         <Tooltip
           contentStyle={{
-            background: 'var(--bg-secondary)',
+            background: 'var(--bg-card)',
             border: '1px solid var(--border)',
             borderRadius: 8,
             color: 'var(--text)',
             fontSize: 12,
+            boxShadow: '0px 8px 13px -3px rgba(0, 0, 0, 0.07)',
+            padding: '8px 12px',
           }}
           formatter={tooltipFormatter as (value: number, name: string) => [string, string]}
         />
@@ -84,7 +86,7 @@ export function LineChart({
             stroke={l.color}
             strokeWidth={2}
             dot={false}
-            activeDot={{ r: 4 }}
+            activeDot={{ r: 5, strokeWidth: 2, stroke: 'var(--bg-card)', fill: l.color }}
             connectNulls={false}
           />
         ))}
