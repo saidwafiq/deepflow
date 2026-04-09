@@ -1,0 +1,86 @@
+{
+  "timestamp": "2026-04-09T04:23:33.649Z",
+  "repo_root": "/Users/saidsalles/apps/agentSkills/deepflow",
+  "target_file": "/Users/saidsalles/apps/agentSkills/deepflow/hooks/df-explore-protocol.js",
+  "timeout_budget_ms": 15000,
+  "tests": [
+    {
+      "name": "basic_spawn",
+      "passed": true,
+      "durationMs": 3722,
+      "exitCode": 0,
+      "timedOut": false,
+      "output_snippet": "SPAWN_OK\\n"
+    },
+    {
+      "name": "documentSymbol",
+      "passed": true,
+      "durationMs": 7109,
+      "exitCode": 0,
+      "timedOut": false,
+      "raw_output": "```json\n[\n  {\"name\": \"findProtocol\", \"kind\": \"Function\", \"line\": 27},\n  {\"name\": \"candidates\", \"kind\": \"Constant\", \"line\": 28},\n  {\"name\": \"p\", \"kind\": \"Constant\", \"line\": 32},\n  {\"name\": \"fs\", \"kind\": \"Constant\", \"line\": 18},\n  {\"name\": \"os\", \"kind\": \"Constant\", \"line\": 20},\n  {\"name\": \"path\", \"kind\": \"Constant\", \"line\": 19},\n  {\"name\": \"readStdinIfMain\", \"kind\": \"Constant\", \"line\": 21},\n  {\"name\": \"readStdinIfMain() callback\", \"kind\": \"Function\", \"line\": 38},\n  {\"name\": \"cwd\", \"kind\": \"Constan",
+      "within_budget": true,
+      "symbols_found": 23,
+      "sample_symbols": [
+        {
+          "name": "findProtocol",
+          "kind": "Function",
+          "line": 27
+        },
+        {
+          "name": "candidates",
+          "kind": "Constant",
+          "line": 28
+        },
+        {
+          "name": "p",
+          "kind": "Constant",
+          "line": 32
+        }
+      ],
+      "format": "json_array"
+    },
+    {
+      "name": "findReferences",
+      "passed": true,
+      "durationMs": 14344,
+      "exitCode": 0,
+      "timedOut": false,
+      "raw_output": "```json\n[\n  {\n    \"filepath\": \"hooks/df-explore-protocol.js\",\n    \"line\": 27,\n    \"snippet\": \"function findProtocol(cwd) {\"\n  },\n  {\n    \"filepath\": \"hooks/df-explore-protocol.js\",\n    \"line\": 50,\n    \"snippet\": \"  const protocolPath = findProtocol(cwd || process.cwd());\"\n  }\n]\n```\n",
+      "within_budget": true,
+      "refs_found": 2,
+      "sample_refs": [
+        {
+          "filepath": "hooks/df-explore-protocol.js",
+          "line": 27,
+          "snippet": "function findProtocol(cwd) {"
+        },
+        {
+          "filepath": "hooks/df-explore-protocol.js",
+          "line": 50,
+          "snippet": "  const protocolPath = findProtocol(cwd || process.cwd());"
+        }
+      ],
+      "format": "json_array"
+    },
+    {
+      "name": "bare_mode_latency",
+      "passed": true,
+      "durationMs": 828,
+      "within_budget": true,
+      "exitCode": 1,
+      "timedOut": false,
+      "gotcha": "--bare requires ANTHROPIC_API_KEY; OAuth sessions cannot use --bare",
+      "note": "Phase 1 subprocess MUST NOT use --bare; normal --print (OAuth) is required"
+    }
+  ],
+  "summary": {
+    "all_tests_passed": true,
+    "max_latency_ms": 14344,
+    "all_within_15s_budget": true,
+    "lsp_available_in_print_mode": true,
+    "output_format": "json_array",
+    "spawn_works": true,
+    "recommendation": "Subprocess fits 15s budget (max=14.3s). Phase 1 is viable."
+  }
+}
