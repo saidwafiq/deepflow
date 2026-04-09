@@ -197,6 +197,26 @@ readStdinIfMain(module, (payload) => {
       },
     };
 
+    // --- AC-4: Metrics logging (fail-open) ---
+    // Log tool-call count and phase 1 hit rate to explore-metrics.jsonl.
+    // Wraps in try/catch so metrics failures never block hook execution.
+    try {
+      const metricsDir = path.join(effectiveCwd, '.deepflow');
+      const metricsPath = path.join(metricsDir, 'explore-metrics.jsonl');
+      if (!fs.existsSync(metricsDir)) {
+        fs.mkdirSync(metricsDir, { recursive: true });
+      }
+      const metricsEntry = {
+        timestamp: new Date().toISOString(),
+        query: originalPrompt,
+        phase1_hit: phase1Hit,
+        tool_calls: 0, // Placeholder; will be updated by post-run analysis
+      };
+      fs.appendFileSync(metricsPath, JSON.stringify(metricsEntry) + '\n', 'utf8');
+    } catch (_) {
+      // Metrics logging failure is silent — never blocks execution (REQ-8).
+    }
+
     process.stdout.write(JSON.stringify(result));
   } catch (_) {
     // AC-10: catch ALL errors — malformed JSON, missing tool_input, filesystem errors, etc.
