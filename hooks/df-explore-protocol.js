@@ -121,72 +121,85 @@ function findProtocol(cwd) {
 }
 
 readStdinIfMain(module, (payload) => {
-  const { tool_name, tool_input, cwd } = payload;
+  try {
+    const { tool_name, tool_input, cwd } = payload;
 
-  // Only intercept Agent calls with subagent_type "Explore"
-  if (tool_name !== 'Agent') {
-    return;
-  }
-  const subagentType = (tool_input.subagent_type || '').toLowerCase();
-  if (subagentType !== 'explore') {
-    return;
-  }
+    // Only intercept Agent calls with subagent_type "Explore"
+    if (tool_name !== 'Agent') {
+      return;
+    }
+    const subagentType = (tool_input.subagent_type || '').toLowerCase();
+    if (subagentType !== 'explore') {
+      return;
+    }
 
-  const effectiveCwd = cwd || process.cwd();
+    const effectiveCwd = cwd || process.cwd();
 
-  // --- Deduplication guard (AC-8) ---
-  // If the prompt already carries injected markers, skip re-injection entirely.
-  const existingPrompt = tool_input.prompt || '';
-  if (
-    existingPrompt.includes('Search Protocol (auto-injected') ||
-    existingPrompt.includes('LSP Phase')
-  ) {
-    return;
-  }
+    // --- Deduplication guard (AC-8) ---
+    // If the prompt already carries injected markers, skip re-injection entirely.
+    const existingPrompt = tool_input.prompt || '';
+    if (
+      existingPrompt.includes('Search Protocol (auto-injected') ||
+      existingPrompt.includes('LSP Phase')
+    ) {
+      return;
+    }
 
-  const protocolPath = findProtocol(effectiveCwd);
-  if (!protocolPath) {
-    // No template found — allow without modification
-    return;
-  }
+    const protocolPath = findProtocol(effectiveCwd);
+    const originalPrompt = existingPrompt;
 
-  const protocol = fs.readFileSync(protocolPath, 'utf8').trim();
-  const originalPrompt = existingPrompt;
+    // --- Phase 1: LSP symbol pre-fetch (AC-1, AC-7, AC-9) ---
+    const timeoutMs = readLspTimeout(effectiveCwd, 15000);
+    const { symbols, hit: phase1Hit } = runPhase1(originalPrompt, effectiveCwd, timeoutMs);
 
-  // --- Phase 1: LSP symbol pre-fetch (AC-1, AC-7, AC-9) ---
-  const timeoutMs = readLspTimeout(effectiveCwd, 15000);
-  const { symbols, hit: phase1Hit } = runPhase1(originalPrompt, effectiveCwd, timeoutMs);
+    let updatedPrompt;
 
-  // Build Phase 1 context block for Phase 2 consumption (AC-2, AC-3)
-  let phase1Block = '';
-  if (phase1Hit) {
-    // Format each symbol as `filepath:line -- symbolName (symbolKind)`
-    const locationLines = symbols
-      .map((s) => `${s.filepath}:${s.line} -- ${s.name} (${s.kind})`)
-      .join('\n');
-    phase1Block =
-      '\n\n---\n## [LSP Phase -- locations found]\n\n' +
-      locationLines +
-      '\n\nRead ONLY these ranges. Do not use Grep, Glob, or Bash.';
-  } else {
-    // Signal to Phase 2 that LSP pre-fetch failed — fallback to full search
-    phase1Block = '\n\n<!-- phase1_hit: false -->';
-  }
+    if (phase1Hit) {
+      // Phase 1 succeeded — inject LSP locations + protocol (requires template)
+      if (!protocolPath) {
+        // No template found and Phase 1 succeeded — allow without modification
+        return;
+      }
+      const protocol = fs.readFileSync(protocolPath, 'utf8').trim();
 
-  // Append protocol as a system-level suffix the agent must follow
-  const updatedPrompt =
-    `${originalPrompt}${phase1Block}\n\n---\n## Search Protocol (auto-injected — MUST follow)\n\n${protocol}`;
+      // Format each symbol as `filepath:line -- symbolName (symbolKind)`
+      const locationLines = symbols
+        .map((s) => `${s.filepath}:${s.line} -- ${s.name} (${s.kind})`)
+        .join('\n');
+      const phase1Block =
+        '\n\n---\n## [LSP Phase -- locations found]\n\n' +
+        locationLines +
+        '\n\nRead ONLY these ranges. Do not use Grep, Glob, or Bash.';
 
-  const result = {
-    hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      permissionDecision: 'allow',
-      updatedInput: {
-        ...tool_input,
-        prompt: updatedPrompt,
+      updatedPrompt =
+        `${originalPrompt}${phase1Block}\n\n---\n## Search Protocol (auto-injected — MUST follow)\n\n${protocol}`;
+    } else {
+      // Phase 1 failed/timed out/empty — fall back to static template injection (AC-5)
+      if (!protocolPath) {
+        // AC-6: no template and subprocess failed — exit silently with no modification
+        return;
+      }
+      const protocol = fs.readFileSync(protocolPath, 'utf8').trim();
+
+      // Inject static template only, with auto-injected marker so dedup guard fires next time
+      updatedPrompt =
+        `${originalPrompt}\n\n---\n## Search Protocol (auto-injected — MUST follow)\n\n${protocol}`;
+    }
+
+    const result = {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'allow',
+        updatedInput: {
+          ...tool_input,
+          prompt: updatedPrompt,
+        },
       },
-    },
-  };
+    };
 
-  process.stdout.write(JSON.stringify(result));
+    process.stdout.write(JSON.stringify(result));
+  } catch (_) {
+    // AC-10: catch ALL errors — malformed JSON, missing tool_input, filesystem errors, etc.
+    // Always exit 0; never block tool execution (REQ-8).
+  }
 });

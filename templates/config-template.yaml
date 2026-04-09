@@ -38,6 +38,7 @@ models:
 
 explore:
   max_tokens: 500      # Controls Explore agent response length
+  explore_lsp_timeout_ms: 15000  # Timeout (ms) for the Phase 1 LSP subprocess; on timeout the static template is injected as fallback
 
 commits:
   format: "feat({spec}): {description}"
