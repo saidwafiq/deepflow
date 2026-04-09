@@ -177,7 +177,7 @@ describe('Test Hang Fix - Integration Tests', () => {
         return;
       }
       try {
-        execSync(`node ${lintPath}`, {
+        execFileSync(process.execPath, [lintPath], {
           cwd: ROOT,
           encoding: 'utf8',
           timeout: 5000,
