@@ -118,9 +118,11 @@ describe('Security Hardening — AC-8: no execSync in any hook file', () => {
 describe('Security Hardening — AC-9: quota-logger does not throw at import time', () => {
   test('node -e "require(\'./hooks/df-quota-logger.js\')" succeeds', () => {
     // Use execFileSync to run node with require — any throw will cause a non-zero exit
+    const quotaLoggerPath = path.join(ROOT, 'hooks', 'df-quota-logger.js');
+    const evalScript = `require(${JSON.stringify(quotaLoggerPath)});`;
     const result = execFileSync(
       process.execPath,
-      ['-e', `require('${path.join(ROOT, 'hooks', 'df-quota-logger.js').replace(/'/g, "\\'")}');`],
+      ['-e', evalScript],
       { encoding: 'utf8', timeout: 10000, env: { ...process.env, NODE_ENV: 'test' } }
     );
     // If we get here, the require succeeded without throwing
