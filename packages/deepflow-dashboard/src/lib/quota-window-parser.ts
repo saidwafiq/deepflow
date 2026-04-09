@@ -205,9 +205,13 @@ export async function* parseQuotaWindows(
         let utilization = 0;
 
         if (isEnabled) {
-          usedCredits = typeof obj.used_credits === 'number' ? obj.used_credits : 0;
-          monthlyLimit = typeof obj.monthly_limit === 'number' ? obj.monthly_limit : 0;
-          utilization = monthlyLimit > 0 ? usedCredits / monthlyLimit : 0;
+          usedCredits = typeof obj.used_credits === 'number' ? obj.used_credits / 100 : 0;
+          monthlyLimit = typeof obj.monthly_limit === 'number' ? obj.monthly_limit / 100 : 0;
+          if (typeof obj.utilization === 'number') {
+            utilization = obj.utilization;
+          } else {
+            utilization = monthlyLimit > 0 ? (usedCredits / monthlyLimit) * 100 : 0;
+          }
         }
 
         const resetsAt = (obj.resets_at as string | null | undefined) ?? null;
