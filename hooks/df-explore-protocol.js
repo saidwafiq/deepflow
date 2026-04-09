@@ -133,6 +133,17 @@ readStdinIfMain(module, (payload) => {
   }
 
   const effectiveCwd = cwd || process.cwd();
+
+  // --- Deduplication guard (AC-8) ---
+  // If the prompt already carries injected markers, skip re-injection entirely.
+  const existingPrompt = tool_input.prompt || '';
+  if (
+    existingPrompt.includes('Search Protocol (auto-injected') ||
+    existingPrompt.includes('LSP Phase')
+  ) {
+    return;
+  }
+
   const protocolPath = findProtocol(effectiveCwd);
   if (!protocolPath) {
     // No template found — allow without modification
@@ -140,20 +151,23 @@ readStdinIfMain(module, (payload) => {
   }
 
   const protocol = fs.readFileSync(protocolPath, 'utf8').trim();
-  const originalPrompt = tool_input.prompt || '';
+  const originalPrompt = existingPrompt;
 
   // --- Phase 1: LSP symbol pre-fetch (AC-1, AC-7, AC-9) ---
   const timeoutMs = readLspTimeout(effectiveCwd, 15000);
   const { symbols, hit: phase1Hit } = runPhase1(originalPrompt, effectiveCwd, timeoutMs);
 
-  // Build Phase 1 context block for Phase 2 consumption
+  // Build Phase 1 context block for Phase 2 consumption (AC-2, AC-3)
   let phase1Block = '';
   if (phase1Hit) {
-    const symbolJson = JSON.stringify(symbols, null, 2);
+    // Format each symbol as `filepath:line -- symbolName (symbolKind)`
+    const locationLines = symbols
+      .map((s) => `${s.filepath}:${s.line} -- ${s.name} (${s.kind})`)
+      .join('\n');
     phase1Block =
-      '\n\n---\n## Phase 1 LSP Results (auto-injected — use as starting points)\n\n' +
-      '```json\n' + symbolJson + '\n```\n' +
-      '\n<!-- phase1_hit: true -->';
+      '\n\n---\n## [LSP Phase -- locations found]\n\n' +
+      locationLines +
+      '\n\nRead ONLY these ranges. Do not use Grep, Glob, or Bash.';
   } else {
     // Signal to Phase 2 that LSP pre-fetch failed — fallback to full search
     phase1Block = '\n\n<!-- phase1_hit: false -->';
