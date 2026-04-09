@@ -206,6 +206,7 @@ describe('AC-3: extra_usage entry produces ExtraUsageWindow with correct fields'
           is_enabled: true,
           used_credits: 50,
           monthly_limit: 100,
+          utilization: 50,
         },
       },
     ]);
@@ -221,25 +222,25 @@ describe('AC-3: extra_usage entry produces ExtraUsageWindow with correct fields'
     assert.equal(extraWindows.length, 1, 'should yield exactly 1 extra_usage window');
   });
 
-  it('usedCredits is 50', async () => {
+  it('usedCredits is 0.5 (raw centavo value 50 divided by 100)', async () => {
     const windows = await collect(parseQuotaWindows(tmpFile));
     const w = windows.find(w => w.type === 'extra_usage') as ExtraUsageWindow;
     assert.ok(w, 'extra_usage window should exist');
-    assert.equal(w.usedCredits, 50, 'usedCredits should be 50');
+    assert.equal(w.usedCredits, 0.5, 'usedCredits should be 0.5 (50 centavos / 100)');
   });
 
-  it('monthlyLimit is 100', async () => {
+  it('monthlyLimit is 1 (raw centavo value 100 divided by 100)', async () => {
     const windows = await collect(parseQuotaWindows(tmpFile));
     const w = windows.find(w => w.type === 'extra_usage') as ExtraUsageWindow;
     assert.ok(w, 'extra_usage window should exist');
-    assert.equal(w.monthlyLimit, 100, 'monthlyLimit should be 100');
+    assert.equal(w.monthlyLimit, 1, 'monthlyLimit should be 1 (100 centavos / 100)');
   });
 
-  it('peakUtilization is used_credits / monthly_limit = 0.5', async () => {
+  it('peakUtilization is obj.utilization directly = 50', async () => {
     const windows = await collect(parseQuotaWindows(tmpFile));
     const w = windows.find(w => w.type === 'extra_usage') as ExtraUsageWindow;
     assert.ok(w, 'extra_usage window should exist');
-    assert.equal(w.peakUtilization, 0.5, 'peakUtilization should be 0.5 (50/100)');
+    assert.equal(w.peakUtilization, 50, 'peakUtilization should be 50 (raw utilization field, 0-100 scale)');
   });
 
   it('isEnabled is true', async () => {
