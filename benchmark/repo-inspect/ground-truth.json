@@ -1,0 +1,11 @@
+{
+  "repo": "huggingface/hf-mount",
+  "purpose_keywords": ["FUSE", "NFS", "HuggingFace"],
+  "language": "Rust",
+  "entry_points": ["src/main.rs"],
+  "key_modules": ["virtual_fs", "nfs", "fuse", "xet", "prefetch"],
+  "dependencies_count": 20,
+  "dependencies_tolerance_pct": 20,
+  "min_files_inspected": 5,
+  "min_concepts_count": 1
+}
