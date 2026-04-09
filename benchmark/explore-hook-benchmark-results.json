@@ -1,0 +1,69 @@
+{
+  "timestamp": "2026-04-09T04:38:48.980Z",
+  "task": "T11-spike",
+  "queries": [
+    {
+      "id": "Q1-function",
+      "prompt": "How does the readLspTimeout function work in the explore hook?",
+      "durationMs": 15793,
+      "exitCode": 0,
+      "phase1Hit": false,
+      "hasOutput": true
+    },
+    {
+      "id": "Q2-file",
+      "prompt": "What does df-explore-protocol.js do and what are its main exports?",
+      "durationMs": 15656,
+      "exitCode": 0,
+      "phase1Hit": false,
+      "hasOutput": true
+    },
+    {
+      "id": "Q3-config",
+      "prompt": "How is config.yaml used for deepflow configuration?",
+      "durationMs": 15764,
+      "exitCode": 0,
+      "phase1Hit": false,
+      "hasOutput": true
+    },
+    {
+      "id": "Q4-architecture",
+      "prompt": "How do hooks work in the deepflow codebase?",
+      "durationMs": 15466,
+      "exitCode": 0,
+      "phase1Hit": false,
+      "hasOutput": true
+    },
+    {
+      "id": "Q5-concept",
+      "prompt": "What is the ratchet pattern and how is it implemented?",
+      "durationMs": 15441,
+      "exitCode": 0,
+      "phase1Hit": false,
+      "hasOutput": true
+    }
+  ],
+  "metrics_entries": 5,
+  "observed_hits": 0,
+  "observed_misses": 5,
+  "hit_rate_pct": 0,
+  "target_hit_rate_pct": 80,
+  "passed": false,
+  "root_cause_analysis": {
+    "finding": "Phase 1 always misses because claude --print has no LSP tools (documentSymbol etc.)",
+    "details": [
+      "Without --model flag, claude --print uses default model which hangs trying to use tools it cannot access, hitting the 15s timeout",
+      "With --model claude-haiku-4-5 and --dangerously-skip-permissions, subprocess completes in ~5s but returns empty JSON array",
+      "LSP tools (documentSymbol, findReferences) are NOT available in --print mode — they require an active IDE session",
+      "The T5 spike showed hallucinated symbol data (model guessed plausible function names), not real LSP results",
+      "Fallback path (static template injection) works correctly for all 5 queries"
+    ],
+    "constraints_discovered": [
+      "CONSTRAINT: claude --print cannot use LSP tools — Phase 1 design requires fundamental rework",
+      "CONSTRAINT: Without --model flag, subprocess hangs (uses heavy model that attempts tool use and stalls)",
+      "CONSTRAINT: Hook must pass --model claude-haiku-4-5 and --dangerously-skip-permissions to avoid hangs",
+      "PROVISIONAL: Phase 1 could use Glob+Grep via --print instead of LSP, or use a different pre-fetch strategy",
+      "PROVISIONAL: Alternative approach — use the hook to inject a smarter Glob/Grep strategy rather than pre-fetched LSP symbols"
+    ]
+  }
+}
