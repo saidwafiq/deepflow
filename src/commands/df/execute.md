@@ -167,7 +167,7 @@ The script handles all health checks internally and outputs structured JSON:
 **Broken-tests policy:** Updating pre-existing tests requires a separate dedicated task in PLAN.md with explicit justification — never inline during execution.
 
 **Orchestrator response by exit code:**
-- **Exit 0 (PASS):** Commit stands. TaskUpdate(status: "completed"), update PLAN.md [x] + commit hash. **Extract decisions** (see §5.5.1).
+- **Exit 0 (PASS):** Commit stands. **AC coverage check** (see §5.5.1). TaskUpdate(status: "completed"), update PLAN.md [x] + commit hash. **Extract decisions** (see §5.5.2).
 - **Exit 1 (FAIL):** Script already reverted. Set `TaskUpdate(status: "pending")`. Recompute remaining waves:
   ```
   WAVE_JSON=!`node "${HOME}/.claude/bin/wave-runner.js" --json --plan PLAN.md --recalc --failed T{N} 2>/dev/null || echo 'WAVE_ERROR'`
@@ -176,7 +176,21 @@ The script handles all health checks internally and outputs structured JSON:
   Report: `"✗ T{n}: reverted"`.
 - **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="sonnet")` to fix lint/typecheck issues. Re-run `node "${HOME}/.claude/bin/ratchet.js"`. If still non-zero → revert both commits, set status pending.
 
-#### 5.5.1. DECISION EXTRACTION (on ratchet pass)
+#### 5.5.1. AC COVERAGE CHECK (after ratchet pass)
+
+After ratchet PASS (exit 0), run AC coverage check to verify agent reported all acceptance criteria:
+```bash
+node "${HOME}/.claude/bin/hooks/ac-coverage.js" --spec {spec_path} --output-file {agent_output_file} --status pass
+```
+
+where `{spec_path}` is the path to `specs/doing-{spec_name}.md` and `{agent_output_file}` is the task agent's full output transcript (from TaskOutput or notification context).
+
+**Exit codes from ac-coverage.js:**
+- **Exit 0:** All ACs covered or no ACs in spec. Status remains PASS. Proceed to decision extraction (§5.5.2).
+- **Exit 2 (SALVAGEABLE):** Missed ACs detected despite agent reporting TASK_STATUS:pass. Script outputs summary: `[ac-coverage] N/M ACs covered — missed: AC-X, AC-Y; ...`. Override final status to SALVAGEABLE. Commit stands. TaskUpdate(status: "completed") with note that ACs are incomplete.
+- **Exit 1 (script error):** Log error, do not change status. Proceed as if ratchet PASS (exit 0 from ac-coverage).
+
+#### 5.5.2. DECISION EXTRACTION (on ratchet pass)
 
 Parse the agent's response for `DECISIONS:` line. If present:
 1. Split by ` | ` to get individual decisions
