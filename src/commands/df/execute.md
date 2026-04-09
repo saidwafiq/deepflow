@@ -351,6 +351,12 @@ spike_results:
   insight: {insight from probe_learnings}
 }
 Success criteria: {ACs from spec relevant to this task}
+{If spec contains ## Domain Model section:
+--- CONTEXT: Domain Model ---
+{Domain Model section content from doing-*.md, extracted via shell injection:
+  DOMAIN_MODEL=!`sed -n '/^## Domain Model$/,/^## [^D]/p' specs/doing-{spec_name}.md | head -n -1 2>/dev/null || echo 'NOT_FOUND'`
+}
+}
 --- MIDDLE (omit for low effort; omit deps for medium) ---
 {TASK_DETAIL if available, else inline block:}
 Impact: Callers: {file} ({why}) | Duplicates: [active→consolidate] [dead→DELETE] | Data flow: {consumers}
