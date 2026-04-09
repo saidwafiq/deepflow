@@ -1,0 +1,18 @@
+**8/8 — perfect score.** All checks pass:
+
+| Check | Result |
+|---|---|
+| Valid JSON output | Pass |
+| Purpose contains "FUSE"/"NFS" + "HuggingFace" | Pass |
+| Language == "Rust" | Pass |
+| Entry points includes "main.rs" | Pass |
+| Key modules count >= 3 | Pass (8 modules) |
+| Dependencies count within ±20% of 20 | Pass (22) |
+| Files inspected count >= 5 | Pass (14 files) |
+| Concepts for deepflow count >= 1 | Pass (5 concepts) |
+
+**Summary of findings:**
+- **hf-mount** is a Rust tool that mounts Hugging Face Hub repos/buckets as local filesystems via FUSE or NFS
+- 20 source files, 22 dependencies, 137 async functions, heavy use of trait-based abstractions
+- Key architecture: `VirtualFs` core with inode table, pluggable FUSE/NFS backends, xet-core for content-addressed storage, adaptive prefetch, and background poll sync
+- Cleanup: `/tmp/hf-mount-inspect` removed successfully

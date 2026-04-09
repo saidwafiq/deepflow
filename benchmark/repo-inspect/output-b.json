@@ -1,0 +1,54 @@
+{
+  "repo": "huggingface/hf-mount",
+  "purpose": "Mount Hugging Face Hub repositories and storage buckets as local filesystems via FUSE or NFS, enabling lazy on-demand access to large ML models and datasets without downloading them.",
+  "language": "Rust",
+  "architecture": {
+    "entry_points": [
+      "src/bin/hf-mount.rs (daemon controller / CLI entrypoint)",
+      "src/bin/hf-mount-nfs.rs (NFS backend binary)",
+      "src/bin/hf-mount-fuse.rs (FUSE backend binary)",
+      "src/bin/hf-mount-fuse-sidecar.rs (FUSE sidecar for containerized deployments)"
+    ],
+    "key_modules": [
+      "src/lib.rs — library root, re-exports core types",
+      "src/fuse.rs — FUSE filesystem implementation (page cache invalidation, per-file metadata revalidation)",
+      "src/nfs.rs — NFS server filesystem implementation (cross-platform, no root required)",
+      "src/hub_api.rs — Hugging Face Hub REST API client for repo/bucket listing and metadata",
+      "src/cached_xet_client.rs — cached wrapper around xet-core for content-addressed data fetching",
+      "src/xet.rs — xet-core integration layer for efficient file transfers",
+      "src/daemon.rs — daemon lifecycle management (start/stop/status)",
+      "src/virtual_fs/ — virtual filesystem abstraction layer translating POSIX ops to Hub API calls",
+      "src/setup.rs — initialization and configuration",
+      "src/error.rs — error types"
+    ],
+    "patterns": [
+      "FUSE (Filesystem in Userspace) — kernel-level file operation interception",
+      "NFS server — userspace NFS for cross-platform compatibility without kernel extensions",
+      "Lazy loading / on-demand fetching — only bytes actually read are fetched from remote",
+      "Content-addressed storage (via xet-core) — deduplication and efficient transfers",
+      "Adaptive prefetch buffering for sequential reads",
+      "Metadata TTL caching (10s default staleness window)",
+      "Eventual consistency via background polling for remote changes",
+      "Async runtime (tokio) for concurrent I/O",
+      "Daemon pattern for background mount lifecycle management"
+    ]
+  },
+  "dependencies_count": 19,
+  "files_inspected": [
+    "gh api repos/huggingface/hf-mount (metadata)",
+    "gh api repos/huggingface/hf-mount/contents/ (root listing)",
+    "gh api repos/huggingface/hf-mount/contents/src (src listing)",
+    "gh api repos/huggingface/hf-mount/contents/src/bin (bin listing)",
+    "https://raw.githubusercontent.com/huggingface/hf-mount/main/README.md",
+    "https://raw.githubusercontent.com/huggingface/hf-mount/main/Cargo.toml"
+  ],
+  "concepts_for_deepflow": [
+    "Lazy content fetching: deepflow could lazily fetch spec dependencies or referenced files only when needed during plan/execute, reducing upfront context loading",
+    "Dual-backend pattern (FUSE/NFS): deepflow's verify stage could offer pluggable verification backends — lightweight (lint/type-check) vs. heavyweight (browser/integration) — selected per-spec like hf-mount selects FUSE vs NFS",
+    "Daemon lifecycle management: deepflow's autonomous mode (df:auto) could adopt a daemon controller pattern — a persistent supervisor process that manages worktree agent lifecycles, health checks, and graceful shutdown",
+    "Content-addressed caching (xet-core): deepflow could content-hash spec+code states to cache verification results, skipping re-verification when neither spec nor relevant code has changed",
+    "Adaptive prefetch buffering: during df:execute, deepflow could speculatively pre-read files likely needed by upcoming tasks based on dependency analysis, reducing tool-call latency",
+    "Metadata TTL with eventual consistency: deepflow's ratchet snapshots could use TTL-based staleness instead of strict freshness, allowing parallel agents to work with slightly stale but consistent views of test state"
+  ],
+  "confidence": 0.92
+}

@@ -1,0 +1,75 @@
+{
+  "benchmark": "repo-inspect",
+  "run_at": "2026-04-09T04:42:25.275Z",
+  "timeout_per_approach_ms": 300000,
+  "approaches": [
+    {
+      "approach": "a",
+      "label": "Approach A (browse-fetch)",
+      "status": "success",
+      "exit_code": 0,
+      "start_iso": "2026-04-09T04:34:49.616Z",
+      "end_iso": "2026-04-09T04:39:44.949Z",
+      "start_ms": 1775709289617,
+      "end_ms": 1775709584949,
+      "wall_time_ms": 295332,
+      "output_file": "/Users/saidsalles/apps/agentSkills/deepflow/benchmark/repo-inspect/output-a.json",
+      "output_valid_json": true,
+      "metrics": {
+        "cache_ratio": 64811.41176470588,
+        "total_tokens": 1107460,
+        "wall_time": 295332,
+        "context_burn": 11,
+        "entry_count": 11,
+        "tool_calls_count": 68
+      }
+    },
+    {
+      "approach": "b",
+      "label": "Approach B (WebFetch + gh api)",
+      "status": "success",
+      "exit_code": 0,
+      "start_iso": "2026-04-09T04:39:45.067Z",
+      "end_iso": "2026-04-09T04:40:39.600Z",
+      "start_ms": 1775709585067,
+      "end_ms": 1775709639600,
+      "wall_time_ms": 54533,
+      "output_file": "/Users/saidsalles/apps/agentSkills/deepflow/benchmark/repo-inspect/output-b.json",
+      "output_valid_json": true,
+      "metrics": {
+        "cache_ratio": 7772.333333333333,
+        "total_tokens": 23957,
+        "wall_time": 54533,
+        "context_burn": 2,
+        "entry_count": 1,
+        "tool_calls_count": 17
+      }
+    },
+    {
+      "approach": "c",
+      "label": "Approach C (local clone)",
+      "status": "success",
+      "exit_code": 0,
+      "start_iso": "2026-04-09T04:40:39.710Z",
+      "end_iso": "2026-04-09T04:42:25.160Z",
+      "start_ms": 1775709639710,
+      "end_ms": 1775709745160,
+      "wall_time_ms": 105450,
+      "output_file": "/Users/saidsalles/apps/agentSkills/deepflow/benchmark/repo-inspect/output-c.json",
+      "output_valid_json": false,
+      "metrics": {
+        "cache_ratio": 70403.90909090909,
+        "total_tokens": 777631,
+        "wall_time": 105450,
+        "context_burn": 11,
+        "entry_count": 7,
+        "tool_calls_count": 33
+      }
+    }
+  ],
+  "overlap_check": {
+    "ok": true,
+    "violations": []
+  },
+  "tmpdir_cleanup": true
+}

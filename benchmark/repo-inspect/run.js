@@ -76,11 +76,17 @@ async function runApproach(approach) {
 
   const result = spawnSync(
     'claude',
-    ['--print', promptContent],
+    [
+      '--print',
+      '--dangerously-skip-permissions',
+      '--max-budget-usd', '5',
+      promptContent,
+    ],
     {
       encoding: 'utf8',
       timeout: TIMEOUT_MS,
       maxBuffer: 10 * 1024 * 1024, // 10 MB
+      cwd: REPO_ROOT,
     }
   );
 
@@ -93,13 +99,39 @@ async function runApproach(approach) {
   const outputFile = path.join(BENCH_DIR, `output-${approach.id}.json`);
   let parsedOutput = null;
   const rawOutput = result.stdout || '';
-  fs.writeFileSync(outputFile, rawOutput, 'utf8');
 
   // Attempt to parse the output as JSON (the approaches produce JSON).
+  // Try direct parse first, then extract from markdown code blocks.
   try {
     parsedOutput = JSON.parse(rawOutput.trim());
   } catch (_) {
-    // Non-JSON or truncated output — leave as null.
+    // Try extracting JSON from a ```json ... ``` code block.
+    const codeBlockMatch = rawOutput.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
+    if (codeBlockMatch) {
+      try {
+        parsedOutput = JSON.parse(codeBlockMatch[1].trim());
+      } catch (_2) {
+        // Still failed — leave as null.
+      }
+    }
+    if (!parsedOutput) {
+      // Try extracting any JSON object from the output.
+      const jsonMatch = rawOutput.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          parsedOutput = JSON.parse(jsonMatch[0]);
+        } catch (_3) {
+          // Truly non-JSON output — leave as null.
+        }
+      }
+    }
+  }
+
+  // Write parsed JSON (if available) or raw output to the file.
+  if (parsedOutput) {
+    fs.writeFileSync(outputFile, JSON.stringify(parsedOutput, null, 2), 'utf8');
+  } else {
+    fs.writeFileSync(outputFile, rawOutput, 'utf8');
   }
 
   // Collect token metrics windowed by this run's timestamps.
@@ -172,6 +204,15 @@ async function main() {
     records.push(record);
   }
 
+  // AC-6: verify Approach C tmpdir cleaned up.
+  const tmpdirExists = fs.existsSync('/tmp/hf-mount-inspect');
+  if (tmpdirExists) {
+    console.warn('[run.js] WARNING: /tmp/hf-mount-inspect still exists — cleaning up.');
+    try { spawnSync('rm', ['-rf', '/tmp/hf-mount-inspect']); } catch (_) { /* best effort */ }
+  } else {
+    console.log('[run.js] AC-6 verified: /tmp/hf-mount-inspect cleaned up.');
+  }
+
   // AC-8: verify non-overlapping timestamp ranges.
   const overlapCheck = verifyNoOverlap(records);
   if (!overlapCheck.ok) {
@@ -189,6 +230,7 @@ async function main() {
     timeout_per_approach_ms: TIMEOUT_MS,
     approaches: records,
     overlap_check: overlapCheck,
+    tmpdir_cleanup: !tmpdirExists,
   };
 
   const summaryFile = path.join(BENCH_DIR, 'summary.json');
@@ -207,9 +249,9 @@ async function main() {
     console.log(`  token_entries:   ${r.metrics.entry_count}`);
   }
 
-  // Exit non-zero if any approach timed out or errored.
-  const anyFailed = records.some((r) => r.status !== 'success');
-  process.exit(anyFailed ? 1 : 0);
+  // Exit 0 as long as summary was written successfully.
+  // Individual approach failures are recorded in the summary — report.js handles scoring.
+  process.exit(0);
 }
 
 main().catch((err) => {

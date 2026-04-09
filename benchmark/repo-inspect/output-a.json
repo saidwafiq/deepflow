@@ -1,0 +1,54 @@
+{
+  "repo": "huggingface/hf-mount",
+  "purpose": "Mounts Hugging Face Hub repositories and Buckets as local POSIX filesystems via NFS or FUSE, fetching file content lazily on first read to avoid full downloads.",
+  "language": "Rust (edition 2024, requires 1.85+)",
+  "architecture": {
+    "entry_points": [
+      "src/bin/hf-mount.rs — Main CLI binary (start/stop/status commands)",
+      "src/bin/hf-mount-nfs.rs — NFS backend binary (foreground mode)",
+      "src/bin/hf-mount-fuse.rs — FUSE backend binary (foreground mode)",
+      "src/bin/hf-mount-fuse-sidecar.rs — CSI sidecar for Kubernetes"
+    ],
+    "key_modules": [
+      "src/virtual_fs/mod.rs — Core VFS engine: inode table, open file handles, POSIX ops dispatch (~2900 lines)",
+      "src/virtual_fs/inode.rs — Inode table and metadata management",
+      "src/virtual_fs/flush.rs — Batched async flush pipeline for advanced writes",
+      "src/virtual_fs/prefetch.rs — Adaptive read-ahead buffer for lazy file reads",
+      "src/virtual_fs/poll.rs — Background remote change detection and cache invalidation",
+      "src/nfs.rs — NFS filesystem implementation (translates NFS calls to VirtualFs)",
+      "src/fuse.rs — FUSE filesystem implementation (translates FUSE calls to VirtualFs)",
+      "src/hub_api.rs — Hugging Face Hub HTTP API client",
+      "src/cached_xet_client.rs — Cached xet-core CAS (content-addressable storage) client",
+      "src/daemon.rs — Background process/daemon management",
+      "src/error.rs — Structured Hub error types with retry logic"
+    ],
+    "patterns": [
+      "Lazy loading — files fetched on-demand via CAS (content-addressable storage), not eagerly downloaded",
+      "Adaptive prefetch — sequential reads grow the prefetch window; random seeks use bounded range downloads",
+      "Copy-on-write staging — advanced writes download remote content to local staging file, mutate locally, then flush async",
+      "Streaming writes — bounded mpsc channel decouples sync FUSE write() from async CAS upload with CommitState state machine",
+      "Thundering herd prevention — per-directory tokio Mutex serializes concurrent lazy directory loads",
+      "Negative lookup cache — TTL-based cache (30s, 10K capacity) prevents repeated API calls for non-existent paths",
+      "Lock ordering discipline — documented hierarchy (dir_loading_locks → inode_table → open_files → negative_cache) prevents deadlocks",
+      "Dual backend abstraction — VirtualFs is backend-agnostic; NFS and FUSE modules translate protocol-specific calls to VirtualFs ops",
+      "Background polling — periodic remote change detection with conditional HEAD requests and kernel cache invalidation callbacks"
+    ]
+  },
+  "dependencies_count": 22,
+  "files_inspected": [
+    "https://github.com/huggingface/hf-mount (repo main page)",
+    "https://github.com/huggingface/hf-mount/blob/main/README.md",
+    "https://github.com/huggingface/hf-mount/tree/main/src",
+    "https://github.com/huggingface/hf-mount/blob/main/src/virtual_fs/mod.rs",
+    "https://github.com/huggingface/hf-mount/blob/main/Cargo.toml"
+  ],
+  "concepts_for_deepflow": [
+    "Lazy content loading: deepflow specs could adopt a similar pattern where full spec context is loaded on-demand rather than eagerly — only sections relevant to the current task phase get resolved, reducing context window pressure",
+    "Adaptive prefetch for agent context: like hf-mount's adaptive read-ahead that grows for sequential access, deepflow's execute command could prefetch related files when it detects an agent reading sequentially through a module, but back off for scattered reads",
+    "Negative lookup cache for file impact analysis: df:plan's LSP-based impact analysis could cache negative results (files confirmed to not reference a symbol) to avoid redundant findReferences calls across planning cycles",
+    "Staging + flush pipeline for worktree writes: the copy-on-write staging pattern maps to deepflow's worktree execution — agents write to isolated staging (worktree), then a flush/verify gate commits to main, similar to FlushManager's debounced async commit",
+    "Thundering herd prevention for parallel task execution: when multiple df:execute agents need the same shared resource (e.g., reading the same spec or running the same build), a per-resource mutex pattern would prevent redundant work",
+    "Lock ordering discipline documentation: deepflow's concurrent agent execution could benefit from documenting resource access ordering (spec files → PLAN.md → worktree → main branch) to prevent deadlocks in autonomous mode"
+  ],
+  "confidence": 0.92
+}

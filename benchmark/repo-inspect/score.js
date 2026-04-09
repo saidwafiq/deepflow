@@ -64,7 +64,8 @@ async function score(outputPath) {
     if (check2Pass) score++;
 
     // Check 3: entry_points includes "main.rs" (substring)
-    const entryPoints = output.entry_points || [];
+    // Support both flat (entry_points) and nested (architecture.entry_points) schemas
+    const entryPoints = output.entry_points || (output.architecture && output.architecture.entry_points) || [];
     const check3Pass = entryPoints.some(ep => ep.includes('main.rs'));
     checks.push({
       name: 'entry_points includes "main.rs"',
@@ -74,7 +75,8 @@ async function score(outputPath) {
     if (check3Pass) score++;
 
     // Check 4: key_modules count >= 3 (threshold)
-    const keyModules = output.key_modules || [];
+    // Support both flat (key_modules) and nested (architecture.key_modules) schemas
+    const keyModules = output.key_modules || (output.architecture && output.architecture.key_modules) || [];
     const check4Pass = keyModules.length >= 3;
     checks.push({
       name: 'key_modules count >= 3',
