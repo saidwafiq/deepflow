@@ -10,10 +10,9 @@
  *   1. {cwd}/templates/explore-protocol.md  (repo checkout)
  *   2. ~/.claude/templates/explore-protocol.md  (installed copy)
  *
- * Phase 1: spawns a `claude --print` subprocess to gather LSP symbols
- * (documentSymbol) relevant to the query before protocol injection.
- * Results are filtered to strip noise paths and injected as structured
- * context for Phase 2.
+ * Phase 1: globs source files and extracts symbols via inline regex — no subprocess,
+ * no model calls. Results are filtered to strip noise paths and injected as
+ * structured context for Phase 2.
  *
  * Exits silently (code 0) on all errors — never blocks tool execution (REQ-8).
  */
@@ -23,86 +22,135 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { spawnSync } = require('child_process');
 const { readStdinIfMain } = require('./lib/hook-stdin');
 
 /**
- * Read explore_lsp_timeout_ms from .deepflow/config.yaml in cwd.
- * Returns the configured value or the provided default.
- * Uses a simple regex to avoid a YAML parser dependency.
+ * Regex patterns per language extension for symbol extraction.
+ * Spike-validated against JS/TS/Python/Go/Rust codebases.
  */
-function readLspTimeout(cwd, defaultMs) {
-  try {
-    const configPath = path.join(cwd, '.deepflow', 'config.yaml');
-    if (!fs.existsSync(configPath)) return defaultMs;
-    const text = fs.readFileSync(configPath, 'utf8');
-    const m = text.match(/^\s*explore_lsp_timeout_ms\s*:\s*(\d+)/m);
-    return m ? parseInt(m[1], 10) : defaultMs;
-  } catch (_) {
-    return defaultMs;
-  }
-}
+const PATTERNS = {
+  '.js':  /^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\*?|class|interface|type|enum)\s+(\w+)/gm,
+  '.ts':  /^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\*?|class|interface|type|enum)\s+(\w+)/gm,
+  '.py':  /^(?:async\s+)?(?:def|class)\s+(\w+)/gm,
+  '.go':  /^(?:func(?:\s*\([^)]*\))?\s+(\w+)|type\s+(\w+)\s+(?:struct|interface|func))/gm,
+  '.rs':  /^(?:pub\s+)?(?:async\s+)?(?:fn|struct|enum|trait|impl|type|mod)\s+(\w+)/gm,
+};
+
+/**
+ * Generic fallback pattern for unknown extensions.
+ * Covers the most common declaration keywords across languages.
+ */
+const PATTERN_GENERIC = /^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\*?|class|def|fn|struct|enum|trait|type|interface|mod)\s+(\w+)/gm;
+
+/**
+ * Map extensions that share a pattern with a canonical key.
+ */
+const EXTENSION_MAP = {
+  '.jsx':  '.js',
+  '.tsx':  '.ts',
+  '.mjs':  '.js',
+  '.cjs':  '.js',
+};
 
 /**
  * Path filter — returns true if the filepath should be excluded.
- * Strips node_modules, .claude/worktrees, dist, and .git entries.
+ * Strips node_modules, .claude/worktrees, dist, .git, vendor,
+ * __pycache__, .next, and build directories.
  */
 function isNoisePath(filepath) {
-  return /(node_modules|\.claude\/worktrees|\/dist\/|\.git\/)/.test(filepath);
+  return /(node_modules|\.claude\/worktrees|\/dist\/|\.git\/|\/vendor\/|__pycache__|\/\.next\/|\/build\/)/.test(filepath);
 }
 
 /**
- * Run Phase 1: spawn `claude --print` with an LSP-only prompt.
- * Returns an array of {name, kind, line, filepath} objects, or [] on any failure.
+ * Recursively walk a directory, yielding absolute file paths.
+ * Silently skips unreadable directories.
  */
-function runPhase1(query, cwd, timeoutMs) {
-  const lspPrompt =
-    'LSP ONLY — use documentSymbol to find symbols in files relevant to this query: ' +
-    query +
-    '\n\nReturn ONLY a JSON array of objects with keys: name, kind, line, filepath.' +
-    '\nDo NOT use Read, Grep, Bash, or any file-reading tool.' +
-    '\nDo NOT add explanation. Output only the JSON array, optionally wrapped in ```json fences.';
-
-  let result;
+function* walkDir(dir) {
+  let entries;
   try {
-    result = spawnSync('claude', ['--print', lspPrompt], {
-      cwd,
-      timeout: timeoutMs,
-      encoding: 'utf8',
-      // Do not set stdio: 'pipe' explicitly — spawnSync defaults pipe for stdout/stderr
-    });
+    entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch (_) {
-    return { symbols: [], hit: false };
+    return;
   }
-
-  if (result.status !== 0 || !result.stdout) {
-    return { symbols: [], hit: false };
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!isNoisePath(full + '/')) yield* walkDir(full);
+    } else if (entry.isFile()) {
+      yield full;
+    }
   }
+}
 
-  // Strip markdown fences: ```json ... ``` or ``` ... ```
-  let raw = result.stdout.trim();
-  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch) {
-    raw = fenceMatch[1].trim();
-  }
+/**
+ * Run Phase 1: glob source files and extract symbols via inline regex.
+ * Returns { symbols: [{name, kind, line, filepath}], hit: boolean }.
+ * No subprocess, no model calls — pure Node.js (AC-1).
+ *
+ * @param {string} query  - The explore prompt used for substring filtering (AC-15).
+ * @param {string} cwd    - Project root to walk.
+ */
+function runPhase1(query, cwd) {
+  const queryLower = query.toLowerCase();
+  const symbols = [];
 
-  let parsed;
   try {
-    parsed = JSON.parse(raw);
+    for (const filepath of walkDir(cwd)) {
+      if (isNoisePath(filepath)) continue;
+
+      const ext = path.extname(filepath).toLowerCase();
+      const canonExt = EXTENSION_MAP[ext] || ext;
+      const pattern = PATTERNS[canonExt] || PATTERN_GENERIC;
+
+      // AC-15: filter by substring match on file path
+      const filepathLower = filepath.toLowerCase();
+      const pathMatches = filepathLower.includes(queryLower);
+
+      let content;
+      try {
+        content = fs.readFileSync(filepath, 'utf8');
+      } catch (_) {
+        continue;
+      }
+
+      const lines = content.split('\n');
+      // Reset lastIndex before each use of the shared regex
+      const re = new RegExp(pattern.source, pattern.flags);
+      let m;
+      while ((m = re.exec(content)) !== null) {
+        // Capture group 1 is always the symbol name (Go uses group 2 for type decls)
+        const name = m[1] || m[2];
+        if (!name) continue;
+
+        // AC-15: filter by substring match on symbol name or file path
+        const nameLower = name.toLowerCase();
+        if (!nameLower.includes(queryLower) && !pathMatches) continue;
+
+        // Compute 1-based line number from the match offset
+        const before = content.slice(0, m.index);
+        const line = before.split('\n').length;
+
+        // Derive kind from the matched keyword
+        const matchedText = m[0];
+        let kind = 'symbol';
+        if (/\bclass\b/.test(matchedText)) kind = 'class';
+        else if (/\bfunction\b|\bfn\b|\bdef\b|\bfunc\b/.test(matchedText)) kind = 'function';
+        else if (/\binterface\b/.test(matchedText)) kind = 'interface';
+        else if (/\btype\b/.test(matchedText)) kind = 'type';
+        else if (/\benum\b/.test(matchedText)) kind = 'enum';
+        else if (/\bstruct\b/.test(matchedText)) kind = 'struct';
+        else if (/\btrait\b/.test(matchedText)) kind = 'trait';
+        else if (/\bmod\b/.test(matchedText)) kind = 'module';
+        else if (/\bimpl\b/.test(matchedText)) kind = 'impl';
+
+        symbols.push({ name, kind, line, filepath });
+      }
+    }
   } catch (_) {
-    return { symbols: [], hit: false };
+    // Fail-open: return whatever was gathered so far
   }
 
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    return { symbols: [], hit: false };
-  }
-
-  // Filter out noise paths (AC-7)
-  const filtered = parsed.filter(
-    (entry) => entry && typeof entry.filepath === 'string' && !isNoisePath(entry.filepath)
-  );
-
-  return { symbols: filtered, hit: filtered.length > 0 };
+  return { symbols, hit: symbols.length > 0 };
 }
 
 /**
@@ -148,21 +196,20 @@ readStdinIfMain(module, (payload) => {
     const protocolPath = findProtocol(effectiveCwd);
     const originalPrompt = existingPrompt;
 
-    // --- Phase 1: LSP symbol pre-fetch (AC-1, AC-7, AC-9) ---
-    const timeoutMs = readLspTimeout(effectiveCwd, 15000);
-    const { symbols, hit: phase1Hit } = runPhase1(originalPrompt, effectiveCwd, timeoutMs);
+    // --- Phase 1: inline regex symbol extraction (AC-1, AC-7, AC-9) ---
+    const { symbols, hit: phase1Hit } = runPhase1(originalPrompt, effectiveCwd);
 
     let updatedPrompt;
 
     if (phase1Hit) {
-      // Phase 1 succeeded — inject LSP locations + protocol (requires template)
+      // Phase 1 succeeded — inject symbol locations + protocol (requires template)
       if (!protocolPath) {
         // No template found and Phase 1 succeeded — allow without modification
         return;
       }
       const protocol = fs.readFileSync(protocolPath, 'utf8').trim();
 
-      // Format each symbol as `filepath:line -- symbolName (symbolKind)`
+      // AC-3: Format each symbol as `filepath:line -- name (kind)`
       const locationLines = symbols
         .map((s) => `${s.filepath}:${s.line} -- ${s.name} (${s.kind})`)
         .join('\n');
@@ -174,9 +221,9 @@ readStdinIfMain(module, (payload) => {
       updatedPrompt =
         `${originalPrompt}${phase1Block}\n\n---\n## Search Protocol (auto-injected — MUST follow)\n\n${protocol}`;
     } else {
-      // Phase 1 failed/timed out/empty — fall back to static template injection (AC-5)
+      // Phase 1 empty — fall back to static template injection (AC-5)
       if (!protocolPath) {
-        // AC-6: no template and subprocess failed — exit silently with no modification
+        // AC-6: no template and regex found nothing — exit silently with no modification
         return;
       }
       const protocol = fs.readFileSync(protocolPath, 'utf8').trim();
@@ -197,8 +244,8 @@ readStdinIfMain(module, (payload) => {
       },
     };
 
-    // --- AC-4: Metrics logging (fail-open) ---
-    // Log tool-call count and phase 1 hit rate to explore-metrics.jsonl.
+    // --- Metrics logging (fail-open) ---
+    // Log phase 1 hit rate to explore-metrics.jsonl.
     // Wraps in try/catch so metrics failures never block hook execution.
     try {
       const metricsDir = path.join(effectiveCwd, '.deepflow');
@@ -210,7 +257,8 @@ readStdinIfMain(module, (payload) => {
         timestamp: new Date().toISOString(),
         query: originalPrompt,
         phase1_hit: phase1Hit,
-        tool_calls: 0, // Placeholder; will be updated by post-run analysis
+        // tool_calls intentionally omitted: PreToolUse hooks fire before tool execution,
+        // so actual tool call counts are not observable here without a PostToolUse hook.
       };
       fs.appendFileSync(metricsPath, JSON.stringify(metricsEntry) + '\n', 'utf8');
     } catch (_) {
