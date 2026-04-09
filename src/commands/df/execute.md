@@ -342,7 +342,10 @@ If `TASK_DETAIL` is not `NOT_FOUND`, use it as the full Middle section (Steps, A
 
 Run LSP `documentSymbol` on the task's `files` list to collect existing type definitions. This runs BEFORE prompt construction so the result can be injected as `EXISTING_TYPES`.
 
-Steps:
+<!-- AC-7: No new tool calls or latency added when context sources are empty -->
+**Early exit (AC-7):** If the task's `Files:` list is empty, skip all `documentSymbol` calls entirely. Set `EXISTING_TYPES` to empty string immediately and proceed to prompt construction.
+
+Steps (only when `Files:` list is non-empty):
 1. Cap the file list at 10 files (take the first 10 from the task's `Files:` list).
 2. For each file (up to the cap), call `documentSymbol` via LSP.
 3. Filter results: keep only symbols with kind ∈ {Class, Interface, Enum, TypeAlias} (LSP SymbolKind values 5, 11, 10, 26 respectively).
@@ -351,6 +354,8 @@ Steps:
 6. Join all extracted ranges into a single string: `EXISTING_TYPES`.
 
 **AC-8 — graceful no-op:** If no matching symbols are found across all processed files (either `documentSymbol` returns nothing or no Class/Interface/Enum/TypeAlias symbols exist), set `EXISTING_TYPES` to empty string. No context block is added to the prompt.
+
+<!-- AC-6: Backward-compatible no-op — when neither Domain Model section exists in the spec nor Existing Types extraction yields content (EXISTING_TYPES is empty string), the Standard Task prompt contains no extra context blocks and is identical to the pre-injection baseline. Zero prompt overhead, zero tool calls for tasks that lack these context sources. -->
 
 **Standard Task** (`Agent(model="{Model}", ...)`):
 ```
