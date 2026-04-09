@@ -86,7 +86,7 @@ Nothing found → `⚠ No build/test commands detected. L0/L4 skipped. Set quali
 
 No tool → pass with warning. When available: stash changes → run coverage on baseline → stash pop → run coverage on current → compare. Drop → FAIL. Same/improved → pass.
 
-**L3: Integration** — Subsumed by L0 + L4. No separate check.
+**L3: AC coverage verification** — Verify that agent-reported acceptance criteria coverage matches the spec's acceptance criteria section. Parse spec file for `## Acceptance Criteria` section, extract all ACs. For each AC, verify that agent execution explicitly claimed coverage (via agent output or PLAN.md task completion notes). Missing or uncovered ACs → FAIL with list of uncovered ACs. All ACs claimed → pass.
 
 **L4: Tests** — Run AFTER L0 passes. Run even if L1-L2 had issues. Exit 0 → pass. Non-zero → FAIL with last 50 lines + fix task. If `quality.test_retry_on_fail: true`: re-run once; second pass → warn (flaky); second fail → genuine failure.
 
