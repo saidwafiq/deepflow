@@ -282,6 +282,10 @@ const SALVAGEABLE_STAGES = new Set(['lint']);
 // CLI argument parser
 // ---------------------------------------------------------------------------
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function parseArgs(argv) {
   const args = { task: null, worktree: null, snapshot: null };
   for (let i = 0; i < argv.length; i++) {
@@ -316,8 +320,9 @@ function updatePlanMd(repoRoot, taskId, cwd) {
   }
 
   const text = fs.readFileSync(planPath, 'utf8');
+  const safeTaskId = escapeRegExp(taskId);
   // Match lines like: - [ ] **T54** ...
-  const re = new RegExp(`(^.*- \\[ \\].*\\*\\*${taskId}\\*\\*.*)`, 'm');
+  const re = new RegExp(`(^.*- \\[ \\].*\\*\\*${safeTaskId}\\*\\*.*)`, 'm');
   const updated = text.replace(re, (line) => {
     let result = line.replace('- [ ]', '- [x]');
     if (hash) result += ` (${hash})`;
