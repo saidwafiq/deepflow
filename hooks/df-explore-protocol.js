@@ -10,6 +10,11 @@
  *   1. {cwd}/templates/explore-protocol.md  (repo checkout)
  *   2. ~/.claude/templates/explore-protocol.md  (installed copy)
  *
+ * Phase 1: spawns a `claude --print` subprocess to gather LSP symbols
+ * (documentSymbol) relevant to the query before protocol injection.
+ * Results are filtered to strip noise paths and injected as structured
+ * context for Phase 2.
+ *
  * Exits silently (code 0) on all errors — never blocks tool execution (REQ-8).
  */
 
@@ -18,7 +23,87 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { spawnSync } = require('child_process');
 const { readStdinIfMain } = require('./lib/hook-stdin');
+
+/**
+ * Read explore_lsp_timeout_ms from .deepflow/config.yaml in cwd.
+ * Returns the configured value or the provided default.
+ * Uses a simple regex to avoid a YAML parser dependency.
+ */
+function readLspTimeout(cwd, defaultMs) {
+  try {
+    const configPath = path.join(cwd, '.deepflow', 'config.yaml');
+    if (!fs.existsSync(configPath)) return defaultMs;
+    const text = fs.readFileSync(configPath, 'utf8');
+    const m = text.match(/^\s*explore_lsp_timeout_ms\s*:\s*(\d+)/m);
+    return m ? parseInt(m[1], 10) : defaultMs;
+  } catch (_) {
+    return defaultMs;
+  }
+}
+
+/**
+ * Path filter — returns true if the filepath should be excluded.
+ * Strips node_modules, .claude/worktrees, dist, and .git entries.
+ */
+function isNoisePath(filepath) {
+  return /(node_modules|\.claude\/worktrees|\/dist\/|\.git\/)/.test(filepath);
+}
+
+/**
+ * Run Phase 1: spawn `claude --print` with an LSP-only prompt.
+ * Returns an array of {name, kind, line, filepath} objects, or [] on any failure.
+ */
+function runPhase1(query, cwd, timeoutMs) {
+  const lspPrompt =
+    'LSP ONLY — use documentSymbol to find symbols in files relevant to this query: ' +
+    query +
+    '\n\nReturn ONLY a JSON array of objects with keys: name, kind, line, filepath.' +
+    '\nDo NOT use Read, Grep, Bash, or any file-reading tool.' +
+    '\nDo NOT add explanation. Output only the JSON array, optionally wrapped in ```json fences.';
+
+  let result;
+  try {
+    result = spawnSync('claude', ['--print', lspPrompt], {
+      cwd,
+      timeout: timeoutMs,
+      encoding: 'utf8',
+      // Do not set stdio: 'pipe' explicitly — spawnSync defaults pipe for stdout/stderr
+    });
+  } catch (_) {
+    return { symbols: [], hit: false };
+  }
+
+  if (result.status !== 0 || !result.stdout) {
+    return { symbols: [], hit: false };
+  }
+
+  // Strip markdown fences: ```json ... ``` or ``` ... ```
+  let raw = result.stdout.trim();
+  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) {
+    raw = fenceMatch[1].trim();
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (_) {
+    return { symbols: [], hit: false };
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return { symbols: [], hit: false };
+  }
+
+  // Filter out noise paths (AC-7)
+  const filtered = parsed.filter(
+    (entry) => entry && typeof entry.filepath === 'string' && !isNoisePath(entry.filepath)
+  );
+
+  return { symbols: filtered, hit: filtered.length > 0 };
+}
 
 /**
  * Locate the explore-protocol.md template.
@@ -47,7 +132,8 @@ readStdinIfMain(module, (payload) => {
     return;
   }
 
-  const protocolPath = findProtocol(cwd || process.cwd());
+  const effectiveCwd = cwd || process.cwd();
+  const protocolPath = findProtocol(effectiveCwd);
   if (!protocolPath) {
     // No template found — allow without modification
     return;
@@ -56,8 +142,26 @@ readStdinIfMain(module, (payload) => {
   const protocol = fs.readFileSync(protocolPath, 'utf8').trim();
   const originalPrompt = tool_input.prompt || '';
 
+  // --- Phase 1: LSP symbol pre-fetch (AC-1, AC-7, AC-9) ---
+  const timeoutMs = readLspTimeout(effectiveCwd, 15000);
+  const { symbols, hit: phase1Hit } = runPhase1(originalPrompt, effectiveCwd, timeoutMs);
+
+  // Build Phase 1 context block for Phase 2 consumption
+  let phase1Block = '';
+  if (phase1Hit) {
+    const symbolJson = JSON.stringify(symbols, null, 2);
+    phase1Block =
+      '\n\n---\n## Phase 1 LSP Results (auto-injected — use as starting points)\n\n' +
+      '```json\n' + symbolJson + '\n```\n' +
+      '\n<!-- phase1_hit: true -->';
+  } else {
+    // Signal to Phase 2 that LSP pre-fetch failed — fallback to full search
+    phase1Block = '\n\n<!-- phase1_hit: false -->';
+  }
+
   // Append protocol as a system-level suffix the agent must follow
-  const updatedPrompt = `${originalPrompt}\n\n---\n## Search Protocol (auto-injected — MUST follow)\n\n${protocol}`;
+  const updatedPrompt =
+    `${originalPrompt}${phase1Block}\n\n---\n## Search Protocol (auto-injected — MUST follow)\n\n${protocol}`;
 
   const result = {
     hookSpecificOutput: {
