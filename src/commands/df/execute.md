@@ -338,6 +338,20 @@ TASK_DETAIL=!`cat .deepflow/plans/doing-{task_id}.md 2>/dev/null || echo 'NOT_FO
 ```
 If `TASK_DETAIL` is not `NOT_FOUND`, use it as the full Middle section (Steps, ACs, Impact) in the agent prompt, overriding the inline PLAN.md block. If `NOT_FOUND`, fall back to the inline PLAN.md task block.
 
+**Pre-prompt type context extraction (before building agent prompt):**
+
+Run LSP `documentSymbol` on the task's `files` list to collect existing type definitions. This runs BEFORE prompt construction so the result can be injected as `EXISTING_TYPES`.
+
+Steps:
+1. Cap the file list at 10 files (take the first 10 from the task's `Files:` list).
+2. For each file (up to the cap), call `documentSymbol` via LSP.
+3. Filter results: keep only symbols with kind ∈ {Class, Interface, Enum, TypeAlias} (LSP SymbolKind values 5, 11, 10, 26 respectively).
+4. For each matching symbol, extract the source range (`range.start.line` to `range.end.line`) — read those lines from the file.
+5. Accumulate extracted lines with a **120-line total budget** — stop adding symbols once the budget is reached.
+6. Join all extracted ranges into a single string: `EXISTING_TYPES`.
+
+**AC-8 — graceful no-op:** If no matching symbols are found across all processed files (either `documentSymbol` returns nothing or no Class/Interface/Enum/TypeAlias symbols exist), set `EXISTING_TYPES` to empty string. No context block is added to the prompt.
+
 **Standard Task** (`Agent(model="{Model}", ...)`):
 ```
 --- START ---
@@ -356,6 +370,10 @@ Success criteria: {ACs from spec relevant to this task}
 {Domain Model section content from doing-*.md, extracted via shell injection:
   DOMAIN_MODEL=!`sed -n '/^## Domain Model$/,/^## [^D]/p' specs/doing-{spec_name}.md | head -n -1 2>/dev/null || echo 'NOT_FOUND'`
 }
+}
+{If EXISTING_TYPES is non-empty:
+--- CONTEXT: Existing Types ---
+{EXISTING_TYPES}
 }
 --- MIDDLE (omit for low effort; omit deps for medium) ---
 {TASK_DETAIL if available, else inline block:}
