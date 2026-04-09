@@ -344,6 +344,14 @@ Prior tasks: {dep_id}: {summary}
 Steps: 1. chub search/get for APIs 2. LSP findReferences, add unlisted callers 3. LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files) 4. Implement 5. Commit
 --- END ---
 Duplicates: [active]→consolidate [dead]→DELETE. ONLY job: code+commit. No merge/rename/checkout.
+**Acceptance Criteria Coverage:** If the spec has acceptance criteria (AC-N), emit this block:
+```
+AC_COVERAGE:
+AC-1:done
+AC-2:skip:reason here (if applicable)
+AC_COVERAGE_END
+```
+Format: one line per AC with either `AC-N:done` or `AC-N:skip:reason`. Omit this block if the spec has no acceptance criteria.
 DECISIONS: If you made non-obvious choices, append to the LAST LINE BEFORE TASK_STATUS:
 DECISIONS: [TAG] {decision} — {rationale} | [TAG] {decision2} — {rationale2}
 Tags:
@@ -373,6 +381,14 @@ RULES:
 - Do NOT create new variables or intermediate adapters to paper over mismatches. Fix the actual call site.
 - Do NOT modify acceptance criteria or spec definitions.
 - Commit as fix({spec}): {contract description}. One commit per contract fix.
+**Acceptance Criteria Coverage:** If the spec has acceptance criteria (AC-N), emit this block:
+```
+AC_COVERAGE:
+AC-1:done
+AC-2:skip:reason here (if applicable)
+AC_COVERAGE_END
+```
+Format: one line per AC with either `AC-N:done` or `AC-N:skip:reason`. Omit this block if the spec has no acceptance criteria.
 DECISIONS: Report each contract fix as: [TAG] {what was mismatched} — {which side changed and why}. Use [APPROACH] for definitive fixes, [PROVISIONAL] if the fix is a workaround, [UPDATE] if changing a prior decision.
 Last line: TASK_STATUS:pass or TASK_STATUS:fail
 ```
