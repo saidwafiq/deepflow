@@ -41,37 +41,43 @@ function parseArgs() {
 
 function findNodeModules(root) {
   const results = [];
+  const seen = new Set();
+
+  function addIfNM(relDir) {
+    if (seen.has(relDir)) return;
+    const abs = path.join(root, relDir, 'node_modules');
+    if (fs.existsSync(abs)) {
+      seen.add(relDir);
+      results.push(relDir === '.' ? 'node_modules' : path.join(relDir, 'node_modules'));
+    }
+  }
 
   // Root node_modules
-  const rootNM = path.join(root, 'node_modules');
-  if (fs.existsSync(rootNM)) {
-    results.push('node_modules');
-  }
+  addIfNM('.');
 
-  // Scan common monorepo directory patterns for nested node_modules
-  const monorepoPatterns = ['packages', 'apps', 'libs', 'services', 'modules', 'plugins'];
-
-  for (const dir of monorepoPatterns) {
-    const dirPath = path.join(root, dir);
-    if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) continue;
-
+  // Walk every top-level directory up to 2 levels deep looking for node_modules.
+  // This covers both flat layouts (go/frontend, web/admin) and monorepo layouts
+  // (packages/foo, apps/bar) without hardcoding directory names.
+  function walk(relDir, depth) {
+    if (depth > 2) return;
+    const abs = path.join(root, relDir);
     let entries;
     try {
-      entries = fs.readdirSync(dirPath);
+      entries = fs.readdirSync(abs, { withFileTypes: true });
     } catch (_) {
-      continue;
+      return;
     }
-
     for (const entry of entries) {
-      const entryPath = path.join(dirPath, entry);
-      if (!fs.statSync(entryPath).isDirectory()) continue;
-
-      const nm = path.join(entryPath, 'node_modules');
-      if (fs.existsSync(nm)) {
-        results.push(path.join(dir, entry, 'node_modules'));
-      }
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith('.')) continue;
+      if (entry.name === 'node_modules') continue;
+      const childRel = relDir === '.' ? entry.name : path.join(relDir, entry.name);
+      addIfNM(childRel);
+      walk(childRel, depth + 1);
     }
   }
+
+  walk('.', 1);
 
   return results;
 }
