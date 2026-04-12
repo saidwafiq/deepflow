@@ -221,6 +221,8 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
 - Don't auto-fix — add fix tasks to PLAN.md, then `/df:execute --continue`
 - Capture learnings for significant approaches
 - **Terse output** — Output ONLY the compact report format (section 3)
+- **No LSP diagnostics** — Use ONLY build/test command exit codes and output for L0/L4. Do NOT use the LSP tool to collect TypeScript diagnostics — worktree environments have incomplete `node_modules` symlinks that produce false-positive module-resolution errors (2307, 2875). If the build command exits 0, L0 passes — do not second-guess it with LSP.
+- **No narration of false positives** — Never output diagnostics and then explain they are false positives. If you know they are false positives, suppress them entirely. Wasted output tokens cost money.
 
 ## Post-Verification: Worktree Merge & Cleanup
 
