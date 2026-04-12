@@ -208,7 +208,7 @@ export function CostOverview() {
           <DataTable>
             <thead className={tableHeaderClass}>
               <tr>
-                {['Agent Role', 'Model', 'Cost', 'Tokens In', 'Tokens Out', 'Cache Read', 'Cache Creation'].map((h) => (
+                {['Agent Role', 'Model', 'Cost', 'Input (fresh)', 'Output Tokens', 'Cache Read', 'Cache Creation'].map((h) => (
                   <th key={h} className={tableHeaderCellClass}>
                     {h}
                   </th>
@@ -237,7 +237,7 @@ export function CostOverview() {
         <DataTable>
           <thead className={tableHeaderClass}>
             <tr>
-              {['Project', 'Sessions', 'Tokens In', 'Tokens Out', 'Cache Read', 'Cache Creation', 'Cost'].map((h) => (
+              {['Project', 'Sessions', 'Input (fresh)', 'Output Tokens', 'Cache Read', 'Cache Creation', 'Cost'].map((h) => (
                 <th key={h} className={tableHeaderCellClass}>
                   {h}
                 </th>

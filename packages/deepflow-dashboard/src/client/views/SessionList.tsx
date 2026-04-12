@@ -14,6 +14,8 @@ interface Session {
   agent_role: string | null;
   tokens_in: number;
   tokens_out: number;
+  cache_read: number;
+  cache_creation: number;
   cost: number;
   total_cost: number;
   duration_ms: number;
@@ -133,7 +135,7 @@ function SubagentRows({ parentId, apiFetch }: { parentId: string; apiFetch: Retu
               {fmtDuration(s.duration_ms)}
             </span>
             <span className={`${COL_CLS[6]} text-xs tabular-nums text-[var(--text)]`}>
-              {fmtTokens(s.tokens_in + s.tokens_out)}
+              {fmtTokens(s.tokens_in + s.tokens_out + (s.cache_read ?? 0) + (s.cache_creation ?? 0))}
             </span>
             <span className={`${COL_CLS[7]} text-xs tabular-nums font-medium text-[var(--text)]`}>
               {fmtDollars(s.cost)}
@@ -175,7 +177,7 @@ function SessionRow({ session, apiFetch, stripe }: { session: Session; apiFetch:
       </ColVal>
       <ColVal idx={6}>
         <span className="tabular-nums text-[var(--text)]">
-          {fmtTokens(session.tokens_in + session.tokens_out)}
+          {fmtTokens(session.tokens_in + session.tokens_out + (session.cache_read ?? 0) + (session.cache_creation ?? 0))}
         </span>
       </ColVal>
       <ColVal idx={7}>

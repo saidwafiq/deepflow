@@ -75,11 +75,11 @@ export function ModelDonut() {
 
   const { models } = data;
   const totalCost = models.reduce((s, m) => s + m.cost, 0);
-  const totalTokens = models.reduce((s, m) => s + m.input_tokens + m.output_tokens, 0);
+  const totalTokens = models.reduce((s, m) => s + m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens, 0);
 
   const slices: DonutSlice[] = models.map((m) => ({
     name: m.model,
-    value: metric === 'cost' ? m.cost : m.input_tokens + m.output_tokens,
+    value: metric === 'cost' ? m.cost : m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_creation_tokens,
   }));
 
   return (
@@ -146,7 +146,7 @@ export function ModelDonut() {
         <DataTable>
           <thead className={tableHeaderClass}>
             <tr>
-              {['Model', 'Input Tokens', 'Output Tokens', 'Cache Read', 'Cache Creation', 'Cost'].map((h) => (
+              {['Model', 'Input (fresh)', 'Output Tokens', 'Cache Read', 'Cache Creation', 'Cost'].map((h) => (
                 <th key={h} className={tableHeaderCellClass}>{h}</th>
               ))}
             </tr>
