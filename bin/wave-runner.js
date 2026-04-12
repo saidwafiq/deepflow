@@ -83,9 +83,11 @@ function parsePlan(text) {
     }
 
     // Match pending task header: - [ ] **T{N}**...
-    const taskMatch = line.match(/^\s*-\s+\[\s+\]\s+\*\*T(\d+)\*\*(?:\s+\[[^\]]*\])?[:\s]*(.*)/);
+    // Captures optional [TAG] as group 2 (e.g. INTEGRATION, SPIKE, OPTIMIZE)
+    const taskMatch = line.match(/^\s*-\s+\[\s+\]\s+\*\*T(\d+)\*\*(?:\s+\[([^\]]*)\])?[:\s]*(.*)/);
     if (taskMatch) {
-      const rest = taskMatch[2].trim();
+      const rawTag = taskMatch[2] ? taskMatch[2].trim().toUpperCase() : null;
+      const rest = taskMatch[3].trim();
 
       // Extract inline blocked-by (from " | Blocked by: T1, T2")
       let inlineBlockedBy = [];
@@ -118,6 +120,7 @@ function parsePlan(text) {
         files: null,
         effort: inlineEffort,
         spec: currentSpec,
+        tag: rawTag,
       };
       tasks.push(current);
       continue;
@@ -275,13 +278,14 @@ function buildWaves(tasks, stuckIds) {
 
 /**
  * Format waves as a JSON array of task objects, each with a `wave` field.
- * Fields: id, description, model, files, effort, blockedBy, spec, wave
+ * Fields: id, description, model, files, effort, blockedBy, spec, tag, isIntegration, isSpike, isOptimize, wave
  */
 function formatWavesJson(waves) {
   const result = [];
   for (let i = 0; i < waves.length; i++) {
     const waveNum = i + 1;
     for (const t of waves[i]) {
+      const tag = t.tag || null;
       result.push({
         id: t.id,
         description: t.description || null,
@@ -290,6 +294,10 @@ function formatWavesJson(waves) {
         effort: t.effort || null,
         blockedBy: t.blockedBy,
         spec: t.spec || null,
+        tag: tag,
+        isIntegration: tag === 'INTEGRATION',
+        isSpike: tag === 'SPIKE',
+        isOptimize: tag === 'OPTIMIZE',
         wave: waveNum,
       });
     }

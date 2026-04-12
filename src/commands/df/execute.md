@@ -40,24 +40,35 @@ Each task = one background agent. **NEVER use TaskOutput** (100KB+ transcripts e
 `--continue` → load `.deepflow/checkpoint.json`, verify worktree exists (else error "Use --fresh"), skip completed. `--fresh` → delete checkpoint. Checkpoint exists → prompt "Resume? (y/n)".
 Shell: `` !`cat .deepflow/checkpoint.json 2>/dev/null || echo 'NOT_FOUND'` `` / `` !`git diff --quiet && echo 'CLEAN' || echo 'DIRTY'` ``
 
-### 1.5. CREATE WORKTREE
+### 1.5. CREATE WORKTREES (per spec)
 
-Require clean HEAD. Derive SPEC_NAME from `specs/doing-*.md`. Create `.deepflow/worktrees/{spec}` on branch `df/{spec}`. Reuse if exists; `--fresh` deletes first. If `worktree.sparse_paths` non-empty: `git worktree add --no-checkout`, `sparse-checkout set {paths}`, checkout.
+Require clean HEAD. Discover **all** specs in execution scope:
+```
+DOING_SPECS=!`ls specs/doing-*.md 2>/dev/null | sed 's|specs/doing-||;s|\.md$||' | tr '\n' ' ' || echo 'NOT_FOUND'`
+```
 
-### 1.5.1. SYMLINK DEPENDENCIES
+For **each** `{spec}` in `DOING_SPECS`, create `.deepflow/worktrees/{spec}` on branch `df/{spec}`. Reuse if exists; `--fresh` deletes first. If `worktree.sparse_paths` non-empty: `git worktree add --no-checkout`, `sparse-checkout set {paths}`, checkout.
 
-After worktree creation, symlink `node_modules` from the main repo so TypeScript/LSP/build can resolve dependencies without a full install:
+Build an in-memory map `SPEC_WORKTREES = {spec → {path, branch}}`. This map drives per-task routing in §5 and §5.5 and is persisted in `.deepflow/checkpoint.json` under `spec_worktrees`. Tasks from spec A run in worktree A; tasks from spec B run in worktree B. No cross-spec commits share a branch.
+
+Then run §1.5.1, §1.6, and §1.7 **per worktree** before any wave spawns.
+
+### 1.5.1. SYMLINK DEPENDENCIES (per worktree)
+
+After each worktree is created, symlink `node_modules` from the main repo so TypeScript/LSP/build can resolve dependencies without a full install:
 ```bash
-node "${HOME}/.claude/bin/worktree-deps.js" --source "$(git rev-parse --show-toplevel)" --worktree "${WORKTREE_PATH}"
+node "${HOME}/.claude/bin/worktree-deps.js" --source "$(git rev-parse --show-toplevel)" --worktree "${SPEC_WORKTREES[spec].path}"
 ```
 The script finds `node_modules` at root and inside monorepo directories (`packages/`, `apps/`, etc.) and creates symlinks in the worktree. Outputs JSON: `{"linked": N, "total": M}`. Errors are non-fatal — log and continue.
 
-### 1.6. RATCHET SNAPSHOT
+### 1.6. RATCHET SNAPSHOT (per worktree)
 
-Snapshot pre-existing test files — only these count for ratchet (agent-created excluded):
+For each spec worktree, snapshot pre-existing test files — only these count for ratchet (agent-created excluded):
 ```bash
-git -C ${WORKTREE_PATH} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' > .deepflow/auto-snapshot.txt
+git -C ${SPEC_WORKTREES[spec].path} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' > .deepflow/auto-snapshot-{spec}.txt
 ```
+
+Each spec has its own snapshot file. Ratchet checks in §5.5 pass the snapshot file matching the task's spec.
 
 ### 1.7. NO-TESTS BOOTSTRAP
 
@@ -65,19 +76,19 @@ git -C ${WORKTREE_PATH} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.
 <!-- AC-2: bootstrap success re-snapshots auto-snapshot.txt; subsequent tasks use updated snapshot -->
 <!-- AC-3: bootstrap failure with default model retries with Opus; double failure halts with specific message -->
 
-**Gate:** After §1.6 snapshot, check `auto-snapshot.txt`:
+**Gate (per spec):** After §1.6 snapshot, check each spec's snapshot file independently:
 ```bash
-SNAPSHOT_COUNT=$(wc -l < .deepflow/auto-snapshot.txt | tr -d ' ')
+SNAPSHOT_COUNT=$(wc -l < .deepflow/auto-snapshot-{spec}.txt | tr -d ' ')
 ```
-If `SNAPSHOT_COUNT` is `0` (zero test files found), MUST spawn bootstrap agent before wave 1. No implementation tasks may start until bootstrap completes successfully.
+If `SNAPSHOT_COUNT` is `0` for a given spec (zero test files found), MUST spawn a bootstrap agent for **that spec** before any implementation task from that spec runs. Other specs with non-empty snapshots proceed normally.
 
-**Bootstrap flow:**
-1. Spawn `Agent(model="{default_model}", ...)` with Bootstrap prompt (§6). End turn, wait for notification.
-2. **On success (TASK_STATUS:pass):** Re-snapshot immediately:
+**Bootstrap flow (per empty-snapshot spec):**
+1. Spawn `Agent(model="{default_model}", ...)` with Bootstrap prompt (§6), `Working directory: ${SPEC_WORKTREES[spec].path}`. End turn, wait for notification.
+2. **On success (TASK_STATUS:pass):** Re-snapshot immediately for that spec:
    ```bash
-   git -C ${WORKTREE_PATH} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' > .deepflow/auto-snapshot.txt
+   git -C ${SPEC_WORKTREES[spec].path} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' > .deepflow/auto-snapshot-{spec}.txt
    ```
-   All subsequent tasks use this updated snapshot as their ratchet baseline. Proceed to wave 1.
+   All subsequent tasks for that spec use this updated snapshot as their ratchet baseline. Proceed to wave 1.
 3. **On failure (TASK_STATUS:fail) with default model:** Retry ONCE with `Agent(model="opus", ...)` using the same Bootstrap prompt.
    - Opus success → re-snapshot (same command above) → proceed to wave 1.
    - Opus failure → halt with message: `"Bootstrap failed with both default and Opus — manual intervention required"`. Do not proceed.
@@ -137,17 +148,19 @@ Context ≥50% → checkpoint and exit. Before spawning: `TaskUpdate(status: "in
 
 **Token tracking start:** Store `start_percentage` (from context.json) and `start_timestamp` (ISO 8601) keyed by task_id. Omit if unavailable.
 
-**NEVER use `isolation: "worktree"`.** Deepflow manages a shared worktree so wave 2 sees wave 1 commits. **Spawn ALL ready tasks in ONE message** except file conflicts.
+**NEVER use `isolation: "worktree"`.** Deepflow manages one worktree **per spec** (§1.5). Tasks from the same spec commit to the same branch so wave 2 sees wave 1 commits; tasks from different specs commit to different branches and never interleave. **Spawn ALL ready tasks in ONE message** except file conflicts.
 
-**File conflicts (1 file = 1 writer):** Check `Files:` from wave-runner JSON output or from mini-plan detail files (`.deepflow/plans/doing-{specName}.md`). Overlap → spawn lowest-numbered only; rest stay pending. Log: `"⏳ T{N} deferred — file conflict with T{M} on {filename}"`
+**Per-spec routing (CRITICAL):** Each task in `WAVE_JSON` carries a `spec` field (from `bin/wave-runner.js`). When building the agent prompt (§6), you MUST set `Working directory: ${SPEC_WORKTREES[task.spec].path}` — the worktree for that task's spec, NOT the first spec in the map. Cross-spec contamination (spawning a task from spec B into spec A's worktree) corrupts branch history and breaks `/df:verify`. If `task.spec` is absent from the JSON, fall back to deriving it from the task's mini-plan file `.deepflow/plans/doing-{specName}.md`; if still unresolvable, defer the task and log `"⚠ T{N} deferred — cannot resolve spec"`.
 
-**≥2 [SPIKE] tasks same problem →** Parallel Spike Probes (§5.7). **[OPTIMIZE] tasks →** Optimize Cycle (§5.9), one at a time.
+**File conflicts (1 file = 1 writer):** Check `Files:` from wave-runner JSON output or from mini-plan detail files (`.deepflow/plans/doing-{specName}.md`). File-conflict rule applies **only within the same spec** — two tasks from different specs touching files with identical paths are actually in different worktrees and cannot collide. Overlap within a spec → spawn lowest-numbered only; rest stay pending. Log: `"⏳ T{N} deferred — file conflict with T{M} on {filename}"`
+
+**≥2 [SPIKE] tasks same problem →** Parallel Spike Probes (§5.7). **[OPTIMIZE] tasks →** Optimize Cycle (§5.9), one at a time. **[INTEGRATION] tasks** (`task.isIntegration === true` in WAVE_JSON) **→** use the Integration Task prompt template (§6 Integration Task), not the Standard Task template. Integration tasks always land in the final wave via `Blocked by:` — wave-runner guarantees this, so they execute after all producer/consumer implementation tasks have committed. Route them to the **consumer spec's** worktree via `SPEC_WORKTREES[task.spec].path` (plan.md §4.8.2 places the integration task under the consumer's section header, so `task.spec` is already the consumer).
 
 ### 5.5. RATCHET CHECK
 
-Run `node "${HOME}/.claude/bin/ratchet.js"` in the worktree directory after each agent completes:
+Run `node "${HOME}/.claude/bin/ratchet.js"` in the **task's spec worktree** after each agent completes, using that spec's snapshot file:
 ```bash
-node "${HOME}/.claude/bin/ratchet.js" --worktree ${WORKTREE_PATH} --snapshot .deepflow/auto-snapshot.txt --task T{N}
+node "${HOME}/.claude/bin/ratchet.js" --worktree ${SPEC_WORKTREES[task.spec].path} --snapshot .deepflow/auto-snapshot-{task.spec}.txt --task T{N}
 ```
 
 The script handles all health checks internally and outputs structured JSON:
@@ -205,7 +218,7 @@ If no `DECISIONS:` line in agent output → skip silently (mechanical tasks don'
 **Edit scope validation:** `git diff HEAD~1 --name-only` vs allowed globs. Violation → revert, report.
 **Impact completeness:** diff vs Impact callers/duplicates. Gap → advisory warning (no revert).
 
-**Metric gate (Optimize only):** Run `eval "${metric_command}"` with cwd=`${WORKTREE_PATH}` (never `cd && eval`). Parse float (non-numeric → revert). Compare using `direction`+`min_improvement_threshold`. Both ratchet AND metric must pass → keep. Ratchet pass + metric stagnant → revert. Secondary metrics: regression > `regression_threshold` (5%) → WARNING in auto-report.md (no revert).
+**Metric gate (Optimize only):** Run `eval "${metric_command}"` with cwd=`${SPEC_WORKTREES[task.spec].path}` (never `cd && eval`). Parse float (non-numeric → revert). Compare using `direction`+`min_improvement_threshold`. Both ratchet AND metric must pass → keep. Ratchet pass + metric stagnant → revert. Secondary metrics: regression > `regression_threshold` (5%) → WARNING in auto-report.md (no revert).
 
 **Token tracking result (on pass):** Read `end_percentage`. Sum token fields from `.deepflow/token-history.jsonl` between start/end timestamps (awk ISO 8601 compare). Write to `.deepflow/results/T{N}.yaml`:
 ```yaml
@@ -255,7 +268,7 @@ Git operations that produce large output (diff, stash, cherry-pick conflict outp
 **Pattern:**
 ```
 Spawn Agent(model="haiku", run_in_background=false):
-  Working directory: {WORKTREE_PATH}
+  Working directory: ${SPEC_WORKTREES[task.spec].path}
   Run: {git command}
   Return exactly ONE line: "{operation}: {N lines changed / N files / outcome}"
   Do NOT output the raw diff or full command output.
@@ -330,7 +343,9 @@ REPEAT:
 
 ### 6. PER-TASK (agent prompt)
 
-**Common preamble (all):** `Working directory: {worktree_absolute_path}. All file ops use this path. Commit format: {type}({spec}): {desc}`
+**Common preamble (all):** `Working directory: ${SPEC_WORKTREES[task.spec].path}. All file ops use this path. Commit format: {type}({spec}): {desc}`
+
+Resolve `task.spec` from the `WAVE_JSON` entry for this task (fallback: scan `.deepflow/plans/doing-*.md` for the task's block). Never hand an agent a worktree path that belongs to a different spec.
 
 **Task detail loading (before building agent prompt):** Check for `.deepflow/plans/doing-{task_id}.md` (shell injection):
 ```
@@ -356,6 +371,17 @@ Steps (only when `Files:` list is non-empty):
 **AC-8 — graceful no-op:** If no matching symbols are found across all processed files (either `documentSymbol` returns nothing or no Class/Interface/Enum/TypeAlias symbols exist), set `EXISTING_TYPES` to empty string. No context block is added to the prompt.
 
 <!-- AC-6: Backward-compatible no-op — when neither Domain Model section exists in the spec nor Existing Types extraction yields content (EXISTING_TYPES is empty string), the Standard Task prompt contains no extra context blocks and is identical to the pre-injection baseline. Zero prompt overhead, zero tool calls for tasks that lack these context sources. -->
+
+**Template selection (deterministic, from WAVE_JSON):**
+
+| Flag                  | Template                           |
+|-----------------------|------------------------------------|
+| `isIntegration: true` | Integration Task (below)           |
+| `isSpike: true`       | Spike                              |
+| `isOptimize: true`    | Optimize Task                      |
+| (none)                | Standard Task                      |
+
+Read these fields from `WAVE_JSON` entries. Do NOT re-parse the task description for tags — the flags are authoritative. If `isIntegration` is true, skip Standard Task entirely and jump to Integration Task (below).
 
 **Standard Task** (`Agent(model="{Model}", ...)`):
 ```
@@ -498,7 +524,18 @@ Skills: `atomic-commits`, `browse-fetch`. Agents: Implementation (`general-purpo
 | sonnet/medium | `Agent(model="sonnet")` | `Direct and efficient. Explain only non-obvious logic.` |
 | opus/high | `Agent(model="opus")` | _(none)_ |
 
-**Checkpoint:** `.deepflow/checkpoint.json`: `{"completed_tasks":["T1"],"current_wave":2,"worktree_path":"...","worktree_branch":"df/..."}`
+**Checkpoint:** `.deepflow/checkpoint.json`:
+```json
+{
+  "completed_tasks": ["T1"],
+  "current_wave": 2,
+  "spec_worktrees": {
+    "upload":   {"path": ".deepflow/worktrees/upload",   "branch": "df/upload"},
+    "auth":     {"path": ".deepflow/worktrees/auth",     "branch": "df/auth"}
+  }
+}
+```
+One entry per `doing-*` spec in scope. `--continue` rehydrates this map before wave scheduling.
 
 ## Failure Handling
 

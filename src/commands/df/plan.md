@@ -349,11 +349,17 @@ If no shared interfaces found, return:
 
 **Skip if:** Interface Map returns "(none detected — specs are independent)".
 
-For each group of specs sharing interfaces, generate ONE integration task appended AFTER all spec tasks in the consolidated plan. Integration tasks are always the last wave.
+For each group of specs sharing interfaces, generate ONE integration task per interface cluster.
+
+**Placement (CRITICAL for worktree routing):** Integration tasks must be placed under the **consumer spec's** `### {consumer-spec-name}` section in the consolidated PLAN.md, NOT at the end of the file and NOT under their own header. `bin/wave-runner.js` assigns `task.spec` from the nearest preceding `### ` header, and `/df:execute` uses that field to route the task to the correct per-spec worktree (`SPEC_WORKTREES[task.spec].path`). If an integration task lands under a header that is not a real spec (e.g. `### Integration`), execute will fail to resolve a worktree and defer the task.
+
+**Consumer selection:** The "consumer" is the spec that reads/calls the interface (e.g. frontend consumes API produced by backend → frontend is consumer). The fix-the-consumer rule in execute.md §6 Integration Task template means the integration agent will modify consumer-side code, which matches the consumer's worktree. If a cluster has multiple consumers, emit one integration task per consumer under each consumer's section.
+
+The `[INTEGRATION]` tag is parsed deterministically by `bin/wave-runner.js` and surfaced as `isIntegration: true` in its JSON output; execute.md §6 uses that flag (not the task description) to pick the Integration Task prompt.
 
 **Integration task format:**
 ```markdown
-- [ ] **T{N}** [INTEGRATION]: Verify {spec_a} ↔ {spec_b} contracts
+- [ ] **T{N}** [INTEGRATION]: Verify {producer_spec} ↔ {consumer_spec} contracts
   - Files: {files at integration boundaries — API handlers, adapters, shared types, migrations}
   - Integration ACs:
     - End-to-end flow: {producer} → {consumer} works with real data
