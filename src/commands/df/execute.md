@@ -442,6 +442,7 @@ Integration ACs: {list from PLAN.md}
 Specs involved: {spec file paths}
 Interface Map: {from integration task detail}
 Contract Risks: {from integration task detail}
+LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files)
 --- END ---
 RULES:
 - Fix the CONSUMER to match the PRODUCER's declared interface. Never weaken the producer.
