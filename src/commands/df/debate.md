@@ -12,7 +12,7 @@ Coordinate reasoner agents to debate a problem from multiple perspectives, then 
 
 **NEVER:** use TaskOutput, `run_in_background`, Explore agents, EnterPlanMode, ExitPlanMode
 
-**ONLY:** Gather codebase context (Glob/Grep/Read), spawn reasoner agents (non-background), write debate file, respond conversationally
+**ONLY:** Spawn context-fork agent for codebase gathering, spawn reasoner agents (non-background), write debate file, respond conversationally
 
 ## Agents
 
@@ -30,7 +30,23 @@ Coordinate reasoner agents to debate a problem from multiple perspectives, then 
 Summarize conversation context in ~200 words: core problem, requirements, constraints, user priorities. Passed to each perspective agent.
 
 ### 2. GATHER CODEBASE CONTEXT
-Prefer LSP documentSymbol to understand file structure, then Read with offset/limit on relevant ranges only (never read full files). Glob/Grep to locate files (up to 5-6, focus on core logic). Produce ~300 word codebase summary: what exists, key interfaces, current limitations, dependencies. Passed to every agent.
+Spawn a context-fork agent (subagent_type="default", model="sonnet") with the following prompt:
+
+```
+## Task: Codebase Context Gathering
+
+Problem being analyzed: {summary}
+
+Instructions:
+- Use LSP documentSymbol to understand file structure where available
+- Use Read with offset/limit on relevant ranges only (never read full files)
+- Use Glob/Grep to locate relevant files (up to 5-6, focus on core logic)
+- Produce a ~300 word summary covering: what exists, key interfaces, current limitations, dependencies
+
+Return ONLY the codebase summary text (~300 words). No preamble, no explanation.
+```
+
+Store the agent's response as {codebase_summary}. Passed to every perspective agent.
 
 ### 3. SPAWN PERSPECTIVES
 
@@ -82,6 +98,6 @@ Present key tensions and open decisions, then: `Next: Run /df:spec {name} to for
 ## Rules
 
 - ALL 4 perspective agents MUST be spawned in ONE message (parallel, non-background)
-- Orchestrator gathers codebase context (step 2), passes to agents via prompt — agents never read files
+- Orchestrator delegates codebase gathering (step 2) to a context-fork agent — orchestrator never reads files directly
 - File name MUST be `.debate-{name}.md` (dot prefix = auxiliary file, lives in `specs/`)
 - Word limits: each perspective <400 words, synthesis <500 words
