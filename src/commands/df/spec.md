@@ -55,6 +55,7 @@ Spawn reasoner agent (`subagent_type: "reasoner"`, `model: "opus"`). The reasone
 - Flags conflicts with existing code
 - Verifies every REQ-N has a corresponding AC; flags uncovered requirements
 - Flags vague/untestable requirements (e.g., "should be fast" without a metric)
+- If Explore agents found type definitions or interfaces relevant to this spec, include a ## Domain Model section with Key Types (signatures only) and Ubiquitous Language (domain terms). Omit if no relevant types found.
 
 ### 4. GENERATE SPEC
 
