@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// @hook-event: PostToolUse
+// @hook-owner: deepflow
 /**
  * deepflow AC coverage checker
  * Standalone script called by the orchestrator after ratchet checks.

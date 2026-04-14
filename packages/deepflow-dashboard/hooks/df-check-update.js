@@ -1,9 +1,9 @@
 #!/usr/bin/env node
+// @hook-owner: dashboard
 // @hook-event: SessionStart
-// @hook-owner: deepflow
 /**
- * deepflow update checker
- * Runs in background, checks npm for newer versions
+ * deepflow-dashboard update checker
+ * Runs in background, checks npm for newer versions of deepflow-dashboard
  */
 
 const { spawn } = require('child_process');
@@ -11,9 +11,9 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const PACKAGE_NAME = 'deepflow';
+const PACKAGE_NAME = 'deepflow-dashboard';
 const CACHE_DIR = path.join(os.homedir(), '.claude', 'cache');
-const CACHE_FILE = path.join(CACHE_DIR, 'df-update-check.json');
+const CACHE_FILE = path.join(CACHE_DIR, '.deepflow-dashboard-update-check.json');
 
 // If called directly, spawn background process and exit
 if (process.argv[2] !== '--background') {

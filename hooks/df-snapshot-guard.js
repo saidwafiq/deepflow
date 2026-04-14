@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @hook-event: PostToolUse
+// @hook-owner: deepflow
 /**
  * deepflow snapshot guard
  * PostToolUse hook: blocks Write/Edit to files listed in .deepflow/auto-snapshot.txt.

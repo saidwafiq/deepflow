@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @hook-event: PostToolUse
+// @hook-owner: deepflow
 /**
  * deepflow invariant checker
  * Checks implementation diffs against spec invariants.

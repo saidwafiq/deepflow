@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @hook-event: PreToolUse
+// @hook-owner: deepflow
 /**
  * deepflow explore protocol injector
  * PreToolUse hook: fires before the Agent tool executes.
@@ -243,27 +244,6 @@ readStdinIfMain(module, (payload) => {
         },
       },
     };
-
-    // --- Metrics logging (fail-open) ---
-    // Log phase 1 hit rate to explore-metrics.jsonl.
-    // Wraps in try/catch so metrics failures never block hook execution.
-    try {
-      const metricsDir = path.join(effectiveCwd, '.deepflow');
-      const metricsPath = path.join(metricsDir, 'explore-metrics.jsonl');
-      if (!fs.existsSync(metricsDir)) {
-        fs.mkdirSync(metricsDir, { recursive: true });
-      }
-      const metricsEntry = {
-        timestamp: new Date().toISOString(),
-        query: originalPrompt,
-        phase1_hit: phase1Hit,
-        // tool_calls intentionally omitted: PreToolUse hooks fire before tool execution,
-        // so actual tool call counts are not observable here without a PostToolUse hook.
-      };
-      fs.appendFileSync(metricsPath, JSON.stringify(metricsEntry) + '\n', 'utf8');
-    } catch (_) {
-      // Metrics logging failure is silent — never blocks execution (REQ-8).
-    }
 
     process.stdout.write(JSON.stringify(result));
   } catch (_) {
