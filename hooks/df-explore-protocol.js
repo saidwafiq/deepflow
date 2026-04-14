@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @hook-event: PreToolUse
+// @hook-owner: deepflow
 /**
  * deepflow explore protocol injector
  * PreToolUse hook: fires before the Agent tool executes.

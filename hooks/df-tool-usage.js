@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @hook-event: PostToolUse
+// @hook-owner: dashboard
 /**
  * deepflow tool usage logger
  * Logs every PostToolUse event to ~/.claude/tool-usage.jsonl for token instrumentation.

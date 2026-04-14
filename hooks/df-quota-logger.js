@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @hook-event: SessionStart, SessionEnd
+// @hook-owner: dashboard
 /**
  * deepflow quota logger
  * Logs Anthropic API quota/usage data to ~/.claude/quota-history.jsonl

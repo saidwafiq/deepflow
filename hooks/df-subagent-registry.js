@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @hook-event: SubagentStop
+// @hook-owner: dashboard
 'use strict';
 const fs = require('fs');
 const path = require('path');

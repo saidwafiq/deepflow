@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @hook-event: PostToolUse
+// @hook-owner: deepflow
 /**
  * deepflow worktree guard
  * PostToolUse hook: blocks Write/Edit to main-branch files when a df/* worktree exists.

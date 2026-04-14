@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// @hook-event: PostToolUse
+// @hook-owner: dashboard
 /**
  * Spike hook: capture raw PostToolUse stdin payload
  * Writes the raw JSON to /tmp/df-posttooluse-payload.json for inspection.

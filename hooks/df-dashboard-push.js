@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @hook-event: SessionEnd
+// @hook-owner: dashboard
 /**
  * deepflow dashboard push — SessionEnd hook
  * Collects session summary (tokens, duration, tool calls, model), gets

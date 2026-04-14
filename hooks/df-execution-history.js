@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @hook-event: PostToolUse
+// @hook-owner: dashboard
 /**
  * deepflow execution history recorder
  * PostToolUse hook: fires when the Agent tool completes.

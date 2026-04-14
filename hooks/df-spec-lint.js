@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// @hook-event: PostToolUse
+// @hook-owner: deepflow
 /**
  * deepflow spec linter
  * Validates spec files against hard invariants and advisory checks.
