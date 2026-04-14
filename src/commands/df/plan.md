@@ -230,7 +230,7 @@ You are a spec planner. Your job is to independently analyze a spec and produce 
 2. **Compute spec layer** — determine L0–L3 based on sections present (see layer rules below)
 3. **Check experiments** — glob `.deepflow/experiments/{topic}--*` for past spikes
 4. **Explore the codebase** — detect code style, patterns, integration points relevant to this spec
-5. **Impact analysis** (L3 only) — LSP-first blast radius for files in scope
+5. **Impact analysis** (L3 only) — LSP documentSymbol on impact files → Read with offset/limit on relevant ranges only (never read full files)
 6. **Targeted exploration** — follow `templates/explore-agent.md` spawn rules for post-LSP gaps
 7. **Generate tasks** — produce a mini-plan following the output format below
 
@@ -402,10 +402,9 @@ The reasoner prompt:
 ```
 You are the plan reasoner. Analyze this spec and produce a prioritized task plan.
 
-## Spec file path
-{spec_path}
-
-Read the spec using the Read tool on the path above. Do NOT read any implementation files.
+## Spec content
+<!-- {spec_content} — injected by orchestrator before spawning; do NOT use Read tool on the spec -->
+{spec_content}
 
 ## Agent summaries (from §3 parallel agents)
 

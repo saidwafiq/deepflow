@@ -442,6 +442,7 @@ Integration ACs: {list from PLAN.md}
 Specs involved: {spec file paths}
 Interface Map: {from integration task detail}
 Contract Risks: {from integration task detail}
+LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files)
 --- END ---
 RULES:
 - Fix the CONSUMER to match the PRODUCER's declared interface. Never weaken the producer.
@@ -474,6 +475,7 @@ Current: {val} (baseline: {b}, best: {best}). Target: {t} ({dir}). Metric: {cmd}
 CONSTRAINT: ONE atomic change.
 --- MIDDLE ---
 Last 5 cycles + failed hypotheses + Impact/deps.
+LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files)
 --- END ---
 {Learnings}. ONE change + commit. No metric run, no multiple changes.
 Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail or TASK_STATUS:revert
@@ -489,6 +491,7 @@ Current/Target. Role instruction:
   ingenua: "Ignore prior. Fresh approach."
 --- MIDDLE ---
 Full history + all failed hypotheses.
+LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files)
 --- END ---
 ONE atomic change. Commit. STOP.
 Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail or TASK_STATUS:revert
