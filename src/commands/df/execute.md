@@ -491,6 +491,7 @@ Current/Target. Role instruction:
   ingenua: "Ignore prior. Fresh approach."
 --- MIDDLE ---
 Full history + all failed hypotheses.
+LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files)
 --- END ---
 ONE atomic change. Commit. STOP.
 Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail or TASK_STATUS:revert
