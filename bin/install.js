@@ -9,6 +9,7 @@ const path = require('path');
 const os = require('os');
 const readline = require('readline');
 const { execFileSync } = require('child_process');
+const { atomicWriteFileSync, scanHookEvents, removeDeepflowHooks } = require('../hooks/lib/installer-utils');
 
 // Legacy subcommand: `deepflow auto` is now `/df:auto` inside Claude Code
 if (process.argv[2] === 'auto') {
@@ -34,23 +35,6 @@ const c = {
 const GLOBAL_DIR = path.join(os.homedir(), '.claude');
 const PROJECT_DIR = path.join(process.cwd(), '.claude');
 const PACKAGE_DIR = path.resolve(__dirname, '..');
-
-/**
- * Atomically write data to targetPath using a write-to-temp + rename pattern.
- * If the write fails, the original file is left untouched and the temp file is
- * cleaned up. Temp file is created in the same directory as the target so the
- * rename is within the same filesystem (atomic on POSIX).
- */
-function atomicWriteFileSync(targetPath, data) {
-  const tmpPath = targetPath + '.tmp';
-  try {
-    fs.writeFileSync(tmpPath, data);
-    fs.renameSync(tmpPath, targetPath);
-  } catch (err) {
-    try { fs.unlinkSync(tmpPath); } catch (_) {}
-    throw err;
-  }
-}
 
 function updateGlobalPackage() {
   const currentVersion = require(path.join(PACKAGE_DIR, 'package.json')).version;
@@ -294,79 +278,6 @@ function copyDir(src, dest) {
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
-  }
-}
-
-// Valid hook events (settings.hooks keys + special "statusLine")
-const VALID_HOOK_EVENTS = new Set([
-  'SessionStart', 'SessionEnd', 'PreToolUse', 'PostToolUse', 'SubagentStop', 'statusLine'
-]);
-
-/**
- * Scan hook source files for @hook-event tags. Returns:
- *   { eventMap: Map<event, [filename, ...]>, untagged: [filename, ...] }
- */
-function scanHookEvents(hooksSourceDir) {
-  const eventMap = new Map();  // event → [filenames]
-  const untagged = [];
-
-  if (!fs.existsSync(hooksSourceDir)) return { eventMap, untagged };
-
-  for (const file of fs.readdirSync(hooksSourceDir)) {
-    if (!file.endsWith('.js') || file.endsWith('.test.js')) continue;
-
-    const content = fs.readFileSync(path.join(hooksSourceDir, file), 'utf8');
-    const firstLines = content.split('\n').slice(0, 10).join('\n');
-    const match = firstLines.match(/\/\/\s*@hook-event:\s*(.+)/);
-
-    if (!match) {
-      untagged.push(file);
-      continue;
-    }
-
-    const events = match[1].split(',').map(e => e.trim()).filter(Boolean);
-    let hasValidEvent = false;
-
-    for (const event of events) {
-      if (!VALID_HOOK_EVENTS.has(event)) {
-        console.log(`  ${c.yellow}!${c.reset} Warning: unknown event "${event}" in ${file} — skipped`);
-        continue;
-      }
-      hasValidEvent = true;
-      if (!eventMap.has(event)) eventMap.set(event, []);
-      eventMap.get(event).push(file);
-    }
-
-    if (!hasValidEvent) {
-      untagged.push(file);
-    }
-  }
-
-  return { eventMap, untagged };
-}
-
-/**
- * Remove all deepflow hook entries (commands containing /hooks/df-) from settings.
- * Preserves non-deepflow hooks.
- */
-function removeDeepflowHooks(settings) {
-  const isDeepflow = (hook) => {
-    const cmd = hook.hooks?.[0]?.command || '';
-    return cmd.includes('/hooks/df-');
-  };
-
-  // Clean settings.hooks.*
-  if (settings.hooks) {
-    for (const event of Object.keys(settings.hooks)) {
-      settings.hooks[event] = settings.hooks[event].filter(h => !isDeepflow(h));
-      if (settings.hooks[event].length === 0) delete settings.hooks[event];
-    }
-    if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
-  }
-
-  // Clean settings.statusLine if it's a deepflow hook
-  if (settings.statusLine?.command && settings.statusLine.command.includes('/hooks/df-')) {
-    delete settings.statusLine;
   }
 }
 
