@@ -281,6 +281,48 @@ function copyDir(src, dest) {
   }
 }
 
+/**
+ * Returns true if settings.json contains any hook commands that reference a
+ * dashboard-owned hook file (identified by @hook-owner: dashboard in its source).
+ * Checks both settings.hooks.* entries and settings.statusLine.
+ */
+function detectDashboardHooks(settings, claudeDir) {
+  const hooksInstallDir = path.join(claudeDir, 'hooks');
+  if (!fs.existsSync(hooksInstallDir)) return false;
+
+  // Collect all command strings currently wired in settings
+  const wiredCommands = [];
+  if (settings.hooks) {
+    for (const entries of Object.values(settings.hooks)) {
+      for (const entry of entries) {
+        const cmd = entry.hooks?.[0]?.command;
+        if (cmd) wiredCommands.push(cmd);
+      }
+    }
+  }
+  if (settings.statusLine?.command) {
+    wiredCommands.push(settings.statusLine.command);
+  }
+
+  // For each wired command, resolve the hook filename and check its @hook-owner
+  for (const cmd of wiredCommands) {
+    // Commands look like: node "/path/to/.claude/hooks/df-foo.js"
+    const match = cmd.match(/["']?([^"'\s]+\.js)["']?\s*$/);
+    if (!match) continue;
+    const hookPath = match[1];
+    if (!fs.existsSync(hookPath)) continue;
+    try {
+      const content = fs.readFileSync(hookPath, 'utf8');
+      const firstLines = content.split('\n').slice(0, 10).join('\n');
+      const ownerMatch = firstLines.match(/\/\/\s*@hook-owner:\s*(.+)/);
+      if (ownerMatch && ownerMatch[1].trim() === 'dashboard') return true;
+    } catch (_) {
+      // Skip unreadable files
+    }
+  }
+  return false;
+}
+
 async function configureHooks(claudeDir) {
   const settingsPath = path.join(claudeDir, 'settings.json');
   const hooksSourceDir = path.join(PACKAGE_DIR, 'hooks');
@@ -304,8 +346,8 @@ async function configureHooks(claudeDir) {
   configurePermissions(settings);
   log('Agent permissions configured');
 
-  // Scan hook files for @hook-event tags
-  const { eventMap, untagged } = scanHookEvents(hooksSourceDir);
+  // Scan hook files for @hook-event tags — only deepflow-owned hooks
+  const { eventMap, untagged } = scanHookEvents(hooksSourceDir, 'deepflow');
 
   // Remember if there was a pre-existing non-deepflow statusLine
   const hadExternalStatusLine = settings.statusLine &&
@@ -313,6 +355,15 @@ async function configureHooks(claudeDir) {
 
   // Remove all existing deepflow hooks (orphan cleanup + idempotency)
   removeDeepflowHooks(settings);
+
+  // Migration warning: detect dashboard-owned hooks already wired in settings.json
+  // (they were installed by an older deepflow version that didn't distinguish owners)
+  const hasDashboardHooks = detectDashboardHooks(settings, claudeDir);
+  if (hasDashboardHooks) {
+    console.log('');
+    console.log(`  ${c.yellow}!${c.reset} Dashboard hooks detected — run \`npx deepflow-dashboard install\` to manage them separately.`);
+    console.log('');
+  }
 
   // Wire hooks by event
   if (!settings.hooks) settings.hooks = {};
@@ -547,12 +598,23 @@ async function uninstall() {
   ];
 
   if (level === 'global') {
-    // Dynamically find all df-*.js hook files to remove
+    // Dynamically find deepflow-owned hook files to remove.
+    // Check @hook-owner tag from the installed file; skip dashboard-owned hooks.
     const hooksDir = path.join(CLAUDE_DIR, 'hooks');
     if (fs.existsSync(hooksDir)) {
       for (const file of fs.readdirSync(hooksDir)) {
-        if (file.startsWith('df-') && file.endsWith('.js')) {
-          toRemove.push(`hooks/${file}`);
+        if (!file.endsWith('.js') || file.endsWith('.test.js')) continue;
+        const filePath = path.join(hooksDir, file);
+        try {
+          const content = fs.readFileSync(filePath, 'utf8');
+          const firstLines = content.split('\n').slice(0, 10).join('\n');
+          const ownerMatch = firstLines.match(/\/\/\s*@hook-owner:\s*(.+)/);
+          if (ownerMatch && ownerMatch[1].trim() === 'deepflow') {
+            toRemove.push(`hooks/${file}`);
+          }
+          // dashboard-owned hooks are intentionally left in place
+        } catch (_) {
+          // Skip unreadable files
         }
       }
     }
