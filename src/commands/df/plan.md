@@ -402,10 +402,9 @@ The reasoner prompt:
 ```
 You are the plan reasoner. Analyze this spec and produce a prioritized task plan.
 
-## Spec file path
-{spec_path}
-
-Read the spec using the Read tool on the path above. Do NOT read any implementation files.
+## Spec content
+<!-- {spec_content} — injected by orchestrator before spawning; do NOT use Read tool on the spec -->
+{spec_content}
 
 ## Agent summaries (from §3 parallel agents)
 
