@@ -399,7 +399,7 @@ Success criteria: {ACs from spec relevant to this task}
 {If spec contains ## Domain Model section:
 --- CONTEXT: Domain Model ---
 {Domain Model section content from doing-*.md, extracted via shell injection:
-  DOMAIN_MODEL=!`sed -n '/^## Domain Model$/,/^## [^D]/p' specs/doing-{spec_name}.md | head -n -1 2>/dev/null || echo 'NOT_FOUND'`
+  DOMAIN_MODEL=!`sed -n '/^## Domain Model$/,/^## /p' specs/doing-{spec_name}.md | head -n -1 2>/dev/null || echo 'NOT_FOUND'`
 }
 }
 {If EXISTING_TYPES is non-empty:
