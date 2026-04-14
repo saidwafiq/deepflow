@@ -43,6 +43,23 @@
 
 - [Explicitly excluded: e.g., "Video upload is NOT included"]
 
+## Domain Model
+
+<!-- Optional. Define the core entities and vocabulary. -->
+
+### Key Types
+
+```typescript
+// Core domain types and entities
+```
+
+### Ubiquitous Language
+
+- **Term**: Definition
+- **Term**: Definition
+
+_Note: Keep to max 15 terms for clarity._
+
 ## Acceptance Criteria
 
 - [ ] [Testable criterion: e.g., "User can upload jpg/png/webp files"]
