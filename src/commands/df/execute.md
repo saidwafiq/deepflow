@@ -475,6 +475,7 @@ Current: {val} (baseline: {b}, best: {best}). Target: {t} ({dir}). Metric: {cmd}
 CONSTRAINT: ONE atomic change.
 --- MIDDLE ---
 Last 5 cycles + failed hypotheses + Impact/deps.
+LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files)
 --- END ---
 {Learnings}. ONE change + commit. No metric run, no multiple changes.
 Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail or TASK_STATUS:revert
