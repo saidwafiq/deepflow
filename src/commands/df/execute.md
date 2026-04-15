@@ -211,7 +211,7 @@ Parse the agent's response for `DECISIONS:` line. If present:
 3. Append to `.deepflow/decisions.md` under `### {date} — {spec_name}` header (create header if first decision for this spec today, reuse if exists)
 4. Format: `- [TAG] description — rationale`
 
-If no `DECISIONS:` line in agent output → skip silently (mechanical tasks don't produce decisions).
+If no `DECISIONS:` line in agent output and the task effort is not `low` → emit SALVAGEABLE (non-trivial tasks without a decision line may indicate the agent skipped documenting architectural choices). For tasks with effort `low`, skip silently (mechanical tasks don't produce decisions).
 
 **This runs on every ratchet pass, not just at verify time.** Decisions are captured incrementally as tasks complete, so they're never lost even if verify fails or merge is manual.
 
@@ -421,7 +421,7 @@ AC-2:skip:reason here (if applicable)
 AC_COVERAGE_END
 ```
 Format: one line per AC with either `AC-N:done` or `AC-N:skip:reason`. Omit this block if the spec has no acceptance criteria.
-DECISIONS: If you made non-obvious choices, append to the LAST LINE BEFORE TASK_STATUS:
+DECISIONS: If you made non-obvious choices, cite with [APPROACH]. Append to the LAST LINE BEFORE TASK_STATUS:
 DECISIONS: [TAG] {decision} — {rationale} | [TAG] {decision2} — {rationale2}
 Tags:
   [APPROACH] — chose X over Y (architectural/design choice)
@@ -430,6 +430,7 @@ Tags:
   [FUTURE] — deferred X because Y; revisit when Z
   [UPDATE] — changed prior decision from X to Y because Z
 Skip for trivial/mechanical changes.
+Files: List every file you modified or created, one per line, in the format `Files: path/to/file.ts, path/to/other.ts`. This is required so the orchestrator can detect file conflicts across concurrent tasks.
 Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed) or TASK_STATUS:revert (if reverted)
 ```
 
