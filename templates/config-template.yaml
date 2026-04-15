@@ -96,6 +96,9 @@ quality:
   # Timeout in seconds to wait for the dev server to become ready (default: 30)
   browser_timeout: 30
 
+  # Minimum quality score threshold for harness verification (0.0-1.0, default: 0.6)
+  harness_min_score: 0.6
+
 # Ratchet configuration for /df:verify health gate
 # Ratchet snapshots baseline metrics (tests passing, coverage, type checks) before execution
 # and ensures subsequent runs don't regress. These overrides control which commands ratchet monitors.

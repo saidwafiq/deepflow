@@ -224,6 +224,10 @@ function validateSpec(content, { mode = 'interactive', specsDir = null, filename
         hard.push(
           `Acceptance Criteria line missing "- [ ]" checkbox: "${line.trim()}"`
         );
+      } else if (!/\*\*AC-\d+\*\*/.test(line)) {
+        hard.push(
+          `Acceptance Criteria checkbox missing **AC-N** identifier: "${line.trim()}"`
+        );
       }
     }
   } else if (!hasInlineAC) {

@@ -212,24 +212,26 @@ describe('AC-1: bin/ratchet.js FAIL/SALVAGEABLE paths (source-level verification
     );
   });
 
-  it('health checks run in order: build, test, typecheck, lint', () => {
+  it('health checks run in order: build, test, typecheck, lint, contract', () => {
     const match = RATCHET_SRC.match(/STAGE_ORDER\s*=\s*\[([^\]]+)\]/);
     assert.ok(match, 'STAGE_ORDER constant must exist');
     const stages = match[1].replace(/['"]/g, '').split(',').map(s => s.trim());
-    assert.deepEqual(stages, ['build', 'test', 'typecheck', 'lint']);
+    assert.deepEqual(stages, ['build', 'test', 'typecheck', 'lint', 'contract']);
   });
 
-  it('only lint stage is SALVAGEABLE (others produce FAIL)', () => {
+  it('only lint and contract stages are SALVAGEABLE (others produce FAIL)', () => {
     const match = RATCHET_SRC.match(/SALVAGEABLE_STAGES\s*=\s*new Set\(\[([^\]]+)\]\)/);
     assert.ok(match, 'SALVAGEABLE_STAGES constant must exist');
     const stages = match[1].replace(/['"]/g, '').split(',').map(s => s.trim());
-    assert.deepEqual(stages, ['lint']);
+    assert.deepEqual(stages, ['lint', 'contract']);
   });
 
   it('all JSON outputs end with newline (exactly one line)', () => {
     const outputLines = RATCHET_SRC.match(/process\.stdout\.write\(JSON\.stringify\([^)]+\)\s*\+\s*'\\n'\)/g);
     assert.ok(outputLines, 'Should have stdout.write calls with JSON');
-    assert.equal(outputLines.length, 3, 'Should have exactly 3 JSON output lines (PASS, FAIL, SALVAGEABLE)');
+    // 6 total: unknown-stage FAIL, stage-filter SALVAGEABLE, stage-filter FAIL,
+    // main-loop SALVAGEABLE, main-loop FAIL, PASS
+    assert.equal(outputLines.length, 6, 'Should have exactly 6 JSON output lines');
   });
 });
 

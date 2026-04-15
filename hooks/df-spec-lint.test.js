@@ -43,7 +43,7 @@ function fullSpec() {
     'Not doing X',
     '',
     '## Acceptance Criteria',
-    '- [ ] REQ-1 works',
+    '- [ ] **AC-1** REQ-1 works',
     '',
     '## Technical Notes',
     'Use module Y',
@@ -147,6 +147,62 @@ describe('validateSpec with frontmatter', () => {
     for (const msg of allMessages) {
       assert.ok(!msg.includes('---'), `Unexpected --- in message: ${msg}`);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateSpec — Acceptance Criteria AC-N format enforcement
+// ---------------------------------------------------------------------------
+
+describe('validateSpec AC-N format enforcement', () => {
+  test('bare "- [ ]" line without **AC-N** identifier causes hard failure', () => {
+    const specWithBareAC = [
+      '## Objective',
+      'Build the thing',
+      '',
+      '## Requirements',
+      '- REQ-1: Do something',
+      '',
+      '## Constraints',
+      'Must be fast',
+      '',
+      '## Out of Scope',
+      'Not doing X',
+      '',
+      '## Acceptance Criteria',
+      '- [ ] REQ-1 works',
+      '',
+      '## Technical Notes',
+      'Use module Y',
+    ].join('\n');
+    const result = validateSpec(specWithBareAC);
+    const acErrors = result.hard.filter((m) => m.includes('AC-N'));
+    assert.ok(acErrors.length > 0, 'should hard-fail when AC checkbox lacks **AC-N** identifier');
+  });
+
+  test('AC line with **AC-N** identifier passes without hard error', () => {
+    const result = validateSpec(fullSpec());
+    const acErrors = result.hard.filter((m) => m.includes('AC-N'));
+    assert.equal(acErrors.length, 0, 'should not hard-fail when AC checkbox has **AC-N** identifier');
+  });
+
+  test('bare "- [ ]" line hard error message references the offending line', () => {
+    const specWithBareAC = [
+      '## Objective',
+      'Build the thing',
+      '',
+      '## Requirements',
+      '- REQ-1: Do something',
+      '',
+      '## Acceptance Criteria',
+      '- [ ] bare item without identifier',
+    ].join('\n');
+    const result = validateSpec(specWithBareAC);
+    const acErrors = result.hard.filter((m) => m.includes('AC-N'));
+    assert.ok(
+      acErrors.some((m) => m.includes('bare item without identifier')),
+      'hard error message should include the offending line text'
+    );
   });
 });
 

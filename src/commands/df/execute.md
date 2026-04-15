@@ -148,7 +148,7 @@ Context ≥50% → checkpoint and exit. Before spawning: `TaskUpdate(status: "in
 
 **Token tracking start:** Store `start_percentage` (from context.json) and `start_timestamp` (ISO 8601) keyed by task_id. Omit if unavailable.
 
-**NEVER use `isolation: "worktree"`.** Deepflow manages one worktree **per spec** (§1.5). Tasks from the same spec commit to the same branch so wave 2 sees wave 1 commits; tasks from different specs commit to different branches and never interleave. **Spawn ALL ready tasks in ONE message** except file conflicts.
+**Intra-wave isolation:** Each task in a wave runs with `isolation: "worktree"` — tasks from the same spec share that spec's worktree branch so wave 2 sees wave 1 commits; tasks from different specs run in different worktrees and never interleave. **Spawn ALL ready tasks in ONE message** except file conflicts.
 
 **Per-spec routing (CRITICAL):** Each task in `WAVE_JSON` carries a `spec` field (from `bin/wave-runner.js`). When building the agent prompt (§6), you MUST set `Working directory: ${SPEC_WORKTREES[task.spec].path}` — the worktree for that task's spec, NOT the first spec in the map. Cross-spec contamination (spawning a task from spec B into spec A's worktree) corrupts branch history and breaks `/df:verify`. If `task.spec` is absent from the JSON, fall back to deriving it from the task's mini-plan file `.deepflow/plans/doing-{specName}.md`; if still unresolvable, defer the task and log `"⚠ T{N} deferred — cannot resolve spec"`.
 
@@ -156,11 +156,26 @@ Context ≥50% → checkpoint and exit. Before spawning: `TaskUpdate(status: "in
 
 **≥2 [SPIKE] tasks same problem →** Parallel Spike Probes (§5.7). **[OPTIMIZE] tasks →** Optimize Cycle (§5.9), one at a time. **[INTEGRATION] tasks** (`task.isIntegration === true` in WAVE_JSON) **→** use the Integration Task prompt template (§6 Integration Task), not the Standard Task template. Integration tasks always land in the final wave via `Blocked by:` — wave-runner guarantees this, so they execute after all producer/consumer implementation tasks have committed. Route them to the **consumer spec's** worktree via `SPEC_WORKTREES[task.spec].path` (plan.md §4.8.2 places the integration task under the consumer's section header, so `task.spec` is already the consumer).
 
+### 5.1. INTRA-WAVE CHERRY-PICK MERGE
+
+After ALL wave-N agents complete, cherry-pick each wave-N commit back to the main branch BEFORE wave N+1 begins. This ensures wave N+1 agents see all wave-N changes regardless of which worktree they run in.
+
+**Wave gate:** Wave N+1 MUST NOT start until all wave-N cherry-picks complete.
+
+**Ordering:** Apply cherry-picks in ascending task-number order (e.g., T1 before T2 before T3) for determinism.
+
+**Steps (per wave completion):**
+1. Collect all task commits from wave N (from ratchet PASS records).
+2. Sort commits by ascending task-number order.
+3. For each commit, spawn haiku context-fork (§5.8): `git cherry-pick {sha}`. Receive one-line summary.
+4. On conflict: log `"⚠ cherry-pick conflict: {sha} — {file}"`, abort cherry-pick, mark task as needing manual resolution.
+5. Only after all wave-N cherry-picks finish → proceed to spawn wave N+1 agents.
+
 ### 5.5. RATCHET CHECK
 
-Run `node "${HOME}/.claude/bin/ratchet.js"` in the **task's spec worktree** after each agent completes, using that spec's snapshot file:
+Run `node bin/ratchet.js` in the **task's spec worktree** after each agent completes, using that spec's snapshot file:
 ```bash
-node "${HOME}/.claude/bin/ratchet.js" --worktree ${SPEC_WORKTREES[task.spec].path} --snapshot .deepflow/auto-snapshot-{task.spec}.txt --task T{N}
+node bin/ratchet.js --worktree ${SPEC_WORKTREES[task.spec].path} --snapshot .deepflow/auto-snapshot-{task.spec}.txt --task T{N}
 ```
 
 The script handles all health checks internally and outputs structured JSON:
@@ -187,7 +202,7 @@ The script handles all health checks internally and outputs structured JSON:
   ```
   (Fall back to text mode if `--json` is unavailable: `node "${HOME}/.claude/bin/wave-runner.js" --plan PLAN.md --recalc --failed T{N}`)
   Report: `"✗ T{n}: reverted"`.
-- **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="sonnet")` to fix lint/typecheck issues. Re-run `node "${HOME}/.claude/bin/ratchet.js"`. If still non-zero → revert both commits, set status pending.
+- **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="sonnet")` to fix lint/typecheck issues. Re-run `node bin/ratchet.js`. If still non-zero → revert both commits, set status pending.
 
 #### 5.5.1. AC COVERAGE CHECK (after ratchet pass)
 
@@ -207,11 +222,12 @@ where `{spec_path}` is the path to `specs/doing-{spec_name}.md` and `{agent_outp
 
 Parse the agent's response for `DECISIONS:` line. If present:
 1. Split by ` | ` to get individual decisions
-2. Each decision has format `[TAG] description — rationale` where TAG ∈ {APPROACH, PROVISIONAL, ASSUMPTION, FUTURE, UPDATE}
-3. Append to `.deepflow/decisions.md` under `### {date} — {spec_name}` header (create header if first decision for this spec today, reuse if exists)
-4. Format: `- [TAG] description — rationale`
+2. If any entry does not start with `[TAG]` where TAG ∈ {APPROACH, PROVISIONAL, ASSUMPTION, FUTURE, UPDATE}, emit SALVAGEABLE and skip writing that entry to decisions.md (valid entries still get written).
+3. Each decision has format `[TAG] description — rationale` where TAG ∈ {APPROACH, PROVISIONAL, ASSUMPTION, FUTURE, UPDATE}
+4. Append to `.deepflow/decisions.md` under `### {date} — {spec_name}` header (create header if first decision for this spec today, reuse if exists)
+5. Format: `- [TAG] description — rationale`
 
-If no `DECISIONS:` line in agent output → skip silently (mechanical tasks don't produce decisions).
+If no `DECISIONS:` line in agent output and the task effort is not `low` → emit SALVAGEABLE (non-trivial tasks without a decision line may indicate the agent skipped documenting architectural choices). For tasks with effort `low`, skip silently (mechanical tasks don't produce decisions).
 
 **This runs on every ratchet pass, not just at verify time.** Decisions are captured incrementally as tasks complete, so they're never lost even if verify fails or merge is manual.
 
@@ -231,6 +247,20 @@ tokens:
   cache_read_input_tokens: {sum}
 ```
 Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for tracking errors.
+
+### 5.6. WAVE TEST AGENT
+
+Trigger: task type is [TEST] or orchestrator spawns a dedicated test-writing agent for a wave.
+
+Before spawning the test agent, collect context:
+```bash
+SNAPSHOT_FILES=!`cat .deepflow/auto-snapshot.txt 2>/dev/null || echo ''`
+EXISTING_TEST_NAMES=!`grep -h -E "^\s*(it|test|describe)\(" ${SNAPSHOT_FILES} 2>/dev/null | sed "s/^[[:space:]]*//" || echo ''`
+```
+
+Pass `SNAPSHOT_FILES` and `EXISTING_TEST_NAMES` into the agent prompt so it can avoid duplication.
+
+**Implementation diff:** The wave test agent reads the implementation diff itself using the `Read` tool or `git diff` — do NOT capture or pass the raw diff to the wave test prompt inline. Injecting large diffs inflates context and causes rot.
 
 ### 5.7. PARALLEL SPIKE PROBES
 
@@ -421,7 +451,7 @@ AC-2:skip:reason here (if applicable)
 AC_COVERAGE_END
 ```
 Format: one line per AC with either `AC-N:done` or `AC-N:skip:reason`. Omit this block if the spec has no acceptance criteria.
-DECISIONS: If you made non-obvious choices, append to the LAST LINE BEFORE TASK_STATUS:
+DECISIONS: If you made non-obvious choices, cite with [APPROACH]. Append to the LAST LINE BEFORE TASK_STATUS:
 DECISIONS: [TAG] {decision} — {rationale} | [TAG] {decision2} — {rationale2}
 Tags:
   [APPROACH] — chose X over Y (architectural/design choice)
@@ -430,6 +460,7 @@ Tags:
   [FUTURE] — deferred X because Y; revisit when Z
   [UPDATE] — changed prior decision from X to Y because Z
 Skip for trivial/mechanical changes.
+Files: List every file you modified or created, one per line, in the format `Files: path/to/file.ts, path/to/other.ts`. This is required so the orchestrator can detect file conflicts across concurrent tasks.
 Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed) or TASK_STATUS:revert (if reverted)
 ```
 
@@ -465,7 +496,28 @@ Last line: TASK_STATUS:pass or TASK_STATUS:fail
 
 **Bootstrap:** `BOOTSTRAP: Write tests for edit_scope files. Do NOT change implementation. Commit as test({spec}): bootstrap. Last line: TASK_STATUS:pass or TASK_STATUS:fail`
 
-**Spike:** `{task_id} [SPIKE]: {hypothesis}. Files+Spec. {reverted warnings}. Minimal spike. Commit as spike({spec}): {desc}. If you discovered constraints, rejected approaches, or made assumptions, report: DECISIONS: [TAG] {finding} — {why it matters} (use PROVISIONAL for "works but needs revisit", ASSUMPTION for "assumed X; if wrong Y breaks", APPROACH for definitive choices). Last line: TASK_STATUS:pass or TASK_STATUS:fail`
+**Wave Test** (`Agent(model="sonnet")`):
+```
+--- START ---
+{task_id} [TEST]: Write tests for {spec_name}. Files+Spec.
+Pre-existing test files:
+{SNAPSHOT_FILES}
+
+Existing test function names (do NOT duplicate these):
+{EXISTING_TEST_NAMES}
+--- MIDDLE ---
+Spec: {spec_path}
+Edit scope: {edit_scope}
+--- END ---
+RULES:
+- Use the `Read` tool (or `git diff HEAD~1`) to inspect what the implementation changed before writing tests.
+- Do not duplicate tests that already exist in the pre-existing test files listed above.
+- Do not modify pre-existing test files — write new test files only.
+- Commit as test({spec}): {description}.
+Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed)
+```
+
+**Spike**: `{task_id} [SPIKE]: {hypothesis}. Files+Spec. {reverted warnings}. Minimal spike. Commit as spike({spec}): {desc}. If you discovered constraints, rejected approaches, or made assumptions, report: DECISIONS: [TAG] {finding} — {why it matters} (use PROVISIONAL for "works but needs revisit", ASSUMPTION for "assumed X; if wrong Y breaks", APPROACH for definitive choices). Last line: TASK_STATUS:pass or TASK_STATUS:fail`
 
 **Optimize Task** (`Agent(model="opus")`):
 ```

@@ -570,19 +570,19 @@ describe('buildCommands — unknown project type', () => {
 // 7. Health check stage ordering — source assertions
 // ---------------------------------------------------------------------------
 
-describe('STAGE_ORDER — build, test, typecheck, lint', () => {
+describe('STAGE_ORDER — build, test, typecheck, lint, contract', () => {
   test('source defines stages in correct order', () => {
     const match = RATCHET_SRC.match(/STAGE_ORDER\s*=\s*\[([^\]]+)\]/);
     assert.ok(match, 'STAGE_ORDER constant should exist in source');
     const stages = match[1].replace(/['"]/g, '').split(',').map(s => s.trim());
-    assert.deepEqual(stages, ['build', 'test', 'typecheck', 'lint']);
+    assert.deepEqual(stages, ['build', 'test', 'typecheck', 'lint', 'contract']);
   });
 
-  test('only lint is SALVAGEABLE', () => {
+  test('lint and contract are SALVAGEABLE', () => {
     const match = RATCHET_SRC.match(/SALVAGEABLE_STAGES\s*=\s*new Set\(\[([^\]]+)\]\)/);
     assert.ok(match, 'SALVAGEABLE_STAGES constant should exist in source');
     const stages = match[1].replace(/['"]/g, '').split(',').map(s => s.trim());
-    assert.deepEqual(stages, ['lint']);
+    assert.deepEqual(stages, ['lint', 'contract']);
   });
 });
 
