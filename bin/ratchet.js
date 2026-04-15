@@ -273,7 +273,7 @@ function autoRevert(cwd) {
 // Health-check stages in order
 // ---------------------------------------------------------------------------
 
-const STAGE_ORDER = ['build', 'test', 'typecheck', 'lint', 'contract'];
+const STAGE_ORDER = ['build', 'test', 'typecheck', 'lint', 'contract', 'scope'];
 
 // Stages where failure is SALVAGEABLE (not FAIL)
 const SALVAGEABLE_STAGES = new Set(['lint', 'contract']);
@@ -426,6 +426,108 @@ async function runContractStage(repoRoot, cwd, snapshotFiles) {
 }
 
 // ---------------------------------------------------------------------------
+// REQ-N: Scope stage — verify git diff against task's declared Files:
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse the Files: list for a specific task from PLAN.md text.
+ * Returns [] if task not found or has no Files: declaration.
+ */
+function extractTaskFilesFromPlan(planText, taskId) {
+  const lines = planText.split('\n');
+
+  // Find the task header line containing **T{N}**
+  let taskLineIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes(`**${taskId}**`)) {
+      taskLineIdx = i;
+      break;
+    }
+  }
+  if (taskLineIdx === -1) return [];
+
+  // Task block ends at the next task line (- [ ] or - [x])
+  let blockEnd = lines.length;
+  for (let i = taskLineIdx + 1; i < lines.length; i++) {
+    if (/^\s*-\s*\[[ xX~]\]/.test(lines[i])) {
+      blockEnd = i;
+      break;
+    }
+  }
+
+  const block = lines.slice(taskLineIdx, blockEnd);
+  for (const line of block) {
+    const m = line.match(/^\s*-?\s*Files:\s*(.+)$/i);
+    if (m) {
+      return m[1]
+        .split(',')
+        .map(s => s.trim().replace(/^[`"']|[`"']$/g, ''))
+        .filter(s => s.length > 0 && !/^\{.*\}$/.test(s) && !/^\[.*\]$/.test(s));
+    }
+  }
+  return [];
+}
+
+/**
+ * Scope stage: compare files changed on this branch vs main against
+ * the task's declared Files: list in PLAN.md.
+ *
+ * Returns { ok: true } when in scope or skipped (no taskId / no Files: / diff fails).
+ * Returns { ok: false, salvageable: true, log } when out-of-scope files are found.
+ */
+function runScopeStage(repoRoot, cwd, taskId) {
+  if (!taskId) return { ok: true, log: 'scope: no --task specified — skipped' };
+
+  // All files changed on this branch relative to main
+  const diffResult = spawnSync(
+    'git', ['diff', '--name-only', 'main...HEAD'],
+    { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+  );
+  if (diffResult.error || diffResult.status !== 0) {
+    return { ok: true, log: 'scope: git diff failed — skipped' };
+  }
+
+  const changedFiles = (diffResult.stdout || '').trim().split('\n').filter(f => f.length > 0);
+  if (changedFiles.length === 0) return { ok: true, log: 'scope: no changed files' };
+
+  // Load PLAN.md — prefer worktree cwd, fall back to repo root
+  let planPath = path.join(cwd, 'PLAN.md');
+  if (!fs.existsSync(planPath)) planPath = path.join(repoRoot, 'PLAN.md');
+  if (!fs.existsSync(planPath)) return { ok: true, log: 'scope: no PLAN.md — skipped' };
+
+  const planText = fs.readFileSync(planPath, 'utf8');
+  const declaredFiles = extractTaskFilesFromPlan(planText, taskId);
+  if (declaredFiles.length === 0) {
+    return { ok: true, log: `scope: no Files: declared for ${taskId} — skipped` };
+  }
+
+  // Flexible match: exact path, path suffix, or basename (handles repo-relative vs absolute)
+  const outOfScope = changedFiles.filter(changed => {
+    const changedBase = path.basename(changed);
+    return !declaredFiles.some(declared => {
+      const rel = declared.replace(/^\.\//, '');
+      const base = path.basename(rel);
+      return (
+        changed === rel ||
+        changed.endsWith('/' + rel) ||
+        rel.endsWith('/' + changed) ||
+        (changedBase === base && (changed.endsWith(rel) || rel.endsWith(changed)))
+      );
+    });
+  });
+
+  if (outOfScope.length === 0) {
+    return { ok: true, log: `scope: all ${changedFiles.length} changed file(s) in scope` };
+  }
+
+  return {
+    ok: false,
+    salvageable: true,
+    log: `scope: ${outOfScope.length} out-of-scope file(s): ${outOfScope.join(', ')} — declared: ${declaredFiles.join(', ')}`,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // CLI argument parser
 // ---------------------------------------------------------------------------
 
@@ -530,6 +632,14 @@ async function main() {
       autoRevert(cwd);
       process.stdout.write(JSON.stringify({ result: 'FAIL', stage, log: res.log }) + '\n');
       process.exit(1);
+    }
+
+    // Scope stage: compare git diff against task's declared Files: (always SALVAGEABLE)
+    if (stage === 'scope') {
+      const res = runScopeStage(repoRoot, cwd, cliArgs.task);
+      if (res.ok) continue;
+      process.stdout.write(JSON.stringify({ result: 'SALVAGEABLE', stage, log: res.log }) + '\n');
+      process.exit(2);
     }
 
     const cmd = cmds[stage];

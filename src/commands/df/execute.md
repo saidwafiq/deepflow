@@ -231,7 +231,7 @@ If no `DECISIONS:` line in agent output and the task effort is not `low` → emi
 
 **This runs on every ratchet pass, not just at verify time.** Decisions are captured incrementally as tasks complete, so they're never lost even if verify fails or merge is manual.
 
-**Edit scope validation:** `git diff HEAD~1 --name-only` vs allowed globs. Violation → revert, report.
+**Edit scope validation:** ratchet `scope` stage runs `git diff --name-only main...HEAD` vs task `Files:` list. Violation → SALVAGEABLE (commit stands, human decides).
 **Impact completeness:** diff vs Impact callers/duplicates. Gap → advisory warning (no revert).
 
 **Metric gate (Optimize only):** Run `eval "${metric_command}"` with cwd=`${SPEC_WORKTREES[task.spec].path}` (never `cd && eval`). Parse float (non-numeric → revert). Compare using `direction`+`min_improvement_threshold`. Both ratchet AND metric must pass → keep. Ratchet pass + metric stagnant → revert. Secondary metrics: regression > `regression_threshold` (5%) → WARNING in auto-report.md (no revert).
