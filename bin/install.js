@@ -9,7 +9,18 @@ const path = require('path');
 const os = require('os');
 const readline = require('readline');
 const { execFileSync } = require('child_process');
-const { atomicWriteFileSync, scanHookEvents, removeDeepflowHooks } = require('../hooks/lib/installer-utils');
+const { scanHookEvents, removeDeepflowHooks } = require('../hooks/lib/installer-utils');
+
+function atomicWriteFileSync(targetPath, data) {
+  const tmpPath = targetPath + '.tmp';
+  try {
+    fs.writeFileSync(tmpPath, data);
+    fs.renameSync(tmpPath, targetPath);
+  } catch (err) {
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+    throw err;
+  }
+}
 
 // Legacy subcommand: `deepflow auto` is now `/df:auto` inside Claude Code
 if (process.argv[2] === 'auto') {
@@ -294,8 +305,8 @@ function detectDashboardHooks(settings, claudeDir) {
   const wiredCommands = [];
   if (settings.hooks) {
     for (const entries of Object.values(settings.hooks)) {
-      for (const entry of entries) {
-        const cmd = entry.hooks?.[0]?.command;
+      for (const hook of entries) {
+        const cmd = hook.hooks?.[0]?.command;
         if (cmd) wiredCommands.push(cmd);
       }
     }
@@ -603,7 +614,7 @@ async function uninstall() {
     const hooksDir = path.join(CLAUDE_DIR, 'hooks');
     if (fs.existsSync(hooksDir)) {
       for (const file of fs.readdirSync(hooksDir)) {
-        if (!file.endsWith('.js') || file.endsWith('.test.js')) continue;
+        if (!file.startsWith('df-') || !file.endsWith('.js') || file.endsWith('.test.js')) continue;
         const filePath = path.join(hooksDir, file);
         try {
           const content = fs.readFileSync(filePath, 'utf8');
