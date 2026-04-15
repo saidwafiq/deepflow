@@ -6,8 +6,8 @@
  * Standalone script called by the orchestrator after ratchet checks.
  *
  * Usage:
- *   node ac-coverage.js --spec <path> --output <text> --status <pass|fail|revert>
- *   node ac-coverage.js --spec <path> --output-file <path> --status <pass|fail|revert>
+ *   node ac-coverage.js --spec <path> --test-files <file1,file2,...> --status <pass|fail|revert>
+ *   node ac-coverage.js --spec <path> --snapshot <path> --status <pass|fail|revert>
  *
  * Exit codes:
  *   0 — all ACs covered, no ACs in spec, or input status was fail/revert
@@ -18,6 +18,7 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 
 // ── Argument parsing ────────────────────────────────────────────────────────
 
@@ -26,8 +27,8 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--spec' && argv[i + 1]) { args.spec = argv[++i]; }
-    else if (a === '--output' && argv[i + 1]) { args.output = argv[++i]; }
-    else if (a === '--output-file' && argv[i + 1]) { args.outputFile = argv[++i]; }
+    else if (a === '--test-files' && argv[i + 1]) { args.testFiles = argv[++i]; }
+    else if (a === '--snapshot' && argv[i + 1]) { args.snapshot = argv[++i]; }
     else if (a === '--status' && argv[i + 1]) { args.status = argv[++i]; }
   }
   return args;
@@ -84,28 +85,55 @@ function extractSpecACs(specContent) {
   });
 }
 
-// ── AC parsing from agent output ────────────────────────────────────────────
+// ── AC scanning from test files ─────────────────────────────────────────────
 
 /**
- * Parse AC_COVERAGE block from agent output.
- * Returns a Map of AC-N → { status: 'done'|'skip', reason: string|null }
+ * Scan test files for AC references in test names.
+ * Matches patterns like: it('AC-1: ...'), test('AC-2 ...'), describe('AC-3 ...')
+ * Returns a Set of AC-N identifiers found across all test files.
  */
-function parseACCoverage(outputText) {
-  const map = new Map();
+function scanTestFilesForACs(testFilePaths) {
+  const found = new Set();
+  const pattern = /\b(it|test|describe)\s*\(\s*['"`][^'"`]*\bAC-(\d+)\b/g;
 
-  const blockMatch = outputText.match(/AC_COVERAGE:([\s\S]*?)AC_COVERAGE_END/);
-  if (!blockMatch) return map;
+  for (const filePath of testFilePaths) {
+    let content;
+    try {
+      content = fs.readFileSync(filePath, 'utf8');
+    } catch (e) {
+      // Skip unreadable files — not a fatal error
+      continue;
+    }
 
-  const block = blockMatch[1];
-  const linePattern = /^(AC-\d+):(done|skip)(?::(.+))?$/gm;
-  let m;
-  while ((m = linePattern.exec(block)) !== null) {
-    map.set(m[1], {
-      status: m[2],
-      reason: m[3] ? m[3].trim() : null,
-    });
+    pattern.lastIndex = 0;
+    let m;
+    while ((m = pattern.exec(content)) !== null) {
+      found.add(`AC-${m[2]}`);
+    }
   }
-  return map;
+
+  return found;
+}
+
+/**
+ * Resolve test file paths from --test-files (comma-separated list) or
+ * --snapshot (newline-separated list of paths from snapshot file).
+ */
+function resolveTestFiles(args) {
+  if (args.testFiles) {
+    return args.testFiles.split(',').map(f => f.trim()).filter(Boolean);
+  }
+  if (args.snapshot) {
+    let content;
+    try {
+      content = fs.readFileSync(args.snapshot, 'utf8');
+    } catch (e) {
+      console.error(`[ac-coverage] Error reading snapshot file: ${e.message}`);
+      process.exit(1);
+    }
+    return content.split('\n').map(f => f.trim()).filter(Boolean);
+  }
+  return [];
 }
 
 // ── Main logic ──────────────────────────────────────────────────────────────
@@ -129,77 +157,53 @@ function run(args) {
     process.exit(1);
   }
 
-  // Extract canonical ACs (AC-2, AC-7, AC-8)
+  // Extract canonical ACs from spec
   const specACs = extractSpecACs(specContent);
 
-  // AC-7: no Acceptance Criteria section → silent exit
+  // No Acceptance Criteria section → silent exit
   if (specACs === null) {
     process.exit(0);
   }
 
-  // AC-8: section exists but no AC-\d+ patterns → silent exit
+  // Section exists but no AC-\d+ patterns → silent exit
   if (specACs.length === 0) {
     process.exit(0);
   }
 
-  // Read agent output
-  let outputText = '';
-  if (args.outputFile) {
-    try {
-      outputText = fs.readFileSync(args.outputFile, 'utf8');
-    } catch (e) {
-      console.error(`[ac-coverage] Error reading output file: ${e.message}`);
-      process.exit(1);
-    }
-  } else if (args.output !== undefined) {
-    outputText = args.output;
-  }
+  // Resolve test files to scan
+  const testFilePaths = resolveTestFiles(args);
 
-  // AC-3: parse AC_COVERAGE block from agent output
-  const reported = parseACCoverage(outputText);
+  // Scan test files for AC references
+  const coveredACs = scanTestFilesForACs(testFilePaths);
 
-  // AC-3: diff — identify missed ACs (not reported as done)
+  // Diff — identify missed ACs (not referenced in any test name)
   const missed = [];
-  const skipped = [];
   let coveredCount = 0;
 
   for (const id of specACs) {
-    const entry = reported.get(id);
-    if (entry && entry.status === 'done') {
+    if (coveredACs.has(id)) {
       coveredCount++;
-    } else if (entry && entry.status === 'skip') {
-      skipped.push({ id, reason: entry.reason });
     } else {
       missed.push(id);
     }
   }
 
   const totalACs = specACs.length;
-  const reportedDoneCount = coveredCount;
 
-  // AC-6: summary line
-  const summaryParts = [];
-  if (missed.length > 0) {
-    summaryParts.push(`missed: ${missed.join(', ')}`);
-  }
-  if (skipped.length > 0) {
-    const skipDesc = skipped.map(s => s.reason ? `${s.id} (${s.reason})` : s.id).join(', ');
-    summaryParts.push(`skipped: ${skipDesc}`);
-  }
+  // Summary line
+  const summaryDetail = missed.length > 0 ? ` — missed: ${missed.join(', ')}` : '';
+  console.log(`[ac-coverage] ${coveredCount}/${totalACs} ACs covered${summaryDetail}`);
 
-  const summaryDetail = summaryParts.length > 0 ? ` — ${summaryParts.join('; ')}` : '';
-  console.log(`[ac-coverage] ${reportedDoneCount}/${totalACs} ACs covered${summaryDetail}`);
-
-  // AC-4 / AC-5: status override
+  // Status override
   const inputStatus = args.status;
   const hasMissed = missed.length > 0;
 
   if (hasMissed && inputStatus === 'pass') {
-    // AC-4: override to SALVAGEABLE
+    // Override to SALVAGEABLE
     console.log('OVERRIDE:SALVAGEABLE');
     process.exit(2);
   } else {
-    // AC-5: all done, or status was already fail/revert — no override
+    // All done, or status was already fail/revert — no override
     console.log('OVERRIDE:none');
     process.exit(0);
   }
@@ -212,4 +216,4 @@ if (require.main === module) {
   run(args);
 }
 
-module.exports = { extractSpecACs, parseACCoverage, extractACSection };
+module.exports = { extractSpecACs, extractACSection, scanTestFilesForACs, resolveTestFiles };
