@@ -158,9 +158,9 @@ Context ≥50% → checkpoint and exit. Before spawning: `TaskUpdate(status: "in
 
 ### 5.5. RATCHET CHECK
 
-Run `node "${HOME}/.claude/bin/ratchet.js"` in the **task's spec worktree** after each agent completes, using that spec's snapshot file:
+Run `node bin/ratchet.js` in the **task's spec worktree** after each agent completes, using that spec's snapshot file:
 ```bash
-node "${HOME}/.claude/bin/ratchet.js" --worktree ${SPEC_WORKTREES[task.spec].path} --snapshot .deepflow/auto-snapshot-{task.spec}.txt --task T{N}
+node bin/ratchet.js --worktree ${SPEC_WORKTREES[task.spec].path} --snapshot .deepflow/auto-snapshot-{task.spec}.txt --task T{N}
 ```
 
 The script handles all health checks internally and outputs structured JSON:
@@ -187,7 +187,7 @@ The script handles all health checks internally and outputs structured JSON:
   ```
   (Fall back to text mode if `--json` is unavailable: `node "${HOME}/.claude/bin/wave-runner.js" --plan PLAN.md --recalc --failed T{N}`)
   Report: `"✗ T{n}: reverted"`.
-- **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="sonnet")` to fix lint/typecheck issues. Re-run `node "${HOME}/.claude/bin/ratchet.js"`. If still non-zero → revert both commits, set status pending.
+- **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="sonnet")` to fix lint/typecheck issues. Re-run `node bin/ratchet.js`. If still non-zero → revert both commits, set status pending.
 
 #### 5.5.1. AC COVERAGE CHECK (after ratchet pass)
 
@@ -232,6 +232,18 @@ tokens:
   cache_read_input_tokens: {sum}
 ```
 Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for tracking errors.
+
+### 5.6. WAVE TEST AGENT
+
+Trigger: task type is [TEST] or orchestrator spawns a dedicated test-writing agent for a wave.
+
+Before spawning the test agent, collect context:
+```bash
+SNAPSHOT_FILES=!`cat .deepflow/auto-snapshot.txt 2>/dev/null || echo ''`
+EXISTING_TEST_NAMES=!`grep -h -E "^\s*(it|test|describe)\(" ${SNAPSHOT_FILES} 2>/dev/null | sed "s/^[[:space:]]*//" || echo ''`
+```
+
+Pass `SNAPSHOT_FILES` and `EXISTING_TEST_NAMES` into the agent prompt so it can avoid duplication.
 
 ### 5.7. PARALLEL SPIKE PROBES
 
@@ -466,6 +478,26 @@ Last line: TASK_STATUS:pass or TASK_STATUS:fail
 ```
 
 **Bootstrap:** `BOOTSTRAP: Write tests for edit_scope files. Do NOT change implementation. Commit as test({spec}): bootstrap. Last line: TASK_STATUS:pass or TASK_STATUS:fail`
+
+**Wave Test** (`Agent(model="sonnet")`):
+```
+--- START ---
+{task_id} [TEST]: Write tests for {spec_name}. Files+Spec.
+Pre-existing test files:
+{SNAPSHOT_FILES}
+
+Existing test function names (do NOT duplicate these):
+{EXISTING_TEST_NAMES}
+--- MIDDLE ---
+Spec: {spec_path}
+Edit scope: {edit_scope}
+--- END ---
+RULES:
+- Do not duplicate tests that already exist in the pre-existing test files listed above.
+- Do not modify pre-existing test files — write new test files only.
+- Commit as test({spec}): {description}.
+Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed)
+```
 
 **Spike:** `{task_id} [SPIKE]: {hypothesis}. Files+Spec. {reverted warnings}. Minimal spike. Commit as spike({spec}): {desc}. If you discovered constraints, rejected approaches, or made assumptions, report: DECISIONS: [TAG] {finding} — {why it matters} (use PROVISIONAL for "works but needs revisit", ASSUMPTION for "assumed X; if wrong Y breaks", APPROACH for definitive choices). Last line: TASK_STATUS:pass or TASK_STATUS:fail`
 
