@@ -148,13 +148,28 @@ Context ≥50% → checkpoint and exit. Before spawning: `TaskUpdate(status: "in
 
 **Token tracking start:** Store `start_percentage` (from context.json) and `start_timestamp` (ISO 8601) keyed by task_id. Omit if unavailable.
 
-**NEVER use `isolation: "worktree"`.** Deepflow manages one worktree **per spec** (§1.5). Tasks from the same spec commit to the same branch so wave 2 sees wave 1 commits; tasks from different specs commit to different branches and never interleave. **Spawn ALL ready tasks in ONE message** except file conflicts.
+**Intra-wave isolation:** Each task in a wave runs with `isolation: "worktree"` — tasks from the same spec share that spec's worktree branch so wave 2 sees wave 1 commits; tasks from different specs run in different worktrees and never interleave. **Spawn ALL ready tasks in ONE message** except file conflicts.
 
 **Per-spec routing (CRITICAL):** Each task in `WAVE_JSON` carries a `spec` field (from `bin/wave-runner.js`). When building the agent prompt (§6), you MUST set `Working directory: ${SPEC_WORKTREES[task.spec].path}` — the worktree for that task's spec, NOT the first spec in the map. Cross-spec contamination (spawning a task from spec B into spec A's worktree) corrupts branch history and breaks `/df:verify`. If `task.spec` is absent from the JSON, fall back to deriving it from the task's mini-plan file `.deepflow/plans/doing-{specName}.md`; if still unresolvable, defer the task and log `"⚠ T{N} deferred — cannot resolve spec"`.
 
 **File conflicts (1 file = 1 writer):** Check `Files:` from wave-runner JSON output or from mini-plan detail files (`.deepflow/plans/doing-{specName}.md`). File-conflict rule applies **only within the same spec** — two tasks from different specs touching files with identical paths are actually in different worktrees and cannot collide. Overlap within a spec → spawn lowest-numbered only; rest stay pending. Log: `"⏳ T{N} deferred — file conflict with T{M} on {filename}"`
 
 **≥2 [SPIKE] tasks same problem →** Parallel Spike Probes (§5.7). **[OPTIMIZE] tasks →** Optimize Cycle (§5.9), one at a time. **[INTEGRATION] tasks** (`task.isIntegration === true` in WAVE_JSON) **→** use the Integration Task prompt template (§6 Integration Task), not the Standard Task template. Integration tasks always land in the final wave via `Blocked by:` — wave-runner guarantees this, so they execute after all producer/consumer implementation tasks have committed. Route them to the **consumer spec's** worktree via `SPEC_WORKTREES[task.spec].path` (plan.md §4.8.2 places the integration task under the consumer's section header, so `task.spec` is already the consumer).
+
+### 5.1. INTRA-WAVE CHERRY-PICK MERGE
+
+After ALL wave-N agents complete, cherry-pick each wave-N commit back to the main branch BEFORE wave N+1 begins. This ensures wave N+1 agents see all wave-N changes regardless of which worktree they run in.
+
+**Wave gate:** Wave N+1 MUST NOT start until all wave-N cherry-picks complete.
+
+**Ordering:** Apply cherry-picks in ascending task-number order (e.g., T1 before T2 before T3) for determinism.
+
+**Steps (per wave completion):**
+1. Collect all task commits from wave N (from ratchet PASS records).
+2. Sort commits by ascending task-number order.
+3. For each commit, spawn haiku context-fork (§5.8): `git cherry-pick {sha}`. Receive one-line summary.
+4. On conflict: log `"⚠ cherry-pick conflict: {sha} — {file}"`, abort cherry-pick, mark task as needing manual resolution.
+5. Only after all wave-N cherry-picks finish → proceed to spawn wave N+1 agents.
 
 ### 5.5. RATCHET CHECK
 
@@ -244,6 +259,8 @@ EXISTING_TEST_NAMES=!`grep -h -E "^\s*(it|test|describe)\(" ${SNAPSHOT_FILES} 2>
 ```
 
 Pass `SNAPSHOT_FILES` and `EXISTING_TEST_NAMES` into the agent prompt so it can avoid duplication.
+
+**Implementation diff:** The wave test agent reads the implementation diff itself using the `Read` tool or `git diff` — do NOT capture or pass the raw diff to the wave test prompt inline. Injecting large diffs inflates context and causes rot.
 
 ### 5.7. PARALLEL SPIKE PROBES
 
@@ -493,13 +510,14 @@ Spec: {spec_path}
 Edit scope: {edit_scope}
 --- END ---
 RULES:
+- Use the `Read` tool (or `git diff HEAD~1`) to inspect what the implementation changed before writing tests.
 - Do not duplicate tests that already exist in the pre-existing test files listed above.
 - Do not modify pre-existing test files — write new test files only.
 - Commit as test({spec}): {description}.
 Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed)
 ```
 
-**Spike:** `{task_id} [SPIKE]: {hypothesis}. Files+Spec. {reverted warnings}. Minimal spike. Commit as spike({spec}): {desc}. If you discovered constraints, rejected approaches, or made assumptions, report: DECISIONS: [TAG] {finding} — {why it matters} (use PROVISIONAL for "works but needs revisit", ASSUMPTION for "assumed X; if wrong Y breaks", APPROACH for definitive choices). Last line: TASK_STATUS:pass or TASK_STATUS:fail`
+**Spike**: `{task_id} [SPIKE]: {hypothesis}. Files+Spec. {reverted warnings}. Minimal spike. Commit as spike({spec}): {desc}. If you discovered constraints, rejected approaches, or made assumptions, report: DECISIONS: [TAG] {finding} — {why it matters} (use PROVISIONAL for "works but needs revisit", ASSUMPTION for "assumed X; if wrong Y breaks", APPROACH for definitive choices). Last line: TASK_STATUS:pass or TASK_STATUS:fail`
 
 **Optimize Task** (`Agent(model="opus")`):
 ```
