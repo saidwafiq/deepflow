@@ -333,6 +333,7 @@ describe('Uninstaller — file removal and settings cleanup', () => {
       'df-dashboard-push.js',
       'df-execution-history.js',
       'df-worktree-guard.js',
+      'df-harness-score.js',
     ]) {
       fs.writeFileSync(path.join(hookDir, hook), '// hook');
     }
