@@ -13,6 +13,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { readStdinIfMain } = require('./lib/hook-stdin');
 
 /**
  * Parse YAML frontmatter from the top of a markdown file.
@@ -345,40 +346,70 @@ function extractSection(content, sectionName) {
   return capturing ? captured.join('\n') : null;
 }
 
-// ── CLI entry point ──────────────────────────────────────────────────────
-if (require.main === module) {
-  const filePath = process.argv[2];
-  if (!filePath) {
-    // Called as a PostToolUse hook without a spec file argument — no-op
-    process.exit(0);
-  }
+// ── Spec file pattern (Write/Edit hook trigger) ──────────────────────────────
+const SPEC_FILE_RE = /(?:^|\/)specs\/.*\.md$|(?:^|\/)(?:doing|done)-[^/]+\.md$/;
 
-  const content = fs.readFileSync(filePath, 'utf8');
-  const mode = process.argv.includes('--auto') ? 'auto' : 'interactive';
+function lintSpecFile(filePath) {
+  let content;
+  try {
+    content = fs.readFileSync(filePath, 'utf8');
+  } catch (_) {
+    return; // file unreadable — don't block
+  }
+  const mode = 'auto';
   const specsDir = path.resolve(path.dirname(filePath));
   const result = validateSpec(content, { mode, specsDir, filename: path.basename(filePath) });
 
   if (result.hard.length > 0) {
-    console.error('HARD invariant failures:');
+    console.error('[spec-lint] HARD invariant failures:');
     for (const msg of result.hard) {
       console.error(`  [FAIL] ${msg}`);
     }
+    process.exit(1);
   }
 
   if (result.advisory.length > 0) {
-    console.warn('Advisory warnings:');
     for (const msg of result.advisory) {
-      console.warn(`  [WARN] ${msg}`);
+      console.warn(`[spec-lint] [WARN] ${msg}`);
     }
   }
+}
 
-  if (result.hard.length === 0 && result.advisory.length === 0) {
-    console.log('All checks passed.');
+// ── Entry points ─────────────────────────────────────────────────────────────
+if (require.main === module) {
+  if (process.argv[2]) {
+    // CLI mode: node df-spec-lint.js <spec-file.md> [--auto]
+    const filePath = process.argv[2];
+    const content = fs.readFileSync(filePath, 'utf8');
+    const mode = process.argv.includes('--auto') ? 'auto' : 'interactive';
+    const specsDir = path.resolve(path.dirname(filePath));
+    const result = validateSpec(content, { mode, specsDir, filename: path.basename(filePath) });
+
+    if (result.hard.length > 0) {
+      console.error('HARD invariant failures:');
+      for (const msg of result.hard) console.error(`  [FAIL] ${msg}`);
+    }
+    if (result.advisory.length > 0) {
+      console.warn('Advisory warnings:');
+      for (const msg of result.advisory) console.warn(`  [WARN] ${msg}`);
+    }
+    if (result.hard.length === 0 && result.advisory.length === 0) {
+      console.log('All checks passed.');
+    }
+    console.log(`Spec layer: L${result.layer} (${['problem defined', 'requirements known', 'verifiable', 'fully constrained'][result.layer] || 'incomplete'})`);
+    process.exit(result.hard.length > 0 ? 1 : 0);
+  } else {
+    // Hook mode: read PostToolUse event from stdin
+    readStdinIfMain(module, (data) => {
+      const toolName = data.tool_name || '';
+      if (toolName !== 'Write' && toolName !== 'Edit') return;
+
+      const filePath = (data.tool_input && data.tool_input.file_path) || '';
+      if (!SPEC_FILE_RE.test(filePath)) return;
+
+      lintSpecFile(filePath);
+    });
   }
-
-  console.log(`Spec layer: L${result.layer} (${['problem defined', 'requirements known', 'verifiable', 'fully constrained'][result.layer] || 'incomplete'})`);
-
-  process.exit(result.hard.length > 0 ? 1 : 0);
 }
 
 module.exports = { validateSpec, extractSection, computeLayer, parseFrontmatter };

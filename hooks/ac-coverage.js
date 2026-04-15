@@ -3,15 +3,21 @@
 // @hook-owner: deepflow
 /**
  * deepflow AC coverage checker
- * Standalone script called by the orchestrator after ratchet checks.
  *
- * Usage:
+ * Hook mode (PostToolUse — auto-triggered on git commit):
+ *   Reads PostToolUse event from stdin. Fires only when tool_name is "Bash"
+ *   and the command contains "git commit". Auto-detects the current spec from
+ *   specs/doing-*.md in cwd and scans snapshot test files for AC references.
+ *   Emits SALVAGEABLE (exit 2) when ACs in the spec have no corresponding
+ *   test references.
+ *
+ * CLI mode (called explicitly by orchestrator):
  *   node ac-coverage.js --spec <path> --test-files <file1,file2,...> --status <pass|fail|revert>
  *   node ac-coverage.js --spec <path> --snapshot <path> --status <pass|fail|revert>
  *
  * Exit codes:
- *   0 — all ACs covered, no ACs in spec, or input status was fail/revert
- *   2 — SALVAGEABLE: missed ACs detected and input status was pass
+ *   0 — all ACs covered, no ACs in spec, or non-commit event, or status != pass
+ *   2 — SALVAGEABLE: missed ACs detected (hook mode or CLI pass status)
  *   1 — script error only
  */
 
@@ -19,6 +25,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { readStdinIfMain } = require('./lib/hook-stdin');
 
 // ── Argument parsing ────────────────────────────────────────────────────────
 
@@ -209,11 +216,74 @@ function run(args) {
   }
 }
 
-// ── Entry point ─────────────────────────────────────────────────────────────
+// ── Hook entry point (PostToolUse stdin) ────────────────────────────────────
+
+function runAsHook(data) {
+  const toolName = data.tool_name || '';
+  const command = (data.tool_input && data.tool_input.command) || '';
+
+  // Only fire on git commit bash events
+  if (toolName !== 'Bash' || !/git\s+commit\b/.test(command)) return;
+
+  const cwd = data.cwd || process.cwd();
+
+  // Auto-detect spec: first doing-*.md in specs/
+  let specPath;
+  try {
+    const specsDir = path.join(cwd, 'specs');
+    const doing = fs.readdirSync(specsDir).filter(f => f.startsWith('doing-') && f.endsWith('.md'));
+    if (doing.length === 0) return;
+    specPath = path.join(specsDir, doing[0]);
+  } catch (_) {
+    return; // no specs dir — not a deepflow project
+  }
+
+  const specContent = fs.readFileSync(specPath, 'utf8');
+  const specACs = extractSpecACs(specContent);
+  if (specACs.length === 0) return;
+
+  // Auto-detect test files: prefer snapshot, fall back to git ls-files
+  let testFiles = [];
+  try {
+    const { execFileSync } = require('child_process');
+    const snapshotCandidates = [
+      path.join(cwd, '.deepflow', 'auto-snapshot.txt'),
+      ...fs.readdirSync(path.join(cwd, '.deepflow')).filter(f => f.startsWith('auto-snapshot')).map(f => path.join(cwd, '.deepflow', f)),
+    ];
+    let snapshotPath = snapshotCandidates.find(p => fs.existsSync(p));
+    if (snapshotPath) {
+      testFiles = fs.readFileSync(snapshotPath, 'utf8').split('\n').filter(Boolean).map(f => path.resolve(cwd, f));
+    } else {
+      const out = execFileSync('git', ['ls-files'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      testFiles = out.split('\n').filter(f => /\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests\/|__tests__\//.test(f)).map(f => path.join(cwd, f));
+    }
+  } catch (_) {
+    return;
+  }
+
+  testFiles = testFiles.filter(f => { try { fs.accessSync(f); return true; } catch (_) { return false; } });
+  if (testFiles.length === 0) return;
+
+  const coveredACs = scanTestFilesForACs(testFiles);
+  const missed = specACs.filter(ac => !coveredACs.has(ac));
+
+  if (missed.length > 0) {
+    process.stderr.write(`[ac-coverage] SALVAGEABLE: ${specACs.length - missed.length}/${specACs.length} ACs covered in tests — missing: ${missed.join(', ')}\nOVERRIDE:SALVAGEABLE\n`);
+    process.exit(2);
+  }
+}
+
+// ── CLI entry point ──────────────────────────────────────────────────────────
 
 if (require.main === module) {
-  const args = parseArgs(process.argv.slice(2));
-  run(args);
+  if (process.argv.length > 2) {
+    // CLI mode: explicit --spec / --status args from orchestrator
+    const args = parseArgs(process.argv.slice(2));
+    run(args);
+  } else {
+    // Hook mode: read PostToolUse event from stdin
+    readStdinIfMain(module, runAsHook);
+  }
 }
 
 module.exports = { extractSpecACs, extractACSection, scanTestFilesForACs, resolveTestFiles };
