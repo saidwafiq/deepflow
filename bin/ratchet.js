@@ -273,10 +273,157 @@ function autoRevert(cwd) {
 // Health-check stages in order
 // ---------------------------------------------------------------------------
 
-const STAGE_ORDER = ['build', 'test', 'typecheck', 'lint'];
+const STAGE_ORDER = ['build', 'test', 'typecheck', 'lint', 'contract'];
 
 // Stages where failure is SALVAGEABLE (not FAIL)
-const SALVAGEABLE_STAGES = new Set(['lint']);
+const SALVAGEABLE_STAGES = new Set(['lint', 'contract']);
+
+// ---------------------------------------------------------------------------
+// REQ-1 + REQ-8: Contract stage
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse `Produces: path::Symbol` entries from PLAN.md.
+ * Returns array of { file, symbol } entries.
+ */
+function parseProducesFromPlan(planPath) {
+  if (!fs.existsSync(planPath)) return [];
+  const text = fs.readFileSync(planPath, 'utf8');
+  const entries = [];
+  // Match: Produces: <path>::<Symbol>   (tolerant to leading whitespace & markdown bullets)
+  const re = /Produces:\s*([^\s:`]+)::([A-Za-z_$][A-Za-z0-9_$]*)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    entries.push({ file: m[1].trim(), symbol: m[2].trim() });
+  }
+  return entries;
+}
+
+/**
+ * Verify that a symbol exists in a file.
+ * Tries LSP documentSymbols first (if available); falls back to regex grep.
+ * Returns true if found, false otherwise.
+ */
+async function verifySymbolExists(absFilePath, symbol, projectRoot) {
+  // LSP-first — try to use queryLsp from df-invariant-check if present
+  try {
+    const invariantPath = path.join(projectRoot, 'hooks', 'df-invariant-check.js');
+    if (fs.existsSync(invariantPath)) {
+      // eslint-disable-next-line global-require
+      const inv = require(invariantPath);
+      if (typeof inv.queryLsp === 'function' && typeof inv.detectLanguageServer === 'function') {
+        const detected = inv.detectLanguageServer(projectRoot, [absFilePath]);
+        if (detected && detected.binary) {
+          const fileUri = 'file://' + absFilePath;
+          const res = await inv.queryLsp(
+            detected.binary,
+            projectRoot,
+            fileUri,
+            'textDocument/documentSymbol',
+            { textDocument: { uri: fileUri } }
+          );
+          if (res && res.ok && Array.isArray(res.result)) {
+            const names = flattenSymbolNames(res.result);
+            if (names.includes(symbol)) return true;
+            // LSP gave a definitive (empty/non-matching) result — do NOT fall
+            // back to regex when we have an authoritative answer. But if
+            // the list is empty, treat as inconclusive → fallback.
+            if (names.length > 0) return false;
+          }
+        }
+      }
+    }
+  } catch (_) {
+    // LSP unavailable — fall back
+  }
+
+  // Regex fallback: scan file for \bsymbol\b
+  try {
+    if (!fs.existsSync(absFilePath)) return false;
+    const src = fs.readFileSync(absFilePath, 'utf8');
+    const safe = escapeRegExp(symbol);
+    return new RegExp(`\\b${safe}\\b`).test(src);
+  } catch (_) {
+    return false;
+  }
+}
+
+function flattenSymbolNames(symbols) {
+  const names = [];
+  const walk = (arr) => {
+    for (const s of arr || []) {
+      if (s && typeof s.name === 'string') names.push(s.name);
+      if (s && Array.isArray(s.children)) walk(s.children);
+    }
+  };
+  walk(symbols);
+  return names;
+}
+
+/**
+ * Count AC-N references across snapshot test files.
+ */
+function countAcRefsInSnapshot(snapshotFiles) {
+  let count = 0;
+  const pattern = /\bAC-\d+\b/g;
+  for (const f of snapshotFiles) {
+    try {
+      const src = fs.readFileSync(f, 'utf8');
+      const matches = src.match(pattern);
+      if (matches) count += matches.length;
+    } catch (_) {
+      // skip unreadable
+    }
+  }
+  return count;
+}
+
+/**
+ * Run the contract stage.
+ * @returns {Promise<{ ok: boolean, salvageable?: boolean, log: string }>}
+ *   - ok:true → PASS (continue / exit success)
+ *   - ok:false, salvageable:true → SALVAGEABLE (exit 2, no revert)
+ *   - ok:false → FAIL
+ *   - If no Produces: entries at all, returns ok:true (no-op).
+ */
+async function runContractStage(repoRoot, cwd, snapshotFiles) {
+  // Locate PLAN.md — prefer worktree cwd, fall back to repo root
+  let planPath = path.join(cwd, 'PLAN.md');
+  if (!fs.existsSync(planPath)) planPath = path.join(repoRoot, 'PLAN.md');
+
+  const entries = parseProducesFromPlan(planPath);
+  if (entries.length === 0) {
+    return { ok: true, log: 'contract: no Produces: entries — skipped' };
+  }
+
+  // Verify each declared symbol exists
+  const missing = [];
+  for (const { file, symbol } of entries) {
+    const absPath = path.isAbsolute(file) ? file : path.join(cwd, file);
+    const found = await verifySymbolExists(absPath, symbol, repoRoot);
+    if (!found) missing.push(`${file}::${symbol}`);
+  }
+
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      salvageable: true,
+      log: `contract: declared symbols not found: ${missing.join(', ')}`,
+    };
+  }
+
+  // Ratchet PASS + zero AC test references in snapshot → SALVAGEABLE
+  const acRefs = countAcRefsInSnapshot(snapshotFiles);
+  if (acRefs === 0) {
+    return {
+      ok: false,
+      salvageable: true,
+      log: 'contract: zero AC-N references found in ratchet snapshot test files',
+    };
+  }
+
+  return { ok: true, log: `contract: ${entries.length} symbols verified, ${acRefs} AC refs` };
+}
 
 // ---------------------------------------------------------------------------
 // CLI argument parser
@@ -287,7 +434,7 @@ function escapeRegExp(value) {
 }
 
 function parseArgs(argv) {
-  const args = { task: null, worktree: null, snapshot: null };
+  const args = { task: null, worktree: null, snapshot: null, stage: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--task' && argv[i + 1]) {
       args.task = argv[++i];
@@ -295,6 +442,8 @@ function parseArgs(argv) {
       args.worktree = argv[++i];
     } else if (argv[i] === '--snapshot' && argv[i + 1]) {
       args.snapshot = argv[++i];
+    } else if (argv[i] === '--stage' && argv[i + 1]) {
+      args.stage = argv[++i];
     }
   }
   return args;
@@ -338,26 +487,51 @@ function updatePlanMd(repoRoot, taskId, cwd) {
 // Main
 // ---------------------------------------------------------------------------
 
-function main() {
+async function main() {
   const cliArgs = parseArgs(process.argv.slice(2));
   const cwd = cliArgs.worktree || process.cwd();
   const repoRoot = mainRepoRoot(cwd);
 
   const cfg = loadConfig(repoRoot);
   const projectType = detectProjectType(repoRoot);
-  const snapshotFiles = loadSnapshotFiles(repoRoot, cwd);
+  let snapshotFiles = loadSnapshotFiles(repoRoot, cwd);
   const cmds = buildCommands(repoRoot, projectType, snapshotFiles, cfg);
   // --snapshot flag overrides the snapshot-derived test command
   if (cliArgs.snapshot && fs.existsSync(cliArgs.snapshot)) {
     const snapFiles = fs.readFileSync(cliArgs.snapshot, 'utf8')
       .split('\n').map(l => l.trim()).filter(l => l.length > 0)
       .map(rel => path.isAbsolute(rel) ? rel : path.join(cwd, rel));
-    if (snapFiles.length > 0 && projectType === 'node' && !cfg.test_command) {
-      cmds.test = ['node', '--test', ...snapFiles];
+    if (snapFiles.length > 0) {
+      snapshotFiles = snapFiles;
+      if (projectType === 'node' && !cfg.test_command) {
+        cmds.test = ['node', '--test', ...snapFiles];
+      }
     }
   }
 
+  // --stage filter: run only the specified stage
+  const stageFilter = cliArgs.stage;
+  if (stageFilter && !STAGE_ORDER.includes(stageFilter)) {
+    process.stdout.write(JSON.stringify({ result: 'FAIL', stage: stageFilter, log: `unknown stage: ${stageFilter}` }) + '\n');
+    process.exit(1);
+  }
+
   for (const stage of STAGE_ORDER) {
+    if (stageFilter && stage !== stageFilter) continue;
+
+    // Contract stage is implemented in-process (no external command)
+    if (stage === 'contract') {
+      const res = await runContractStage(repoRoot, cwd, snapshotFiles);
+      if (res.ok) continue;
+      if (res.salvageable) {
+        process.stdout.write(JSON.stringify({ result: 'SALVAGEABLE', stage, log: res.log }) + '\n');
+        process.exit(2);
+      }
+      autoRevert(cwd);
+      process.stdout.write(JSON.stringify({ result: 'FAIL', stage, log: res.log }) + '\n');
+      process.exit(1);
+    }
+
     const cmd = cmds[stage];
     if (!cmd) continue; // stage not applicable
 
@@ -394,4 +568,7 @@ function main() {
   process.exit(0);
 }
 
-main();
+main().catch((err) => {
+  process.stdout.write(JSON.stringify({ result: 'FAIL', stage: 'internal', log: String(err && err.stack || err) }) + '\n');
+  process.exit(1);
+});
