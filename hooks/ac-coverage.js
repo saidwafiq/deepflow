@@ -140,12 +140,12 @@ function resolveTestFiles(args) {
 
 function run(args) {
   if (!args.spec) {
-    console.error('[ac-coverage] Error: --spec is required');
-    process.exit(1);
+    // Called as a PostToolUse hook without explicit args — no-op
+    process.exit(0);
   }
   if (!args.status) {
-    console.error('[ac-coverage] Error: --status is required');
-    process.exit(1);
+    // Called as a PostToolUse hook without explicit args — no-op
+    process.exit(0);
   }
 
   // Read spec

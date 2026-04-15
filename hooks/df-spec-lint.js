@@ -349,8 +349,8 @@ function extractSection(content, sectionName) {
 if (require.main === module) {
   const filePath = process.argv[2];
   if (!filePath) {
-    console.error('Usage: df-spec-lint.js <spec-file.md>');
-    process.exit(1);
+    // Called as a PostToolUse hook without a spec file argument — no-op
+    process.exit(0);
   }
 
   const content = fs.readFileSync(filePath, 'utf8');
