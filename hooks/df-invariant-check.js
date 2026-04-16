@@ -1227,35 +1227,6 @@ function checkInvariants(diff, specContent, opts = {}) {
 // Detection: if stdin is not a TTY we treat it as hook mode and attempt JSON parse.
 // If the payload is not a git-commit Bash call we exit(0) silently.
 
-function loadActiveSpec(cwd) {
-  const deepflowDir = path.join(cwd, '.deepflow');
-  let specContent = null;
-
-  try {
-    // Look for doing-*.md specs first (in-progress)
-    const entries = fs.readdirSync(deepflowDir);
-    const doingSpec = entries.find((e) => e.startsWith('doing-') && e.endsWith('.md'));
-    if (doingSpec) {
-      specContent = fs.readFileSync(path.join(deepflowDir, doingSpec), 'utf8');
-      return specContent;
-    }
-
-    // Fall back to specs/ subdirectory
-    const specsDir = path.join(cwd, 'specs');
-    if (fs.existsSync(specsDir)) {
-      const specEntries = fs.readdirSync(specsDir);
-      const doingInSpecs = specEntries.find((e) => e.startsWith('doing-') && e.endsWith('.md'));
-      if (doingInSpecs) {
-        specContent = fs.readFileSync(path.join(specsDir, doingInSpecs), 'utf8');
-        return specContent;
-      }
-    }
-  } catch (_) {
-    // Cannot read .deepflow or specs dir — return null
-  }
-
-  return null;
-}
 
 function extractDiffFromLastCommit(cwd) {
   try {
@@ -1273,6 +1244,111 @@ function isGitCommitBash(toolName, toolInput) {
   if (toolName !== 'Bash') return false;
   const cmd = (toolInput && (toolInput.command || toolInput.cmd || '')) || '';
   return /git\s+commit\b/.test(cmd);
+}
+
+/**
+ * Returns true if the diff only touches non-source bookkeeping files
+ * (package.json, package-lock.json, yarn.lock, etc.) — i.e. a release
+ * version-bump commit that should never be checked against spec invariants.
+ */
+function isBookkeepingOnlyDiff(diff) {
+  const changedFiles = [];
+  for (const line of diff.split('\n')) {
+    const m = line.match(/^diff --git a\/(.+) b\//);
+    if (m) changedFiles.push(m[1]);
+  }
+  if (changedFiles.length === 0) return false;
+  const BOOKKEEPING = /^(package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml|\.npmrc|CHANGELOG\.md)$/;
+  return changedFiles.every((f) => BOOKKEEPING.test(path.basename(f)));
+}
+
+/**
+ * Extract file paths mentioned in a spec (backtick or quoted strings that
+ * look like paths: contain a slash OR end with a known source extension).
+ */
+function extractSpecFilePaths(specContent) {
+  const paths = new Set();
+  const QUOTED = /`([^`\n]+)`|"([^"\n]+)"|'([^'\n]+)'/g;
+  const FILE_LIKE = /^[\w./-]+(?:\/[\w.-]+)*\.[a-z]{1,6}$/;
+  let m;
+  while ((m = QUOTED.exec(specContent)) !== null) {
+    const val = (m[1] || m[2] || m[3]).trim();
+    if (FILE_LIKE.test(val) && !val.includes('://')) {
+      paths.add(val);
+    }
+  }
+  return [...paths];
+}
+
+/**
+ * Returns the file paths changed in a diff.
+ */
+function diffChangedFiles(diff) {
+  const files = [];
+  for (const line of diff.split('\n')) {
+    const m = line.match(/^diff --git a\/(.+) b\//);
+    if (m) files.push(m[1]);
+  }
+  return files;
+}
+
+/**
+ * Load all doing-*.md specs from the project.
+ * Returns array of { name, content }.
+ */
+function loadAllActiveSpecs(cwd) {
+  const specs = [];
+  const specsDir = path.join(cwd, 'specs');
+  const deepflowDir = path.join(cwd, '.deepflow');
+
+  for (const dir of [specsDir, deepflowDir]) {
+    try {
+      const entries = fs.readdirSync(dir);
+      for (const e of entries) {
+        if (e.startsWith('doing-') && e.endsWith('.md')) {
+          try {
+            specs.push({ name: e, content: fs.readFileSync(path.join(dir, e), 'utf8') });
+          } catch (_) { /* skip unreadable */ }
+        }
+      }
+    } catch (_) { /* skip missing dir */ }
+  }
+  return specs;
+}
+
+/**
+ * Find the best matching spec for the given diff.
+ * - If any spec declares file paths (via backtick/quoted refs) that overlap
+ *   with the diff's changed files → return the first match.
+ * - If no spec has a file overlap AND all specs declare at least one path →
+ *   return null (commit is unrelated to all active specs → skip).
+ * - If some spec declares no paths → fall back to that spec (can't determine scope).
+ */
+function findMatchingSpecForDiff(diff, specs) {
+  if (specs.length === 0) return null;
+
+  const changedFiles = diffChangedFiles(diff);
+  const withPaths = [];
+  const withoutPaths = [];
+
+  for (const spec of specs) {
+    const specPaths = extractSpecFilePaths(spec.content);
+    if (specPaths.length === 0) {
+      withoutPaths.push(spec);
+    } else {
+      const overlaps = changedFiles.some((df) =>
+        specPaths.some((sp) => df === sp || df.endsWith('/' + sp) || sp.endsWith('/' + df))
+      );
+      if (overlaps) withPaths.push(spec);
+    }
+  }
+
+  // Prefer a scope-matched spec
+  if (withPaths.length > 0) return withPaths[0];
+  // Fall back to a spec with no declared scope (can't rule it out)
+  if (withoutPaths.length > 0) return withoutPaths[0];
+  // All specs have declared paths and none matched — commit is out of scope
+  return null;
 }
 
 // Run hook mode when called as main module (stdin payload from Claude Code).
@@ -1298,12 +1374,25 @@ readStdinIfMain(module, (data) => {
     process.exit(0);
   }
 
-  const specContent = loadActiveSpec(cwd);
-  if (!specContent) {
+  // Skip invariant checks for version-bump / bookkeeping-only commits
+  // (e.g. release script commits that only touch package.json / lock files)
+  if (isBookkeepingOnlyDiff(diff)) {
+    process.exit(0);
+  }
+
+  const allSpecs = loadAllActiveSpecs(cwd);
+  if (allSpecs.length === 0) {
     // No active spec found — not a deepflow project or no spec in progress
     process.exit(0);
   }
 
+  const matchedSpec = findMatchingSpecForDiff(diff, allSpecs);
+  if (!matchedSpec) {
+    // Diff has no file overlap with any active spec — commit is unrelated, skip
+    process.exit(0);
+  }
+
+  const specContent = matchedSpec.content;
   const results = checkInvariants(diff, specContent, { mode: 'auto', taskType: 'implementation', projectRoot: cwd });
 
   if (results.hard.length > 0) {
