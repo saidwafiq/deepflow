@@ -62,9 +62,13 @@ _Note: Keep to max 15 terms for clarity._
 
 ## Acceptance Criteria
 
-- [ ] [Testable criterion: e.g., "User can upload jpg/png/webp files"]
-- [ ] [Testable criterion: e.g., "Files over 10MB show clear error"]
-- [ ] [Testable criterion: e.g., "Upload progress is visible"]
+<!-- Each AC MUST start with "- [ ] **AC-N**" and trace to one or more REQ-N in parentheses.
+     Never reuse REQ-N as the AC identifier — the lint flags both a missing **AC-N** marker
+     AND a duplicate REQ-N ID (since the same REQ-N would appear in both sections). -->
+
+- [ ] **AC-1** — (REQ-1) [Testable criterion: e.g., "User can upload jpg/png/webp files"]
+- [ ] **AC-2** — (REQ-2) [Testable criterion: e.g., "Files over 10MB show clear error"]
+- [ ] **AC-3** — (REQ-3) [Testable criterion: e.g., "Upload progress is visible"]
 
 ## Technical Notes
 

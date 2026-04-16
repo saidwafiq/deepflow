@@ -72,11 +72,12 @@ Fix issues in `{done-spec-name}`: {one sentence summarizing what needs to be fix
 
 ## Acceptance Criteria
 
-<!-- Failing ACs carried over from parent spec -->
+<!-- Failing ACs carried over from parent spec (preserve their **AC-N** ids) -->
 {carried-over failing ACs as unchecked items}
 
-<!-- New ACs for this fix -->
-- [ ] {new criterion from user input, if any}
+<!-- New ACs for this fix — format MUST be `- [ ] **AC-N** — (REQ-M) ...`.
+     Continue AC numbering from the parent spec's last AC; never reuse REQ-N as the AC id. -->
+- [ ] **AC-{next}** — (REQ-1) {new criterion from user input, if any}
 
 ## Technical Notes
 

@@ -83,7 +83,8 @@ Create `specs/{name}.md`:
 - [Explicitly excluded item]
 
 ## Acceptance Criteria
-- [ ] [Testable criterion]
+- [ ] **AC-1** — (REQ-1) [Testable criterion]
+- [ ] **AC-2** — (REQ-2) [Testable criterion]
 
 ## Technical Notes
 [Implementation hints from codebase analysis — patterns, integration points, constraints discovered by agents]
@@ -111,5 +112,6 @@ If layer < 2: `ℹ Spec is at L{N} — /df:plan will generate spikes to discover
 - L2+ gaps do NOT block spec creation
 - Max 4 questions per AskUserQuestion call
 - Requirements must be testable; ACs must be verifiable (when present)
+- Every AC line MUST use format `- [ ] **AC-N** — (REQ-M) ...`. Never reuse `REQ-N:` as the AC identifier (lint hard-fails on missing **AC-N** and duplicate REQ-N).
 - Include agent-discovered context in Technical Notes
 - Keep specs concise (<100 lines)
