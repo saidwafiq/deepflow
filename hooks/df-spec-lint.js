@@ -347,7 +347,7 @@ function extractSection(content, sectionName) {
 }
 
 // ── Spec file pattern (Write/Edit hook trigger) ──────────────────────────────
-const SPEC_FILE_RE = /(?:^|\/)specs\/.*\.md$|(?:^|\/)(?:doing|done)-[^/]+\.md$/;
+const SPEC_FILE_RE = /(?:^|\/)specs\/[^/]*\.md$/;
 
 function lintSpecFile(filePath) {
   let content;
