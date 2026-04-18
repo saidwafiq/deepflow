@@ -225,9 +225,14 @@ Fix tasks added to PLAN.md:
 Run /df:execute --continue to fix in the same worktree.
 ```
 
+**Auto-invoke logic (after fix tasks are added):**
+
+- If `AUTO_FIX_ENABLED = true` AND blocking issues exist: invoke `/df:execute --continue` automatically (do NOT print "Run /df:execute --continue" — just invoke the command).
+- If `AUTO_FIX_ENABLED = false` (set by `--no-auto-fix` OR `--from-execute`): print `Run /df:execute --continue to fix T{n}` as the legacy message. Do NOT invoke the command.
+
 **Gate conditions (ALL must pass to merge):** L0 build (or no command) | L1 all files in diff | L2 coverage held (or no tool) | L4 tests pass (or no command) | L4.5 contracts match (or no dependencies/integration tasks) | L5 assertions pass (or no frontend/assertions).
 
-**All pass →** Post-Verification merge. **Issues found →** Add fix tasks to worktree PLAN.md (IDs continue from last), register via TaskCreate/TaskUpdate, output report + "Run /df:execute --continue". Do NOT create new specs, worktrees, or merge with issues pending.
+**All pass →** Post-Verification merge. **Issues found →** Add fix tasks to worktree PLAN.md (IDs continue from last), register via TaskCreate/TaskUpdate, then apply auto-invoke logic above. Do NOT create new specs, worktrees, or merge with issues pending.
 
 ### 4. CAPTURE LEARNINGS
 
