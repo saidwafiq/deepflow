@@ -240,6 +240,14 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
    ```
 5. **Delete per-spec auto-snapshot:** `rm -f ".deepflow/auto-snapshot-${NAME}.txt"`
 6. **Cleanup stale plans:** `rm -f .deepflow/plans/doing-${NAME}.md`
+6a. **Delete per-spec result files:** Extract task IDs from the plan file (now renamed to `done-${NAME}.md`) and delete their result artifacts:
+   ```sh
+   TIDS=$(grep -oE '\*\*T[0-9]+\*\*' ".deepflow/plans/done-${NAME}.md" 2>/dev/null | tr -d '*' | sort -u)
+   for TID in $TIDS; do
+     rm -f ".deepflow/results/${TID}.yaml"
+   done
+   ```
+   Scoped to this spec's task IDs only — never globs all results. Missing plan file → empty `$TIDS` → silent no-op (idempotent).
 7. **Extract decisions (additive):** Read done spec, extract `[APPROACH]`/`[ASSUMPTION]`/`[PROVISIONAL]`/`[FUTURE]`/`[UPDATE]` decisions, append to `.deepflow/decisions.md` under `### {date} — {spec}` header. If the header already exists (decisions were captured incrementally during execution via §5.5.1), append only NEW decisions not already present (deduplicate by comparing decision text). Delete done spec after successful write; preserve on failure.
 8. **Clean PLAN.md:** Find the `### {spec-name}` section (match on name stem, strip `doing-`/`done-` prefix). Delete from header through the line before the next `### ` header (or EOF). Recalculate Summary table (recount `### ` headers for spec count, `- [ ]`/`- [x]` for task counts). If no spec sections remain, delete PLAN.md entirely. Skip silently if PLAN.md missing or section already gone.
 
