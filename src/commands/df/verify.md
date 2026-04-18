@@ -225,14 +225,47 @@ Fix tasks added to PLAN.md:
 Run /df:execute --continue to fix in the same worktree.
 ```
 
-**Auto-invoke logic (after fix tasks are added):**
+**No-progress detection (run before auto-invoke, when blocking issues exist):**
 
-- If `AUTO_FIX_ENABLED = true` AND blocking issues exist: invoke `/df:execute --continue` automatically (do NOT print "Run /df:execute --continue" — just invoke the command).
+Compute a stable issue signature from all blocking issues:
+1. Collect all blocking issues as tuples of `(level, file, rule)` — e.g. `("L1", "src/api/upload.ts", "missing-file")`, `("L4", "src/upload.test.ts", "test-failure")`. Use the level name, the primary file path (or empty string if none), and a short rule/category label derived from the issue type.
+2. Sort tuples lexicographically by `(level, file, rule)`.
+3. Join to a single string: `CURRENT_SIG = level:file:rule|level:file:rule|...`
+
+Read the last known signature via shell injection:
+```
+LAST_SIG = !`grep '^auto_fix_last_signature:' .deepflow/auto-memory.yaml 2>/dev/null | sed 's/^auto_fix_last_signature: *//' | tr -d '"'`
+```
+If the grep returns empty (key absent or file missing), treat `LAST_SIG` as empty string.
+
+Compare:
+- If `CURRENT_SIG == LAST_SIG` (and `LAST_SIG` is non-empty): **no-progress halt** — print `No progress detected — same blocking issues as last cycle. Halting auto-fix loop.` and stop. Do NOT invoke `/df:execute --continue`. Do NOT update auto-memory.yaml.
+- If `CURRENT_SIG != LAST_SIG`: update `auto_fix_last_signature` in `.deepflow/auto-memory.yaml` using:
+  ```
+  # If key exists, replace it; if file/key absent, append it
+  if grep -q '^auto_fix_last_signature:' .deepflow/auto-memory.yaml 2>/dev/null; then
+    sed -i '' 's|^auto_fix_last_signature:.*|auto_fix_last_signature: "'"${CURRENT_SIG}"'"|' .deepflow/auto-memory.yaml
+  else
+    echo 'auto_fix_last_signature: "'"${CURRENT_SIG}"'"' >> .deepflow/auto-memory.yaml
+  fi
+  ```
+  Then proceed to auto-invoke logic below.
+
+**On clean verify (no blocking issues):** Reset both persistence keys:
+```
+sed -i '' '/^auto_fix_last_signature:/d' .deepflow/auto-memory.yaml 2>/dev/null
+sed -i '' '/^auto_fix_iteration:/d' .deepflow/auto-memory.yaml 2>/dev/null
+```
+(Silently skip if file absent.)
+
+**Auto-invoke logic (after no-progress check and fix tasks are added):**
+
+- If `AUTO_FIX_ENABLED = true` AND blocking issues exist AND no-progress halt did NOT trigger: invoke `/df:execute --continue` automatically (do NOT print "Run /df:execute --continue" — just invoke the command).
 - If `AUTO_FIX_ENABLED = false` (set by `--no-auto-fix` OR `--from-execute`): print `Run /df:execute --continue to fix T{n}` as the legacy message. Do NOT invoke the command.
 
 **Gate conditions (ALL must pass to merge):** L0 build (or no command) | L1 all files in diff | L2 coverage held (or no tool) | L4 tests pass (or no command) | L4.5 contracts match (or no dependencies/integration tasks) | L5 assertions pass (or no frontend/assertions).
 
-**All pass →** Post-Verification merge. **Issues found →** Add fix tasks to worktree PLAN.md (IDs continue from last), register via TaskCreate/TaskUpdate, then apply auto-invoke logic above. Do NOT create new specs, worktrees, or merge with issues pending.
+**All pass →** Post-Verification merge. **Issues found →** Add fix tasks to worktree PLAN.md (IDs continue from last), register via TaskCreate/TaskUpdate, then apply no-progress check and auto-invoke logic above. Do NOT create new specs, worktrees, or merge with issues pending.
 
 ### 4. CAPTURE LEARNINGS
 
