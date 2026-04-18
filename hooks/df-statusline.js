@@ -49,7 +49,86 @@ function buildStatusLine(data) {
   const contextMeter = buildContextMeter(data.context_window || {}, data);
   parts.push(contextMeter);
 
+  // Kanban segment (gated by df.statusline.kanban flag in .deepflow/config.yaml)
+  const kanbanSegment = buildKanbanSegment(currentDir);
+  if (kanbanSegment) {
+    parts.push(kanbanSegment);
+  }
+
   return parts.join(` ${colors.dim}│${colors.reset} `);
+}
+
+function buildKanbanSegment(projectDir) {
+  try {
+    const configPath = path.join(projectDir, '.deepflow', 'config.yaml');
+    if (!fs.existsSync(configPath)) return null;
+
+    // Parse df.statusline.kanban without a yaml dependency:
+    // Read the config as text and look for the flag using a regex.
+    // This is safe because config.yaml is machine-written by deepflow templates
+    // and the flag is always a simple scalar boolean.
+    const configText = fs.readFileSync(configPath, 'utf8');
+    const kanbanMatch = configText.match(/^\s*kanban\s*:\s*(true|false)\s*$/m);
+    // Also support nested form: "statusline:\n  kanban: true"
+    // Strategy: find the statusline block then look for kanban inside it.
+    let kanbanEnabled = false;
+    if (kanbanMatch) {
+      // Top-level kanban key (legacy / flat config)
+      kanbanEnabled = kanbanMatch[1] === 'true';
+    } else {
+      // Look for df.statusline.kanban in nested YAML:
+      // Match "statusline:" section then "kanban: true/false" within it.
+      const statuslineBlock = configText.match(/^statusline\s*:\s*\n((?:[ \t]+.+\n?)*)/m);
+      if (statuslineBlock) {
+        const nestedMatch = statuslineBlock[1].match(/^\s*kanban\s*:\s*(true|false)\s*$/m);
+        if (nestedMatch) kanbanEnabled = nestedMatch[1] === 'true';
+      } else {
+        // Try df: block with statusline.kanban inside
+        const dfBlock = configText.match(/^df\s*:\s*\n((?:[ \t]+.+\n?)*)/m);
+        if (dfBlock) {
+          const statuslineInDf = dfBlock[1].match(/^\s*statusline\s*:\s*\n((?:[ \t]+.+\n?)*)/m);
+          if (statuslineInDf) {
+            const nestedKanban = statuslineInDf[1].match(/^\s*kanban\s*:\s*(true|false)\s*$/m);
+            if (nestedKanban) kanbanEnabled = nestedKanban[1] === 'true';
+          } else {
+            // flat inside df block: "  statusline.kanban: true" style not standard; skip
+          }
+        }
+      }
+    }
+
+    if (!kanbanEnabled) return null;
+
+    const eventsPath = path.join(projectDir, '.deepflow', 'events.jsonl');
+    if (!fs.existsSync(eventsPath)) return null;
+
+    // Read the whole file and take the last non-empty line.
+    // events.jsonl is expected to be small (one line per spec transition);
+    // whole-file-read is simpler than byte-seeking and avoids splitting UTF-8 chars.
+    const eventsText = fs.readFileSync(eventsPath, 'utf8');
+    const lines = eventsText.split('\n').filter(l => l.trim().length > 0);
+    if (lines.length === 0) return null;
+
+    const lastLine = lines[lines.length - 1];
+    const event = JSON.parse(lastLine);
+
+    const column = event.to_column || '-';
+    const subState = event.sub_state || '-';
+    // Truncate spec name to keep segment under ~30 chars total:
+    // "📋 " (2) + column (≤6) + ":" (1) + subState (≤7) + " " (1) + spec (rest)
+    let specName = event.spec || '';
+    // Strip path prefix and .md suffix for brevity
+    specName = path.basename(specName, '.md');
+    // Remove doing-/done- prefix for compactness
+    specName = specName.replace(/^(doing|done)-/, '');
+    // Cap at 14 chars
+    if (specName.length > 14) specName = specName.slice(0, 13) + '…';
+
+    return `📋 ${column}:${subState} ${specName}`;
+  } catch (e) {
+    // Any failure leaves the statusline unaffected
+    return null;
+  }
 }
 
 function buildContextMeter(contextWindow, data) {
