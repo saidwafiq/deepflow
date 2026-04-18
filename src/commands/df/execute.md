@@ -146,6 +146,14 @@ Before wave 1 spawn, orchestrator MUST NOT read specs/*.md, .deepflow/plans/*.md
 
 ### 5. SPAWN AGENTS
 
+**Pre-spawn context capture (wave 1 only):**
+```bash
+_ctx_pct=$(node -e "try{process.stdout.write(String(JSON.parse(require('fs').readFileSync('.deepflow/context.json','utf8')).percentage))}catch(e){process.stdout.write('0')}")
+_cp=$(cat .deepflow/checkpoint.json 2>/dev/null || echo '{}')
+node -e "const d=JSON.parse(process.argv[1]);d.pre_spawn_context_pct=${_ctx_pct};require('fs').writeFileSync('.deepflow/checkpoint.json',JSON.stringify(d,null,2))" "$_cp"
+echo "📊 pre-spawn context: ${_ctx_pct}%"
+```
+
 Context ≥50% → checkpoint and exit. Before spawning: `TaskUpdate(status: "in_progress")`.
 
 **Token tracking start:** Store `start_percentage` (from context.json) and `start_timestamp` (ISO 8601) keyed by task_id. Omit if unavailable.
@@ -578,6 +586,7 @@ Skills: `atomic-commits`, `browse-fetch`. Agents: Implementation (`general-purpo
 {
   "completed_tasks": ["T1"],
   "current_wave": 2,
+  "pre_spawn_context_pct": 42,
   "spec_worktrees": {
     "upload":   {"path": ".deepflow/worktrees/upload",   "branch": "df/upload"},
     "auth":     {"path": ".deepflow/worktrees/auth",     "branch": "df/auth"}
