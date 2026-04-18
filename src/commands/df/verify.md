@@ -393,3 +393,67 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
 8. **Clean PLAN.md:** Find the `### {spec-name}` section (match on name stem, strip `doing-`/`done-` prefix). Delete from header through the line before the next `### ` header (or EOF). Recalculate Summary table (recount `### ` headers for spec count, `- [ ]`/`- [x]` for task counts). If no spec sections remain, delete PLAN.md entirely. Skip silently if PLAN.md missing or section already gone.
 
 Output: `✓ Merged → main | ✓ Cleaned worktree | ✓ Spec → done | ✓ Decisions extracted | ✓ Cleaned PLAN.md | Workflow complete! Ready: /df:spec <name>`
+
+<!--
+## T26 Integration Validation — AC-1 through AC-9 (verify-auto-continue)
+Date: 2026-04-18
+
+Structural review of verify.md (T18–T24) and execute.md (T25) against all acceptance criteria.
+
+AC-1:done
+  AUTO_FIX_ENABLED defaults true. §3 auto-invoke logic calls /df:execute --continue when
+  blocking issues exist and AUTO_FIX_ENABLED=true.
+
+AC-2:done
+  No-progress detection computes CURRENT_SIG from blocking issues, reads LAST_SIG from
+  auto-memory.yaml via shell injection. If CURRENT_SIG==LAST_SIG (non-empty): prints
+  "No progress detected — same blocking issues as last cycle. Halting auto-fix loop."
+  Does NOT invoke execute. Does NOT update auto-memory.yaml.
+
+AC-3:done
+  Blocking-issue filter classifies L2/L3/L4.5/L5/advisory as non-blocking. Explicit gate:
+  "If issues exist but ALL of them are non-blocking → skip no-progress detection, skip
+  auto-invoke, and exit cleanly." Prints standard report + legacy message only.
+
+AC-4:done
+  --no-auto-fix sets AUTO_FIX_ENABLED=false in prologue. §3: "If AUTO_FIX_ENABLED=false
+  (set by --no-auto-fix): print 'Run /df:execute --continue...' as the legacy message...
+  Do NOT invoke the command." Fix tasks are still added to PLAN.md as required.
+
+AC-5:done
+  Auto-invoke step 2 prints:
+    === Auto-fix: invoking /df:execute --continue (iteration N/MAX) ===
+    Triggering issues: {categories} — Tasks: T{n}, T{m}
+  before the /df:execute --continue invocation.
+
+AC-6:done
+  MAX_ITER read from config.yaml via shell injection. Cap check: CURRENT_ITER >= MAX_ITER →
+  prints "Auto-fix cap reached (N/M iterations). Run /df:execute --continue manually."
+  then final status summary. Does NOT invoke execute.
+
+AC-7:done
+  Shell injection for MAX_ITER uses `|| echo 3` fallback. Spec states: "If the grep returns
+  empty for MAX_ITER, treat it as 3." Missing key or missing file both resolve to default 3.
+
+AC-8:done
+  All four terminal paths emit final status summary:
+  (a) Clean verify  → "Auto-fix: N iterations, 0 blocking issues remaining."
+  (b) No-progress   → "Auto-fix halted: no progress after N iterations. Remaining: ..."
+  (c) Cap hit       → "Auto-fix cap reached (N/M). Remaining: ..."
+  (d) --no-auto-fix → "Auto-fix skipped (--no-auto-fix): N iterations so far. Remaining: ..."
+  --from-execute path intentionally omits the summary (recursion guard, not user-facing).
+
+AC-9:done
+  --from-execute sets FROM_EXECUTE=true AND AUTO_FIX_ENABLED=false in prologue.
+  §3: "If FROM_EXECUTE=true: print legacy message only. Do NOT print final status summary.
+  Do NOT invoke the command."
+  execute.md §8 passes the flag: skill: "df:verify", args: "doing-{name} --from-execute"
+  — confirms end-to-end recursion prevention.
+
+DECISIONS: [APPROACH] FROM_EXECUTE forces AUTO_FIX_ENABLED=false at parse time rather than
+  at invoke time — ensures no code path can accidentally re-enable it downstream.
+  [APPROACH] Non-blocking issues (L2/L3/L4.5/L5) never trigger no-progress computation —
+  signature is computed only from blocking issues, preventing spurious halt on flapping
+  non-blocking checks.
+-->
+
