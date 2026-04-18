@@ -16,7 +16,30 @@ context: fork
 /df:verify doing-upload           # Verify specific spec
 /df:verify --re-verify            # Re-verify done-* specs (already merged)
 /df:verify --diagnostic doing-upload  # L0-L4 only; write results to diagnostics yaml; no merge/fix/rename
+/df:verify --no-auto-fix          # Add fix tasks but do NOT invoke /df:execute --continue automatically
+/df:verify --from-execute         # Internal flag set by df:execute; disables auto-fix to prevent recursion
 ```
+
+## Flag Parsing (Prologue)
+
+Parse `ARGS` (the raw argument string passed to this command) at invocation time. Set the following variables before any other step:
+
+```
+AUTO_FIX_ENABLED = true   # default
+FROM_EXECUTE     = false  # default
+
+if ARGS contains "--no-auto-fix":
+    AUTO_FIX_ENABLED = false
+
+if ARGS contains "--from-execute":
+    FROM_EXECUTE     = true
+    AUTO_FIX_ENABLED = false   # disable auto-fix regardless of other flags; prevents recursion
+```
+
+These variables govern §3 (GENERATE REPORT) behavior:
+- When `AUTO_FIX_ENABLED = true` AND issues are found: after adding fix tasks, invoke `/df:execute --continue` automatically.
+- When `AUTO_FIX_ENABLED = false` AND issues are found: add fix tasks as usual, but print `Run /df:execute --continue` instead of invoking it.
+- `FROM_EXECUTE` is informational (logged in report header as `[from-execute]`) and forces `AUTO_FIX_ENABLED = false`.
 
 ## Spec File States
 `specs/feature.md` → unplanned (skip) | `doing-*.md` → default target | `done-*.md` → `--re-verify` only
