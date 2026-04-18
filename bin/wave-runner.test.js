@@ -781,13 +781,21 @@ describe('formatWavesJson — JSON output formatting', () => {
 // ---------------------------------------------------------------------------
 
 describe('formatWavesJson — edge cases and field completeness', () => {
-  test('output contains exactly the required 8 fields per task', () => {
+  test('output contains the required fields per task (including new AC/domain/detail fields)', () => {
     const waves = [
-      [{ id: 'T1', description: 'Desc', model: 'opus', files: 'a.js', effort: 'low', blockedBy: ['T0'], spec: 'my-spec' }],
+      [{ id: 'T1', description: 'Desc', model: 'opus', files: 'a.js', effort: 'low', blockedBy: ['T0'], spec: 'my-spec', tag: null, num: 1 }],
     ];
     const parsed = JSON.parse(formatWavesJson(waves));
     const keys = Object.keys(parsed[0]).sort();
-    assert.deepEqual(keys, ['blockedBy', 'description', 'effort', 'files', 'id', 'model', 'spec', 'wave']);
+    assert.deepEqual(keys, [
+      'acceptance_criteria', 'blockedBy', 'description', 'domain_model',
+      'effort', 'files', 'id', 'isIntegration', 'isOptimize', 'isSpike',
+      'model', 'spec', 'tag', 'task_detail_body', 'wave',
+    ]);
+    // New fields default to empty when spec file not found
+    assert.deepEqual(parsed[0].acceptance_criteria, []);
+    assert.equal(parsed[0].domain_model, '');
+    assert.equal(parsed[0].task_detail_body, '');
   });
 
   test('empty string description is coerced to null', () => {
@@ -1076,6 +1084,80 @@ describe('CLI — --json flag subprocess', () => {
       assert.equal(code, 0);
       assert.ok(stdout.includes('Wave 1:'));
       assert.throws(() => JSON.parse(stdout));
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-8: round-trip — acceptance_criteria, domain_model, task_detail_body
+// ---------------------------------------------------------------------------
+
+describe('AC-8: formatWavesJson round-trip with spec and mini-plan fixtures', () => {
+  test('acceptance_criteria, domain_model, task_detail_body are populated from fixture files', () => {
+    const tmpDir = makeTmpDir();
+    try {
+      // Create directory structure
+      fs.mkdirSync(path.join(tmpDir, 'specs'));
+      fs.mkdirSync(path.join(tmpDir, '.deepflow'));
+      fs.mkdirSync(path.join(tmpDir, '.deepflow', 'plans'));
+
+      // Spec file with Acceptance Criteria and Domain Model sections
+      const specContent = [
+        '# doing-demo',
+        '',
+        '## Acceptance Criteria',
+        '',
+        '- **AC-1**: First criterion',
+        '- **AC-2**: Second criterion',
+        '',
+        '## Domain Model',
+        '',
+        'Entity: Foo — represents a widget.',
+        'Entity: Bar — represents a gadget.',
+      ].join('\n');
+      fs.writeFileSync(path.join(tmpDir, 'specs', 'doing-demo.md'), specContent, 'utf8');
+
+      // Mini-plan file with a T1 block
+      const planContent = [
+        '# doing-demo plan',
+        '',
+        '### T1 \u2014 Implement core feature',
+        '',
+        'This task covers the main implementation.',
+        'It has multiple lines of detail.',
+        '',
+        '### T2 \u2014 Write tests',
+        '',
+        'This should not appear in T1 body.',
+      ].join('\n');
+      fs.writeFileSync(path.join(tmpDir, '.deepflow', 'plans', 'doing-demo.md'), planContent, 'utf8');
+
+      // PLAN.md referencing the demo spec
+      const planMd = [
+        '### demo',
+        '- [ ] **T1**: Implement core feature',
+      ].join('\n');
+      fs.writeFileSync(path.join(tmpDir, 'PLAN.md'), planMd, 'utf8');
+
+      const { code, stdout } = runWaveRunner(['--json'], { cwd: tmpDir });
+      assert.equal(code, 0, `wave-runner exited with non-zero: ${stdout}`);
+
+      const parsed = JSON.parse(stdout);
+      assert.equal(parsed.length, 1);
+      const task = parsed[0];
+
+      // AC-2: acceptance_criteria is an array of AC identifiers
+      assert.deepEqual(task.acceptance_criteria, ['AC-1', 'AC-2']);
+
+      // AC-3: domain_model is the Domain Model section content (trimmed)
+      assert.ok(task.domain_model.includes('Entity: Foo'), `domain_model missing expected content: ${task.domain_model}`);
+      assert.ok(task.domain_model.includes('Entity: Bar'), `domain_model missing second entity: ${task.domain_model}`);
+
+      // AC-4: task_detail_body is the body under ### T1 — block
+      assert.ok(task.task_detail_body.includes('This task covers the main implementation.'), `task_detail_body missing expected content: ${task.task_detail_body}`);
+      assert.ok(!task.task_detail_body.includes('This should not appear'), `task_detail_body must not bleed into T2 section: ${task.task_detail_body}`);
     } finally {
       rmrf(tmpDir);
     }
