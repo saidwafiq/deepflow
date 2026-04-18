@@ -377,9 +377,9 @@ REPEAT:
 
 Resolve `task.spec` from the `WAVE_JSON` entry for this task (fallback: scan `.deepflow/plans/doing-*.md` for the task's block). Never hand an agent a worktree path that belongs to a different spec.
 
-**Task detail loading (before building agent prompt):** Check for `.deepflow/plans/doing-{task_id}.md` (shell injection):
+**Task detail loading (before building agent prompt):** Check for `.deepflow/plans/doing-{specName}.md` (shell injection):
 ```
-TASK_DETAIL=!`cat .deepflow/plans/doing-{task_id}.md 2>/dev/null || echo 'NOT_FOUND'`
+TASK_DETAIL=!`cat .deepflow/plans/doing-{specName}.md 2>/dev/null || echo 'NOT_FOUND'`
 ```
 If `TASK_DETAIL` is not `NOT_FOUND`, use it as the full Middle section (Steps, ACs, Impact) in the agent prompt, overriding the inline PLAN.md block. If `NOT_FOUND`, fall back to the inline PLAN.md task block.
 

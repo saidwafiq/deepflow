@@ -581,7 +581,7 @@ describe('AC-7: execute reads --json output and .deepflow/plans/', () => {
       'execute.md must have TASK_DETAIL variable'
     );
     assert.ok(
-      EXEC_MD.includes('.deepflow/plans/doing-{task_id}.md'),
+      EXEC_MD.includes('.deepflow/plans/doing-{specName}.md'),
       'execute.md must reference per-task detail file pattern'
     );
   });
