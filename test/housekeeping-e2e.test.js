@@ -24,8 +24,8 @@
  *   AC-4: done  — result deletion scoped to task IDs from done plan only
  *   AC-5: done  — both doing- and done- plan files removed
  *   AC-6: done  — fix.md dual-path: specs-done/ canonical; specs/ fallback
- *   AC-7: skip  — protected-files integration is out of unit-test harness scope;
- *                  covered by T9 verification
+ *   AC-7: done  — static assertions confirm fix.md Rules enumerate protected files
+ *                  and the only declared write target is specs/{fix-name}.md
  *
  * Uses Node.js built-in node:test runner (matches project convention).
  */
@@ -638,14 +638,66 @@ describe('AC-6 — fix.md dual-path spec lookup', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC-7: SKIPPED
+// AC-7: fix.md static assertions — protected files are not targeted
 // ---------------------------------------------------------------------------
 
-describe('AC-7 — protected-files integration (SKIPPED)', () => {
-  it.skip(
-    'verify PASS does not touch execution-history.jsonl, context.json, decisions.md, auto-memory.yaml, or experiments/ — integration test out of unit-test harness scope; covered by T9 verification',
-    () => {}
-  );
+describe('AC-7 — fix.md does not target protected files', () => {
+  const fixPath = path.join(ROOT, 'src', 'commands', 'df', 'fix.md');
+
+  it('fix.md explicitly lists protected files in its Rules section', () => {
+    const content = fs.readFileSync(fixPath, 'utf8');
+    assert.ok(
+      content.includes('Protected files') || content.includes('protected files') || content.includes('do not touch'),
+      'fix.md Rules must contain a "protected files" or "do not touch" guard'
+    );
+  });
+
+  it('fix.md names the canonical protected files: decisions.md, auto-memory.yaml, execution-history.jsonl', () => {
+    const content = fs.readFileSync(fixPath, 'utf8');
+    assert.ok(content.includes('decisions.md'), 'fix.md must list decisions.md as protected');
+    assert.ok(content.includes('auto-memory.yaml'), 'fix.md must list auto-memory.yaml as protected');
+    assert.ok(content.includes('execution-history.jsonl'), 'fix.md must list execution-history.jsonl as protected');
+  });
+
+  it('fix.md declares it only writes specs/{fix-name}.md — no other write target', () => {
+    const content = fs.readFileSync(fixPath, 'utf8');
+    // The only file the command may create is the new fix spec in specs/
+    assert.ok(
+      content.includes('specs/{fix-name}.md'),
+      'fix.md must state the only writable output is specs/{fix-name}.md'
+    );
+    // Must not instruct writing into .deepflow/ state paths
+    const deepflowWritePattern = /write\s+\.deepflow\//i;
+    assert.equal(
+      deepflowWritePattern.test(content),
+      false,
+      'fix.md must not instruct writing to .deepflow/ state paths'
+    );
+  });
+
+  it('fix.md does not instruct touching verify.md', () => {
+    const content = fs.readFileSync(fixPath, 'utf8');
+    // verify.md may appear as a protected-file name in the Rules guard, but must
+    // not appear as a write/edit target in any instruction.
+    const lines = content.split('\n');
+    const dangerousLines = lines.filter(
+      (line) =>
+        /verify\.md/.test(line) &&
+        /\b(edit|write|create|update|modify|touch)\b/i.test(line) &&
+        !/[Pp]rotected/.test(line) &&
+        !line.trim().startsWith('-') === false
+    );
+    // Allow the protected-files rule line itself; reject any instruction to mutate verify.md
+    const instructionLines = lines.filter(
+      (line) =>
+        /(edit|write|create|update|modify)\s+.*verify\.md/i.test(line)
+    );
+    assert.equal(
+      instructionLines.length,
+      0,
+      'fix.md must not instruct editing/writing verify.md'
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

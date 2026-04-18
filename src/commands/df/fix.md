@@ -118,3 +118,4 @@ Next: Run /df:plan {fix-name} to generate fix tasks
 - Keep fix specs narrowly scoped — no scope creep beyond the stated issue
 - Do not reopen or modify the parent `done-*` spec
 - Fix spec name must start with `fix-` by default; user may override
+- **Protected files — do not touch**: `verify.md`, `.deepflow/decisions.md`, `.deepflow/auto-memory.yaml`, `.deepflow/execution-history.jsonl`, `.deepflow/context.json`, and anything under `.deepflow/experiments/`. The only file this command may write is `specs/{fix-name}.md`.
