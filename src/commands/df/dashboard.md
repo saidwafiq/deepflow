@@ -25,8 +25,10 @@ View the deepflow dashboard in team or local mode.
 
 3. **LOCAL MODE** (no dashboard_url)
    - Display: `Starting local deepflow dashboard server...`
-   - Run: `npx deepflow-dashboard`
-   - Instruct user to open http://localhost:3000 (or configured port) in browser
+   - Check `.deepflow/config.yaml` for `dashboard_path` key
+   - If `dashboard_path` set: kill port first (`lsof -ti:3333 | xargs kill -9 2>/dev/null; sleep 1`), then run `cd {dashboard_path} && node -e "import('./dist/server.js').then(m => m.startServer({mode:'local', port:3333}))" > /tmp/dashboard.log 2>&1 &`, wait 3s, open `http://localhost:3333`
+   - Else: run `npx deepflow-dashboard`
+   - Confirm: `Dashboard running at http://localhost:3333`
 
 ## Rules
 
