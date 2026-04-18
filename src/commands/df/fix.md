@@ -23,14 +23,29 @@ Which completed spec needs a fix? (e.g., done-auth)
 
 ### 2. READ PARENT SPEC
 
-Read `specs/{done-spec-name}.md`.
+Resolve the parent spec using a dual-path lookup. Given `{done-spec-name}` (e.g., `done-auth`):
 
-If the file does not exist, show:
+1. Try `.deepflow/specs-done/{done-spec-name}.md` (canonical location — written here by verify after T2).
+2. If not found, try `specs/{done-spec-name}.md` (legacy location — repos that haven't run verify since upgrading).
+
+In shell terms:
 ```
-Error: specs/{done-spec-name}.md not found.
+SPEC_PATH=""
+if [ -f ".deepflow/specs-done/{done-spec-name}.md" ]; then
+  SPEC_PATH=".deepflow/specs-done/{done-spec-name}.md"
+elif [ -f "specs/{done-spec-name}.md" ]; then
+  SPEC_PATH="specs/{done-spec-name}.md"
+fi
+```
+
+If neither path exists, show:
+```
+Error: {done-spec-name}.md not found in .deepflow/specs-done/ or specs/.
 Make sure the spec exists and uses the done-* prefix.
 ```
 Then stop.
+
+Read the file at `SPEC_PATH`.
 
 Extract from the parent spec:
 - **Objective** (from `## Objective` section)
