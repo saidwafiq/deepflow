@@ -377,12 +377,6 @@ REPEAT:
 
 Resolve `task.spec` from the `WAVE_JSON` entry for this task (fallback: scan `.deepflow/plans/doing-*.md` for the task's block). Never hand an agent a worktree path that belongs to a different spec.
 
-**Task detail loading (before building agent prompt):** Check for `.deepflow/plans/doing-{specName}.md` (shell injection):
-```
-TASK_DETAIL=!`cat .deepflow/plans/doing-{specName}.md 2>/dev/null || echo 'NOT_FOUND'`
-```
-If `TASK_DETAIL` is not `NOT_FOUND`, use it as the full Middle section (Steps, ACs, Impact) in the agent prompt, overriding the inline PLAN.md block. If `NOT_FOUND`, fall back to the inline PLAN.md task block.
-
 **Pre-prompt type context extraction (before building agent prompt):**
 
 Run LSP `documentSymbol` on the task's `files` list to collect existing type definitions. This runs BEFORE prompt construction so the result can be injected as `EXISTING_TYPES`.
@@ -426,18 +420,16 @@ spike_results:
   insight: {insight from probe_learnings}
 }
 Success criteria: {ACs from spec relevant to this task}
-{If spec contains ## Domain Model section:
+{If WAVE_JSON[task].domain_model is non-empty:
 --- CONTEXT: Domain Model ---
-{Domain Model section content from doing-*.md, extracted via shell injection:
-  DOMAIN_MODEL=!`sed -n '/^## Domain Model$/,/^## /p' specs/doing-{spec_name}.md | head -n -1 2>/dev/null || echo 'NOT_FOUND'`
-}
+{WAVE_JSON[task].domain_model}
 }
 {If EXISTING_TYPES is non-empty:
 --- CONTEXT: Existing Types ---
 {EXISTING_TYPES}
 }
 --- MIDDLE (omit for low effort; omit deps for medium) ---
-{TASK_DETAIL if available, else inline block:}
+{WAVE_JSON[task].task_detail_body if non-empty, else inline block:}
 Impact: Callers: {file} ({why}) | Duplicates: [active→consolidate] [dead→DELETE] | Data flow: {consumers}
 Prior tasks: {dep_id}: {summary}
 Steps: 1. chub search/get for APIs 2. LSP findReferences, add unlisted callers 3. LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files) 4. Implement 5. Commit
