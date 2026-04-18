@@ -232,7 +232,7 @@ Before running no-progress detection or auto-invoke, classify all issues found i
 - **Blocking** (eligible for auto-invoke): L0 build failures | L1 spec-scope violations (missing files) | L4 test failures
 - **Non-blocking** (never trigger auto-invoke): L2 coverage drop | L3 AC-coverage gaps | L4.5 contract mismatches | L5 browser assertion failures | advisory warnings
 
-If issues exist but ALL of them are non-blocking → skip no-progress detection, skip auto-invoke, and exit cleanly (print the standard failure report with fix tasks if any, then `Run /df:execute --continue to fix T{n}` as the legacy message; do NOT invoke the command).
+If issues exist but ALL of them are non-blocking → skip no-progress detection, skip auto-invoke, and exit cleanly (print the standard failure report with fix tasks if any, then `Run /df:execute --continue to fix T{n}` as the legacy message; do NOT invoke the command). This is not a user-facing auto-fix terminal path; do NOT print the final status summary block.
 
 Only when at least one **blocking** issue exists does execution continue to the no-progress check and auto-invoke logic below.
 
@@ -250,7 +250,17 @@ LAST_SIG = !`grep '^auto_fix_last_signature:' .deepflow/auto-memory.yaml 2>/dev/
 If the grep returns empty (key absent or file missing), treat `LAST_SIG` as empty string.
 
 Compare:
-- If `CURRENT_SIG == LAST_SIG` (and `LAST_SIG` is non-empty): **no-progress halt** — print `No progress detected — same blocking issues as last cycle. Halting auto-fix loop.` and stop. Do NOT invoke `/df:execute --continue`. Do NOT update auto-memory.yaml.
+- If `CURRENT_SIG == LAST_SIG` (and `LAST_SIG` is non-empty): **no-progress halt** — print `No progress detected — same blocking issues as last cycle. Halting auto-fix loop.` then print the final status summary and stop. Do NOT invoke `/df:execute --continue`. Do NOT update auto-memory.yaml.
+
+  Final status summary for no-progress halt:
+  ```
+  HALT_ITER = !`grep '^auto_fix_iteration:' .deepflow/auto-memory.yaml 2>/dev/null | sed 's/^auto_fix_iteration:[[:space:]]*//' | tr -d ' "'` || echo 0`
+  ```
+  If empty, treat as `0`.
+  ```
+  Auto-fix halted: no progress after ${HALT_ITER} iterations. Remaining: {blocking issue category list}
+  ```
+  Where `{blocking issue category list}` lists each blocking category present (e.g. `L0 build, L4 tests`), or `none` if no blocking issues remain.
 - If `CURRENT_SIG != LAST_SIG`: update `auto_fix_last_signature` in `.deepflow/auto-memory.yaml` using:
   ```
   # If key exists, replace it; if file/key absent, append it
@@ -262,12 +272,21 @@ Compare:
   ```
   Then proceed to auto-invoke logic below.
 
-**On clean verify (no blocking issues):** Reset both persistence keys:
+**On clean verify (no blocking issues):** Read the iteration counter before resetting it:
+```
+CLEAN_ITER = !`grep '^auto_fix_iteration:' .deepflow/auto-memory.yaml 2>/dev/null | sed 's/^auto_fix_iteration:[[:space:]]*//' | tr -d ' "'` || echo 0`
+```
+If empty, treat as `0`. Then reset both persistence keys:
 ```
 sed -i '' '/^auto_fix_last_signature:/d' .deepflow/auto-memory.yaml 2>/dev/null
 sed -i '' '/^auto_fix_iteration:/d' .deepflow/auto-memory.yaml 2>/dev/null
 ```
 (Silently skip if file absent.)
+
+Print the final status summary for clean verify:
+```
+Auto-fix: ${CLEAN_ITER} iterations, 0 blocking issues remaining.
+```
 
 **Auto-invoke logic (after no-progress check and fix tasks are added):**
 
@@ -280,7 +299,13 @@ If the grep returns empty for `MAX_ITER`, treat it as `3`. If empty for `CURRENT
 
 Before invoking (when `AUTO_FIX_ENABLED = true` and no-progress halt did NOT trigger):
 
-1. **Cap check:** If `CURRENT_ITER >= MAX_ITER` → print `Auto-fix cap reached (${CURRENT_ITER}/${MAX_ITER} iterations). Run /df:execute --continue manually.` and stop. Do NOT invoke `/df:execute --continue`. Do NOT update auto-memory.yaml.
+1. **Cap check:** If `CURRENT_ITER >= MAX_ITER` → print `Auto-fix cap reached (${CURRENT_ITER}/${MAX_ITER} iterations). Run /df:execute --continue manually.` then print the final status summary and stop. Do NOT invoke `/df:execute --continue`. Do NOT update auto-memory.yaml.
+
+   Final status summary for cap hit:
+   ```
+   Auto-fix cap reached (${CURRENT_ITER}/${MAX_ITER}). Remaining: {blocking issue category list}
+   ```
+   Where `{blocking issue category list}` lists each blocking category present (e.g. `L0 build, L4 tests`), or `none` if no blocking issues remain.
 2. **Increment:** If proceeding past the cap check, increment `auto_fix_iteration` in `.deepflow/auto-memory.yaml` using:
    ```
    NEW_ITER=$((CURRENT_ITER + 1))
@@ -299,7 +324,19 @@ Before invoking (when `AUTO_FIX_ENABLED = true` and no-progress halt did NOT tri
 
    Then invoke `/df:execute --continue` automatically (do NOT print "Run /df:execute --continue" — just invoke the command).
 
-- If `AUTO_FIX_ENABLED = false` (set by `--no-auto-fix` OR `--from-execute`): print `Run /df:execute --continue to fix T{n}` as the legacy message. Do NOT invoke the command.
+- If `AUTO_FIX_ENABLED = false` (set by `--no-auto-fix`): print `Run /df:execute --continue to fix T{n}` as the legacy message, then print the final status summary. Do NOT invoke the command.
+
+  Final status summary for `--no-auto-fix` opt-out:
+  ```
+  OPT_ITER = !`grep '^auto_fix_iteration:' .deepflow/auto-memory.yaml 2>/dev/null | sed 's/^auto_fix_iteration:[[:space:]]*//' | tr -d ' "'` || echo 0`
+  ```
+  If empty, treat as `0`.
+  ```
+  Auto-fix skipped (--no-auto-fix): ${OPT_ITER} iterations so far. Remaining: {blocking issue category list}
+  ```
+  Where `{blocking issue category list}` lists each blocking category present (e.g. `L0 build, L4 tests`), or `none` if none.
+
+- If `FROM_EXECUTE = true` (set by `--from-execute`): print `Run /df:execute --continue to fix T{n}` as the legacy message only. Do NOT print the final status summary (recursion guard — not user-facing). Do NOT invoke the command.
 
 **Gate conditions (ALL must pass to merge):** L0 build (or no command) | L1 all files in diff | L2 coverage held (or no tool) | L4 tests pass (or no command) | L4.5 contracts match (or no dependencies/integration tasks) | L5 assertions pass (or no frontend/assertions).
 
