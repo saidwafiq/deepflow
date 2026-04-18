@@ -101,7 +101,7 @@ Load PLAN.md (required), specs/doing-*.md, .deepflow/config.yaml. Missing → "N
 ```
 PLAN_TASK_FILES=!`ls .deepflow/plans/doing-*.md 2>/dev/null | tr '\n' ' ' || echo 'NOT_FOUND'`
 ```
-When `PLAN_TASK_FILES` is not `NOT_FOUND`, each file `.deepflow/plans/doing-{specName}.md` contains the full task detail (Files, Steps, ACs, Impact) for all tasks in that spec. Load a task's detail on demand when building its agent prompt (§6). PLAN.md is a slim index — Files and Impact live only in mini-plans.
+When `PLAN_TASK_FILES` is not `NOT_FOUND`, each file `.deepflow/plans/doing-{specName}.md` contains the full task detail (Files, Steps, ACs, Impact) for all tasks in that spec. Load a task's detail on demand when building its agent prompt (§6). PLAN.md is a slim index — Files and Impact live only in mini-plans. `PLAN_TASK_FILES` contains filenames only — do NOT `cat` or read mini-plan files upfront; the body lives in `WAVE_JSON[task].task_detail_body` and is injected per-agent at spawn time.
 
 ### 2.5. REGISTER NATIVE TASKS
 
@@ -141,6 +141,8 @@ Wave 2: T2 — description
 In text fallback: if output is `WAVE_ERROR` or `(no pending tasks)`, fall back to TaskList where status: "pending" AND blockedBy: empty for wave 1.
 
 Ready = tasks listed in Wave 1 (cross-referenced with TaskList status: "pending").
+
+Before wave 1 spawn, orchestrator MUST NOT read specs/*.md, .deepflow/plans/*.md, or grep across them — all needed fields are in WAVE_JSON.
 
 ### 5. SPAWN AGENTS
 
