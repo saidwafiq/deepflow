@@ -64,12 +64,26 @@ function parseMiniPlan(text) {
     // Match pending task header: - [ ] **T{N}**...
     const taskMatch = line.match(/^\s*-\s+\[\s+\]\s+\*\*T(\d+)\*\*(\s+\[[^\]]*\])?[:\s]*(.*)/);
     if (taskMatch) {
+      let rawDesc = taskMatch[3].trim();
+      const inlineBlockedBy = [];
+
+      // Parse inline "| Blocked by: T1, T2" from description
+      const inlineBlockedMatch = rawDesc.match(/^(.*?)\s*\|\s*Blocked\s+by:\s+(.+)$/i);
+      if (inlineBlockedMatch) {
+        rawDesc = inlineBlockedMatch[1].trim();
+        const deps = inlineBlockedMatch[2]
+          .split(/[,\s]+/)
+          .map(s => s.trim())
+          .filter(s => /^T\d+$/.test(s));
+        inlineBlockedBy.push(...deps);
+      }
+
       current = {
         localId: `T${taskMatch[1]}`,
         num: parseInt(taskMatch[1], 10),
-        description: taskMatch[3].trim(),
+        description: rawDesc,
         tags: taskMatch[2] ? taskMatch[2].trim() : '',
-        blockedBy: [],   // local T-ids
+        blockedBy: inlineBlockedBy,
         files: [],
         rawLine: line,   // original header line (for reference)
       };
