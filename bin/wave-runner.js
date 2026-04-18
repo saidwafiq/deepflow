@@ -20,6 +20,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const { extractSpecACs } = require('../hooks/ac-coverage');
+const { extractSection } = require('../hooks/df-spec-lint');
 
 // ---------------------------------------------------------------------------
 // CLI arg parsing
@@ -278,14 +280,54 @@ function buildWaves(tasks, stuckIds) {
 
 /**
  * Format waves as a JSON array of task objects, each with a `wave` field.
- * Fields: id, description, model, files, effort, blockedBy, spec, tag, isIntegration, isSpike, isOptimize, wave
+ * Fields: id, description, model, files, effort, blockedBy, spec, tag, isIntegration, isSpike, isOptimize,
+ *         acceptance_criteria, domain_model, task_detail_body, wave
+ *
+ * @param {Array} waves
+ * @param {string} [cwd] - repo root used to resolve spec/plan paths (defaults to process.cwd())
  */
-function formatWavesJson(waves) {
+function formatWavesJson(waves, cwd) {
+  const root = cwd || process.cwd();
   const result = [];
   for (let i = 0; i < waves.length; i++) {
     const waveNum = i + 1;
     for (const t of waves[i]) {
       const tag = t.tag || null;
+
+      // ── spec augmentation ──────────────────────────────────────────────────
+      let specText = '';
+      if (t.spec) {
+        try {
+          specText = fs.readFileSync(path.join(root, `specs/doing-${t.spec}.md`), 'utf8');
+        } catch (_) { /* file absent — leave specText as '' */ }
+      }
+
+      const acceptance_criteria = extractSpecACs(specText) ?? [];
+      const domain_model = (extractSection(specText, 'Domain Model') ?? '').replace(/\n+$/, '');
+
+      // ── mini-plan task body ────────────────────────────────────────────────
+      let task_detail_body = '';
+      if (t.spec) {
+        let planText = '';
+        try {
+          planText = fs.readFileSync(path.join(root, `.deepflow/plans/doing-${t.spec}.md`), 'utf8');
+        } catch (_) { /* plan absent */ }
+
+        if (planText) {
+          const taskId = t.num; // numeric part
+          const startMarker = `### T${taskId} \u2014`;
+          const startIdx = planText.indexOf(startMarker);
+          if (startIdx !== -1) {
+            const afterStart = planText.indexOf('\n', startIdx); // skip header line itself
+            if (afterStart !== -1) {
+              const rest = planText.slice(afterStart + 1);
+              const nextSection = rest.search(/^### /m);
+              task_detail_body = (nextSection === -1 ? rest : rest.slice(0, nextSection)).replace(/\n+$/, '');
+            }
+          }
+        }
+      }
+
       result.push({
         id: t.id,
         description: t.description || null,
@@ -298,6 +340,9 @@ function formatWavesJson(waves) {
         isIntegration: tag === 'INTEGRATION',
         isSpike: tag === 'SPIKE',
         isOptimize: tag === 'OPTIMIZE',
+        acceptance_criteria,
+        domain_model,
+        task_detail_body,
         wave: waveNum,
       });
     }
@@ -356,7 +401,7 @@ function main() {
   const stuckIds = new Set(args.recalc ? args.failed : []);
 
   const waves = buildWaves(tasks, stuckIds);
-  const output = args.json ? formatWavesJson(waves) : formatWaves(waves);
+  const output = args.json ? formatWavesJson(waves, path.dirname(planPath)) : formatWaves(waves);
 
   process.stdout.write(output + '\n');
   process.exit(0);
