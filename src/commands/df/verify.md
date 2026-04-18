@@ -271,7 +271,27 @@ sed -i '' '/^auto_fix_iteration:/d' .deepflow/auto-memory.yaml 2>/dev/null
 
 **Auto-invoke logic (after no-progress check and fix tasks are added):**
 
-- If `AUTO_FIX_ENABLED = true` AND blocking issues exist AND no-progress halt did NOT trigger: invoke `/df:execute --continue` automatically (do NOT print "Run /df:execute --continue" — just invoke the command).
+Read the iteration cap and current counter via shell injection:
+```
+MAX_ITER = !`grep 'auto_fix_max_iterations' .deepflow/config.yaml 2>/dev/null | sed 's/.*auto_fix_max_iterations[[:space:]]*:[[:space:]]*//' | tr -d ' "' | grep -E '^[0-9]+$'` || echo 3`
+CURRENT_ITER = !`grep '^auto_fix_iteration:' .deepflow/auto-memory.yaml 2>/dev/null | sed 's/^auto_fix_iteration:[[:space:]]*//' | tr -d ' "'` || echo 0`
+```
+If the grep returns empty for `MAX_ITER`, treat it as `3`. If empty for `CURRENT_ITER`, treat it as `0`.
+
+Before invoking (when `AUTO_FIX_ENABLED = true` and no-progress halt did NOT trigger):
+
+1. **Cap check:** If `CURRENT_ITER >= MAX_ITER` → print `Auto-fix cap reached (${CURRENT_ITER}/${MAX_ITER} iterations). Run /df:execute --continue manually.` and stop. Do NOT invoke `/df:execute --continue`. Do NOT update auto-memory.yaml.
+2. **Increment:** If proceeding past the cap check, increment `auto_fix_iteration` in `.deepflow/auto-memory.yaml` using:
+   ```
+   NEW_ITER=$((CURRENT_ITER + 1))
+   if grep -q '^auto_fix_iteration:' .deepflow/auto-memory.yaml 2>/dev/null; then
+     sed -i '' "s|^auto_fix_iteration:.*|auto_fix_iteration: ${NEW_ITER}|" .deepflow/auto-memory.yaml
+   else
+     echo "auto_fix_iteration: ${NEW_ITER}" >> .deepflow/auto-memory.yaml
+   fi
+   ```
+   Then invoke `/df:execute --continue` automatically (do NOT print "Run /df:execute --continue" — just invoke the command).
+
 - If `AUTO_FIX_ENABLED = false` (set by `--no-auto-fix` OR `--from-execute`): print `Run /df:execute --continue to fix T{n}` as the legacy message. Do NOT invoke the command.
 
 **Gate conditions (ALL must pass to merge):** L0 build (or no command) | L1 all files in diff | L2 coverage held (or no tool) | L4 tests pass (or no command) | L4.5 contracts match (or no dependencies/integration tasks) | L5 assertions pass (or no frontend/assertions).
