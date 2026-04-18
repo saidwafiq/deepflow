@@ -290,6 +290,13 @@ Before invoking (when `AUTO_FIX_ENABLED = true` and no-progress halt did NOT tri
      echo "auto_fix_iteration: ${NEW_ITER}" >> .deepflow/auto-memory.yaml
    fi
    ```
+   Then print the auto-invoke banner:
+   ```
+   echo "=== Auto-fix: invoking /df:execute --continue (iteration ${NEW_ITER}/${MAX_ITER}) ==="
+   echo "Triggering issues: {L0 build | L1 scope | L4 tests} — Tasks: T{n}, T{m}"
+   ```
+   Where `{L0 build | L1 scope | L4 tests}` lists only the blocking issue categories that are actually present (e.g. `L0 build, L4 tests`), and `T{n}, T{m}` lists the IDs of the fix tasks just added to PLAN.md for those blocking issues.
+
    Then invoke `/df:execute --continue` automatically (do NOT print "Run /df:execute --continue" — just invoke the command).
 
 - If `AUTO_FIX_ENABLED = false` (set by `--no-auto-fix` OR `--from-execute`): print `Run /df:execute --continue to fix T{n}` as the legacy message. Do NOT invoke the command.
