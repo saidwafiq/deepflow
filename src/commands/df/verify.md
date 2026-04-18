@@ -231,7 +231,13 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
 1. **Discover worktree:** Read `.deepflow/checkpoint.json` for `worktree_branch`/`worktree_path`. Fallback: infer from `doing-*` spec name + `git worktree list --porcelain`. No worktree → "nothing to merge", exit.
 2. **Merge:** `git checkout main && git merge ${BRANCH} --no-ff -m "feat({spec}): merge verified changes"`. On conflict → keep worktree, output "Resolve manually, run /df:verify --merge-only", exit.
 3. **Cleanup:** `git worktree remove --force ${PATH} && git branch -d ${BRANCH} && rm -f .deepflow/checkpoint.json`
-4. **Rename spec:** `mv specs/doing-${NAME}.md specs/done-${NAME}.md`
+4. **Rename spec & archive:** `mv specs/doing-${NAME}.md specs/done-${NAME}.md`, then:
+   ```sh
+   mkdir -p .deepflow/specs-done/
+   if [ -f "specs/done-${NAME}.md" ]; then
+     mv "specs/done-${NAME}.md" ".deepflow/specs-done/"
+   fi
+   ```
 5. **Cleanup stale plans:** `rm -f .deepflow/plans/doing-${NAME}.md`
 6. **Extract decisions (additive):** Read done spec, extract `[APPROACH]`/`[ASSUMPTION]`/`[PROVISIONAL]`/`[FUTURE]`/`[UPDATE]` decisions, append to `.deepflow/decisions.md` under `### {date} — {spec}` header. If the header already exists (decisions were captured incrementally during execution via §5.5.1), append only NEW decisions not already present (deduplicate by comparing decision text). Delete done spec after successful write; preserve on failure.
 7. **Clean PLAN.md:** Find the `### {spec-name}` section (match on name stem, strip `doing-`/`done-` prefix). Delete from header through the line before the next `### ` header (or EOF). Recalculate Summary table (recount `### ` headers for spec count, `- [ ]`/`- [x]` for task counts). If no spec sections remain, delete PLAN.md entirely. Skip silently if PLAN.md missing or section already gone.
