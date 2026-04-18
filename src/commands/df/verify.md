@@ -225,6 +225,17 @@ Fix tasks added to PLAN.md:
 Run /df:execute --continue to fix in the same worktree.
 ```
 
+**Blocking-issue classification (REQ-3):**
+
+Before running no-progress detection or auto-invoke, classify all issues found into two buckets:
+
+- **Blocking** (eligible for auto-invoke): L0 build failures | L1 spec-scope violations (missing files) | L4 test failures
+- **Non-blocking** (never trigger auto-invoke): L2 coverage drop | L3 AC-coverage gaps | L4.5 contract mismatches | L5 browser assertion failures | advisory warnings
+
+If issues exist but ALL of them are non-blocking → skip no-progress detection, skip auto-invoke, and exit cleanly (print the standard failure report with fix tasks if any, then `Run /df:execute --continue to fix T{n}` as the legacy message; do NOT invoke the command).
+
+Only when at least one **blocking** issue exists does execution continue to the no-progress check and auto-invoke logic below.
+
 **No-progress detection (run before auto-invoke, when blocking issues exist):**
 
 Compute a stable issue signature from all blocking issues:
