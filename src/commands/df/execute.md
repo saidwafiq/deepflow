@@ -554,7 +554,7 @@ Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail or TASK
 ### 8. COMPLETE SPECS
 
 All tasks done for `doing-*` spec:
-1. `skill: "df:verify", args: "doing-{name}"` — runs L0-L4 gates, merges, cleans worktree, renames doing→done, extracts decisions. Fail (fix tasks added) → stop; `--continue` picks them up.
+1. `skill: "df:verify", args: "doing-{name} --from-execute"` — runs L0-L4 gates, merges, cleans worktree, renames doing→done, extracts decisions. Fail (fix tasks added) → stop; `--continue` picks them up.
 2. PLAN.md section cleanup handled by verify (step 6).
 
 ---
