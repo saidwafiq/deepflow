@@ -30,7 +30,7 @@ Coordinate reasoner agents to debate a problem from multiple perspectives, then 
 Summarize conversation context in ~200 words: core problem, requirements, constraints, user priorities. Passed to each perspective agent.
 
 ### 2. GATHER CODEBASE CONTEXT
-Spawn a context-fork agent (subagent_type="default", model="sonnet") with the following prompt:
+Spawn a context-fork agent (subagent_type="general-purpose", model="sonnet") with the following prompt:
 
 ```
 ## Task: Codebase Context Gathering
