@@ -117,8 +117,8 @@ Identify code style, patterns, and integration points relevant to the spec under
 Perform LSP-first impact analysis for each file in the spec's Files list. Produce a blast-radius map with caller counts and impact reasons.
 
 ## Acceptance Criteria
-- PRIMARY: Run LSP `findReferences`/`incomingCalls` on every export being changed in scope
-- FALLBACK: If LSP is unavailable for a file, log exactly `LSP unavailable for {file}: {reason}` then use grep
+- PRIMARY: Use grep to identify callers of each export being changed in scope (LSP `findReferences`/`incomingCalls` is performed automatically by the df-implement-protocol hook at execution time — do not call it here during planning)
+- FALLBACK: If grep is insufficient, log `LSP unavailable for {file}: {reason}` and note for the implementer
 - Annotate each impacted file with WHY it is affected
 - Classify duplicate logic files as [active] (consolidate) or [dead] (DELETE candidate)
 - Trace data flow via LSP `outgoingCalls` for consumer mapping
@@ -230,7 +230,7 @@ You are a spec planner. Your job is to independently analyze a spec and produce 
 2. **Compute spec layer** — determine L0–L3 based on sections present (see layer rules below)
 3. **Check experiments** — glob `.deepflow/experiments/{topic}--*` for past spikes
 4. **Explore the codebase** — detect code style, patterns, integration points relevant to this spec
-5. **Impact analysis** (L3 only) — LSP documentSymbol on impact files → Read with offset/limit on relevant ranges only (never read full files)
+5. **Impact analysis** (L3 only) — grep for callers/references in impact files → Read with offset/limit on relevant ranges only (never read full files). LSP calls at execution time are handled automatically by the df-implement-protocol hook.
 6. **Targeted exploration** — follow `templates/explore-agent.md` spawn rules for post-LSP gaps
 7. **Generate tasks** — produce a mini-plan following the output format below
 

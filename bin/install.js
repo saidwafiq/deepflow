@@ -226,7 +226,7 @@ async function main() {
   console.log('  bin/             — plan-consolidator, wave-runner, ratchet, worktree-deps');
   console.log('  templates/       — explore-protocol (auto-injected into Explore agents via hook)');
   if (level === 'global') {
-    console.log('  hooks/           — statusline, update checker, invariant checker, worktree guard, explore protocol');
+    console.log('  hooks/           — statusline, update checker, invariant checker, worktree guard, explore protocol, implement protocol, verify protocol');
   }
   console.log('  hooks/df-spec-*  — spec validation (auto-enforced by /df:spec and /df:plan)');
   console.log('  env/             — ENABLE_LSP_TOOL (code navigation via goToDefinition, findReferences, workspaceSymbol)');
