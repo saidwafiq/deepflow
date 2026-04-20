@@ -92,16 +92,31 @@ function extractSpecACs(specContent) {
   });
 }
 
+// ── Canonical slug derivation ───────────────────────────────────────────────
+
+/**
+ * Derive the canonical spec slug from a spec file path.
+ * Strips `doing-`/`done-` prefix and `.md` suffix from the basename.
+ * e.g. "specs/doing-ac-scope-isolation.md" → "ac-scope-isolation"
+ */
+function getCanonicalSpecSlug(specPath) {
+  const base = path.basename(specPath, '.md');
+  return base.replace(/^(?:doing-|done-)/, '');
+}
+
 // ── AC scanning from test files ─────────────────────────────────────────────
 
 /**
- * Scan test files for AC references in test names.
- * Matches patterns like: it('AC-1: ...'), test('AC-2 ...'), describe('AC-3 ...')
+ * Scan test files for scoped AC references tied to a specific spec.
+ * Matches the pattern `specs/{canonicalSlug}.md#AC-N` anywhere in the file
+ * (comments, JSDoc, string literals — not restricted to it/test/describe calls).
  * Returns a Set of AC-N identifiers found across all test files.
  */
-function scanTestFilesForACs(testFilePaths) {
+function scanTestFilesForScopedACs(testFilePaths, canonicalSlug) {
   const found = new Set();
-  const pattern = /\b(it|test|describe)\s*\(\s*['"`][^'"`]*\bAC-(\d+)\b/g;
+  // Escape slug for use in regex (handles hyphens, dots, etc.)
+  const escapedSlug = canonicalSlug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`specs/${escapedSlug}\\.md#AC-(\\d+)`, 'g');
 
   for (const filePath of testFilePaths) {
     let content;
@@ -115,7 +130,7 @@ function scanTestFilesForACs(testFilePaths) {
     pattern.lastIndex = 0;
     let m;
     while ((m = pattern.exec(content)) !== null) {
-      found.add(`AC-${m[2]}`);
+      found.add(`AC-${m[1]}`);
     }
   }
 
@@ -177,11 +192,14 @@ function run(args) {
     process.exit(0);
   }
 
+  // Derive canonical slug for scoped scan
+  const slug = getCanonicalSpecSlug(args.spec);
+
   // Resolve test files to scan
   const testFilePaths = resolveTestFiles(args);
 
-  // Scan test files for AC references
-  const coveredACs = scanTestFilesForACs(testFilePaths);
+  // Scan test files for scoped AC references (specs/{slug}.md#AC-N)
+  const coveredACs = scanTestFilesForScopedACs(testFilePaths, slug);
 
   // Diff — identify missed ACs (not referenced in any test name)
   const missed = [];
@@ -264,7 +282,8 @@ function runAsHook(data) {
   testFiles = testFiles.filter(f => { try { fs.accessSync(f); return true; } catch (_) { return false; } });
   if (testFiles.length === 0) return;
 
-  const coveredACs = scanTestFilesForACs(testFiles);
+  const slug = getCanonicalSpecSlug(specPath);
+  const coveredACs = scanTestFilesForScopedACs(testFiles, slug);
   const missed = specACs.filter(ac => !coveredACs.has(ac));
 
   if (missed.length > 0) {
@@ -286,4 +305,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { extractSpecACs, extractACSection, scanTestFilesForACs, resolveTestFiles };
+module.exports = { extractSpecACs, extractACSection, getCanonicalSpecSlug, scanTestFilesForScopedACs, resolveTestFiles };
