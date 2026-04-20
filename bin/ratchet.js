@@ -17,6 +17,39 @@
 
 'use strict';
 
+// ---------------------------------------------------------------------------
+// --help / -h  (must intercept BEFORE any main logic)
+// ---------------------------------------------------------------------------
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  process.stdout.write(`deepflow ratchet — mechanical health-check gate with auto-revert on failure
+
+Usage:
+  node bin/ratchet.js --worktree <path> --snapshot <file> --task T<N>
+
+Options:
+  --worktree <path>   Path to the git worktree under test
+  --snapshot <file>   Path to the pre-existing test-file snapshot (ratchet baseline)
+  --task T<N>         Task identifier (e.g. T3); on PASS, marks task done in PLAN.md
+  --help, -h          Show this help text and exit
+
+Exit code contract:
+  0 = PASS        Commit stands; task marked done in PLAN.md
+  1 = FAIL        Health gate failed; script auto-reverts with: git revert HEAD --no-edit
+                  Orchestrator sets task back to pending for retry
+  2 = SALVAGEABLE Lint/typecheck failed but build + tests passed; commit stays
+                  Orchestrator spawns a fix agent to clean up style issues
+
+Edit-scope note:
+  Only files listed in the spec's "Files:" section are counted; edits outside
+  scope are flagged as scope-creep and treated as FAIL.
+
+Impact-completeness note:
+  All callers of changed symbols must be updated; missing updates are flagged
+  as incomplete and treated as FAIL.
+`);
+  process.exit(0);
+}
+
 const fs = require('fs');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
