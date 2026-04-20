@@ -1,11 +1,13 @@
 /**
  * Tests for bin/prompt-compose.js — agent-prompt template resolver.
  *
- * Coverage (AC-3, AC-4, AC-8):
+ * Coverage (AC-1, AC-2, AC-3, AC-4, AC-6, AC-8):
  *   - happy render: all tokens present → stdout contains rendered text, exit 0
  *   - missing-token error: stderr names the token, exit 1
  *   - --help output: documents {{TOKEN}} grammar and "missing = error" rule
  *   - stdin context via "-": JSON piped on fd 0 renders correctly
+ *   - standard-task fixture regression: byte-identical round-trip (AC-1, AC-2, AC-6)
+ *   - standard-task collapsed: empty optional blocks leave no blank-line residue (AC-2)
  *
  * Uses Node's built-in node:test to avoid dependencies. Because
  * templates/agent-prompts/<name>.md is not yet populated (T9 lands the first
@@ -174,5 +176,50 @@ describe('cli', () => {
     });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /invalid JSON context/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// standard-task fixture regression (AC-1, AC-2, AC-6)
+// ---------------------------------------------------------------------------
+
+describe('standard-task fixture regression', () => {
+  const FIXTURES_DIR = path.join(__dirname, 'fixtures', 'prompt-compose');
+  const CTX_PATH = path.join(FIXTURES_DIR, 'standard-task.context.json');
+  const EXPECTED_PATH = path.join(FIXTURES_DIR, 'standard-task.expected.txt');
+
+  test('byte-identical round-trip against committed fixture (AC-1, AC-6)', () => {
+    const ctx = JSON.parse(fs.readFileSync(CTX_PATH, 'utf8'));
+    const templatePath = path.join(REPO_ROOT, 'templates', 'agent-prompts', 'standard-task.md');
+    const template = fs.readFileSync(templatePath, 'utf8');
+    const expected = fs.readFileSync(EXPECTED_PATH, 'utf8');
+    const { render: renderFn } = require('./prompt-compose.js');
+    const actual = renderFn(template, ctx);
+    assert.strictEqual(actual, expected);
+  });
+
+  test('collapsed optional blocks leave no blank-line residue (AC-2)', () => {
+    const ctx = {
+      TASK_ID: 'T1',
+      DESCRIPTION: 'minimal task',
+      FILES: 'src/x.ts',
+      SPEC: 'specs/doing-x.md',
+      ACS: 'AC-1',
+      REVERTED_BLOCK: '',
+      SPIKE_BLOCK: '',
+      DOMAIN_MODEL_BLOCK: '',
+      EXISTING_TYPES_BLOCK: '',
+      TASK_BODY: 'steps here',
+    };
+    const templatePath = path.join(REPO_ROOT, 'templates', 'agent-prompts', 'standard-task.md');
+    const template = fs.readFileSync(templatePath, 'utf8');
+    const { render: renderFn } = require('./prompt-compose.js');
+    const actual = renderFn(template, ctx);
+    // No two consecutive newlines between START line and Success criteria line.
+    // i.e. collapsed placeholder sites don't leave empty lines between siblings.
+    assert.ok(!actual.includes('\n\nSuccess criteria:'),
+      'blank line before "Success criteria:" — REVERTED_BLOCK/SPIKE_BLOCK residue');
+    assert.ok(!actual.includes('\n\n--- MIDDLE'),
+      'blank line before "--- MIDDLE" — DOMAIN_MODEL_BLOCK/EXISTING_TYPES_BLOCK residue');
   });
 });
