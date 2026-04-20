@@ -431,11 +431,11 @@ Duplicates: [active]→consolidate [dead]→DELETE. ONLY job: code+commit. No me
 **Acceptance Criteria Coverage:** If the spec has acceptance criteria (AC-N), emit this block:
 ```
 AC_COVERAGE:
-AC-1:done
+AC-1:done:covered by TestXxx (specs/{slug}.md#AC-1)
 AC-2:skip:reason here (if applicable)
 AC_COVERAGE_END
 ```
-Format: one line per AC with either `AC-N:done` or `AC-N:skip:reason`. Omit this block if the spec has no acceptance criteria.
+Format: one line per AC with either `AC-N:done`, `AC-N:done:covered by TestXxx (specs/{slug}.md#AC-N)`, or `AC-N:skip:reason`. Omit this block if the spec has no acceptance criteria.
 DECISIONS: If you made non-obvious choices, cite with [APPROACH]. Append to the LAST LINE BEFORE TASK_STATUS:
 DECISIONS: [TAG] {decision} — {rationale} | [TAG] {decision2} — {rationale2}
 Tags:
@@ -470,11 +470,11 @@ RULES:
 **Acceptance Criteria Coverage:** If the spec has acceptance criteria (AC-N), emit this block:
 ```
 AC_COVERAGE:
-AC-1:done
+AC-1:done:covered by TestXxx (specs/{slug}.md#AC-1)
 AC-2:skip:reason here (if applicable)
 AC_COVERAGE_END
 ```
-Format: one line per AC with either `AC-N:done` or `AC-N:skip:reason`. Omit this block if the spec has no acceptance criteria.
+Format: one line per AC with either `AC-N:done`, `AC-N:done:covered by TestXxx (specs/{slug}.md#AC-N)`, or `AC-N:skip:reason`. Omit this block if the spec has no acceptance criteria.
 DECISIONS: Report each contract fix as: [TAG] {what was mismatched} — {which side changed and why}. Use [APPROACH] for definitive fixes, [PROVISIONAL] if the fix is a workaround, [UPDATE] if changing a prior decision.
 Last line: TASK_STATUS:pass or TASK_STATUS:fail
 ```
@@ -498,6 +498,7 @@ RULES:
 - Use the `Read` tool (or `git diff HEAD~1`) to inspect what the implementation changed before writing tests.
 - Do not duplicate tests that already exist in the pre-existing test files listed above.
 - Do not modify pre-existing test files — write new test files only.
+- Each new test MUST annotate covered AC via `specs/{spec-slug}.md#AC-N` in a comment (e.g. `// covers specs/foo.md#AC-3`) or inside the test name itself.
 - Commit as test({spec}): {description}.
 Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed)
 ```

@@ -70,6 +70,20 @@ _Note: Keep to max 15 terms for clarity._
 - [ ] **AC-2** — (REQ-2) [Testable criterion: e.g., "Files over 10MB show clear error"]
 - [ ] **AC-3** — (REQ-3) [Testable criterion: e.g., "Upload progress is visible"]
 
+## Test Annotation Convention
+
+Link tests back to the spec AC they verify using the format `specs/{spec-slug}.md#AC-N`.
+
+In a comment:
+```js
+// covers specs/my-feature.md#AC-3
+```
+
+As a test name:
+```js
+test('specs/my-feature.md#AC-3 handles empty input', () => { ... })
+```
+
 ## Technical Notes
 
 [Optional: implementation hints, preferred libraries, architectural decisions]
