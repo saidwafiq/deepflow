@@ -28,7 +28,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const { readStdinIfMain } = require('./lib/hook-stdin');
-const { scanTestFilesForACs, extractSpecACs } = require('./ac-coverage');
+const { scanTestFilesForScopedACs, getCanonicalSpecSlug, extractSpecACs } = require('./ac-coverage');
 const {
   queryLsp,
   detectLanguageServer,
@@ -125,11 +125,12 @@ function isImplFile(p) {
 
 // ── D1: AC test ratio ────────────────────────────────────────────────────────
 
-function dimensionAcTestRatio(specContent, testFilePaths) {
+function dimensionAcTestRatio(specContent, testFilePaths, specPath) {
   const specACs = extractSpecACs(specContent);
   if (!specACs || specACs.length === 0) return { score: null, reason: 'no-acs' };
 
-  const covered = scanTestFilesForACs(testFilePaths);
+  const slug = getCanonicalSpecSlug(specPath || '');
+  const covered = scanTestFilesForScopedACs(testFilePaths, slug);
   let hits = 0;
   for (const id of specACs) if (covered.has(id)) hits++;
   return { score: hits / specACs.length, total: specACs.length, covered: hits };
@@ -288,6 +289,7 @@ async function dimensionJsDocRatio(cwd, changedFiles) {
  * @param {object} opts
  * @param {string} opts.cwd          project root
  * @param {string} opts.specContent  active spec markdown
+ * @param {string} opts.specPath     path to the active spec file (for slug derivation)
  * @param {string} opts.diff         unified diff against HEAD~1
  * @param {string[]} opts.changedFiles  changed file paths (relative)
  * @param {string[]} [opts.testFilePaths]  test files to scan for AC refs
@@ -296,13 +298,13 @@ async function dimensionJsDocRatio(cwd, changedFiles) {
  * @returns {Promise<{ score: number|null, dimensions: object }>}
  */
 async function scoreHarness(opts) {
-  const { cwd, specContent, diff, changedFiles } = opts;
+  const { cwd, specContent, specPath, diff, changedFiles } = opts;
 
   // D1 — scan ALL test files in the repo for broad AC coverage, not just diff.
   const testFilePaths = opts.testFilePaths
     || changedFiles.filter(isTestFile).map((f) => path.isAbsolute(f) ? f : path.join(cwd, f));
 
-  const d1 = dimensionAcTestRatio(specContent, testFilePaths);
+  const d1 = dimensionAcTestRatio(specContent, testFilePaths, specPath);
   const d2 = dimensionDiffSibling(changedFiles);
   const d3 = dimensionComplexity(diff);
   const d4 = await dimensionJsDocRatio(cwd, changedFiles);
@@ -346,7 +348,7 @@ async function runHook(data) {
 
   const minScore = readMinScore(cwd);
   const { score, dimensions, reason } = await scoreHarness({
-    cwd, specContent: spec.content, diff, changedFiles,
+    cwd, specContent: spec.content, specPath: spec.path, diff, changedFiles,
   });
 
   if (score == null) {
