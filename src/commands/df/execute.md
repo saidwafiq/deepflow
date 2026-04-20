@@ -183,19 +183,15 @@ After ALL wave-N agents complete, cherry-pick each wave-N commit back to the mai
 
 ### 5.5. RATCHET CHECK
 
-Run after each agent completes, using the task's spec worktree and snapshot file:
+Run after each agent completes: `node bin/ratchet.js --help` for exit codes and scope rules.
 ```bash
 node bin/ratchet.js --worktree ${SPEC_WORKTREES[task.spec].path} --snapshot .deepflow/auto-snapshot-{task.spec}.txt --task T{N}
 ```
-
-See `node bin/ratchet.js --help` for exit codes and scope rules.
-
 - **Exit 0 (PASS):** commit stands. Run §5.5.1 AC coverage → §5.5.2 decision extraction.
 - **Exit 1 (FAIL):** script already reverted HEAD. `TaskUpdate(status: 'pending')`. Recompute remaining waves with `--recalc --failed T{N}`.
 - **Exit 2 (SALVAGEABLE):** spawn `Agent(model='sonnet')` fix, re-run ratchet; still non-zero → revert both commits, set pending.
 
 Pre-existing test updates require a dedicated PLAN.md task — never inline.
-
 #### 5.5.1. AC COVERAGE CHECK (after ratchet pass)
 
 After ratchet PASS (exit 0), run AC coverage check to verify agent reported all acceptance criteria:
