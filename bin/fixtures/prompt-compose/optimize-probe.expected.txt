@@ -1,0 +1,14 @@
+--- START ---
+T30 [OPTIMIZE PROBE]: p95_latency_ms — probe 2 (contraditoria)
+Current: 142ms. Target: 100ms. Role instruction:
+Best was: added index on user_id. Try OPPOSITE — remove the index and rewrite the query to use a covering scan.
+--- MIDDLE ---
+Full history:
+  cycle 1: 180→165ms — added index (kept)
+  cycle 2: 165→170ms — query rewrite (reverted)
+  cycle 3: 165→142ms — eager load (kept)
+All failed hypotheses: query rewrite caused N+1; subquery slower than join
+LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files)
+--- END ---
+ONE atomic change. Commit. STOP.
+Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed) or TASK_STATUS:revert (if reverted)

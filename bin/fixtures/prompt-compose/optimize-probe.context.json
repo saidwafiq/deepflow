@@ -1,0 +1,10 @@
+{
+  "TASK_ID": "T30",
+  "METRIC": "p95_latency_ms",
+  "PROBE_ID": "2",
+  "ROLE": "contraditoria",
+  "CURRENT": "142ms",
+  "TARGET": "100ms",
+  "ROLE_INSTRUCTION": "Best was: added index on user_id. Try OPPOSITE — remove the index and rewrite the query to use a covering scan.",
+  "HISTORY_BLOCK": "Full history:\n  cycle 1: 180→165ms — added index (kept)\n  cycle 2: 165→170ms — query rewrite (reverted)\n  cycle 3: 165→142ms — eager load (kept)\nAll failed hypotheses: query rewrite caused N+1; subquery slower than join\n"
+}
