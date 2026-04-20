@@ -361,13 +361,9 @@ REPEAT:
 
 ### 6. PER-TASK (agent prompt)
 
-**Common preamble (all):** `Working directory: ${SPEC_WORKTREES[task.spec].path}. All file ops use this path. Commit format: {type}({spec}): {desc}`
-
-Resolve `task.spec` from the `WAVE_JSON` entry for this task (fallback: scan `.deepflow/plans/doing-*.md` for the task's block). Never hand an agent a worktree path that belongs to a different spec.
-
+**Common preamble (all):** `Working directory: ${SPEC_WORKTREES[task.spec].path}. All file ops use this path. Commit format: {type}({spec}): {desc}` — resolve `task.spec` from `WAVE_JSON` (fallback: `.deepflow/plans/doing-*.md`). Never route a task to a different spec's worktree.
 <!-- LSP type context (EXISTING_TYPES) is injected automatically by the df-implement-protocol PreToolUse hook — no agent action required. -->
-
-**Template selection (deterministic, from WAVE_JSON):**
+**Template selection** (flags from `WAVE_JSON` — authoritative; do NOT re-parse task description):
 
 | Flag                  | Template                           |
 |-----------------------|------------------------------------|
@@ -375,8 +371,6 @@ Resolve `task.spec` from the `WAVE_JSON` entry for this task (fallback: scan `.d
 | `isSpike: true`       | Spike                              |
 | `isOptimize: true`    | Optimize Task                      |
 | (none)                | Standard Task                      |
-
-Read these fields from `WAVE_JSON` entries. Do NOT re-parse the task description for tags — the flags are authoritative. If `isIntegration` is true, skip Standard Task entirely and jump to Integration Task (below).
 
 **Template files** (render with `node bin/prompt-compose.js --template <name> --context <json-or-stdin>`):
 
@@ -391,7 +385,6 @@ Read these fields from `WAVE_JSON` entries. Do NOT re-parse the task description
 | Optimize Probe | `templates/agent-prompts/optimize-probe.md` | (see file) |
 
 Conditional blocks (`REVERTED_BLOCK`, `SPIKE_BLOCK`, `DOMAIN_MODEL_BLOCK`, `EXISTING_TYPES_BLOCK`) are pre-rendered by the caller — pass empty string to collapse, pre-formatted content (with trailing `\n`) to include.
-
 ### 8. COMPLETE SPECS
 
 All tasks done for `doing-*` spec:
