@@ -223,3 +223,123 @@ describe('standard-task fixture regression', () => {
       'blank line before "--- MIDDLE" — DOMAIN_MODEL_BLOCK/EXISTING_TYPES_BLOCK residue');
   });
 });
+
+// ---------------------------------------------------------------------------
+// integration fixture regression (AC-1, AC-2, AC-6)
+// ---------------------------------------------------------------------------
+
+describe('integration fixture regression', () => {
+  const FIXTURES_DIR = path.join(__dirname, 'fixtures', 'prompt-compose');
+  const CTX_PATH = path.join(FIXTURES_DIR, 'integration.context.json');
+  const EXPECTED_PATH = path.join(FIXTURES_DIR, 'integration.expected.txt');
+
+  test('byte-identical round-trip against committed fixture (AC-1, AC-6)', () => {
+    const ctx = JSON.parse(fs.readFileSync(CTX_PATH, 'utf8'));
+    const templatePath = path.join(REPO_ROOT, 'templates', 'agent-prompts', 'integration.md');
+    const template = fs.readFileSync(templatePath, 'utf8');
+    const expected = fs.readFileSync(EXPECTED_PATH, 'utf8');
+    const { render: renderFn } = require('./prompt-compose.js');
+    const actual = renderFn(template, ctx);
+    assert.strictEqual(actual, expected);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bootstrap fixture regression (AC-1, AC-2, AC-6)
+// ---------------------------------------------------------------------------
+
+describe('bootstrap fixture regression', () => {
+  const FIXTURES_DIR = path.join(__dirname, 'fixtures', 'prompt-compose');
+  const CTX_PATH = path.join(FIXTURES_DIR, 'bootstrap.context.json');
+  const EXPECTED_PATH = path.join(FIXTURES_DIR, 'bootstrap.expected.txt');
+
+  test('byte-identical round-trip against committed fixture (AC-1, AC-6)', () => {
+    const ctx = JSON.parse(fs.readFileSync(CTX_PATH, 'utf8'));
+    const templatePath = path.join(REPO_ROOT, 'templates', 'agent-prompts', 'bootstrap.md');
+    const template = fs.readFileSync(templatePath, 'utf8');
+    const expected = fs.readFileSync(EXPECTED_PATH, 'utf8');
+    const { render: renderFn } = require('./prompt-compose.js');
+    const actual = renderFn(template, ctx);
+    assert.strictEqual(actual, expected);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// wave-test fixture regression (AC-1, AC-2, AC-6)
+// ---------------------------------------------------------------------------
+
+describe('wave-test fixture regression', () => {
+  const FIXTURES_DIR = path.join(__dirname, 'fixtures', 'prompt-compose');
+  const CTX_PATH = path.join(FIXTURES_DIR, 'wave-test.context.json');
+  const EXPECTED_PATH = path.join(FIXTURES_DIR, 'wave-test.expected.txt');
+
+  test('byte-identical round-trip against committed fixture (AC-1, AC-6)', () => {
+    const ctx = JSON.parse(fs.readFileSync(CTX_PATH, 'utf8'));
+    const templatePath = path.join(REPO_ROOT, 'templates', 'agent-prompts', 'wave-test.md');
+    const template = fs.readFileSync(templatePath, 'utf8');
+    const expected = fs.readFileSync(EXPECTED_PATH, 'utf8');
+    const { render: renderFn } = require('./prompt-compose.js');
+    const actual = renderFn(template, ctx);
+    assert.strictEqual(actual, expected);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// spike fixture regression (AC-1, AC-2, AC-6)
+// ---------------------------------------------------------------------------
+
+describe('spike fixture regression', () => {
+  const FIXTURES_DIR = path.join(__dirname, 'fixtures', 'prompt-compose');
+  const CTX_PATH = path.join(FIXTURES_DIR, 'spike.context.json');
+  const EXPECTED_PATH = path.join(FIXTURES_DIR, 'spike.expected.txt');
+
+  test('byte-identical round-trip against committed fixture (AC-1, AC-6)', () => {
+    const ctx = JSON.parse(fs.readFileSync(CTX_PATH, 'utf8'));
+    const templatePath = path.join(REPO_ROOT, 'templates', 'agent-prompts', 'spike.md');
+    const template = fs.readFileSync(templatePath, 'utf8');
+    const expected = fs.readFileSync(EXPECTED_PATH, 'utf8');
+    const { render: renderFn } = require('./prompt-compose.js');
+    const actual = renderFn(template, ctx);
+    assert.strictEqual(actual, expected);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// optimize fixture regression (AC-1, AC-2, AC-6)
+// ---------------------------------------------------------------------------
+
+describe('optimize fixture regression', () => {
+  const FIXTURES_DIR = path.join(__dirname, 'fixtures', 'prompt-compose');
+  const CTX_PATH = path.join(FIXTURES_DIR, 'optimize.context.json');
+  const EXPECTED_PATH = path.join(FIXTURES_DIR, 'optimize.expected.txt');
+
+  test('byte-identical round-trip against committed fixture (AC-1, AC-6)', () => {
+    const ctx = JSON.parse(fs.readFileSync(CTX_PATH, 'utf8'));
+    const templatePath = path.join(REPO_ROOT, 'templates', 'agent-prompts', 'optimize.md');
+    const template = fs.readFileSync(templatePath, 'utf8');
+    const expected = fs.readFileSync(EXPECTED_PATH, 'utf8');
+    const { render: renderFn } = require('./prompt-compose.js');
+    const actual = renderFn(template, ctx);
+    assert.strictEqual(actual, expected);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// optimize-probe fixture regression (AC-1, AC-2, AC-6)
+// ---------------------------------------------------------------------------
+
+describe('optimize-probe fixture regression', () => {
+  const FIXTURES_DIR = path.join(__dirname, 'fixtures', 'prompt-compose');
+  const CTX_PATH = path.join(FIXTURES_DIR, 'optimize-probe.context.json');
+  const EXPECTED_PATH = path.join(FIXTURES_DIR, 'optimize-probe.expected.txt');
+
+  test('byte-identical round-trip against committed fixture (AC-1, AC-6)', () => {
+    const ctx = JSON.parse(fs.readFileSync(CTX_PATH, 'utf8'));
+    const templatePath = path.join(REPO_ROOT, 'templates', 'agent-prompts', 'optimize-probe.md');
+    const template = fs.readFileSync(templatePath, 'utf8');
+    const expected = fs.readFileSync(EXPECTED_PATH, 'utf8');
+    const { render: renderFn } = require('./prompt-compose.js');
+    const actual = renderFn(template, ctx);
+    assert.strictEqual(actual, expected);
+  });
+});

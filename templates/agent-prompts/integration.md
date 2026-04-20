@@ -1,0 +1,26 @@
+--- START ---
+{{TASK_ID}} [INTEGRATION]: Verify contracts between {{SPEC_A}} ↔ {{SPEC_B}}
+Integration ACs: {{INTEGRATION_ACS}}
+--- MIDDLE ---
+Specs involved: {{SPECS_INVOLVED}}
+Interface Map: {{INTERFACE_MAP}}
+Contract Risks: {{CONTRACT_RISKS}}
+LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files)
+--- END ---
+RULES:
+- Fix the CONSUMER to match the PRODUCER's declared interface. Never weaken the producer.
+- Each fix must reference the specific contract being repaired.
+- If a migration conflict exists, make ALL migrations idempotent (IF NOT EXISTS, IF NOT COLUMN, etc.)
+- Do NOT create new variables or intermediate adapters to paper over mismatches. Fix the actual call site.
+- Do NOT modify acceptance criteria or spec definitions.
+- Commit as fix({spec}): {contract description}. One commit per contract fix.
+**Acceptance Criteria Coverage:** If the spec has acceptance criteria (AC-N), emit this block:
+```
+AC_COVERAGE:
+AC-1:done:covered by TestXxx (specs/{slug}.md#AC-1)
+AC-2:skip:reason here (if applicable)
+AC_COVERAGE_END
+```
+Format: one line per AC with either `AC-N:done`, `AC-N:done:covered by TestXxx (specs/{slug}.md#AC-N)`, or `AC-N:skip:reason`. Omit this block if the spec has no acceptance criteria.
+{{AC_COVERAGE_INSTRUCTIONS}}DECISIONS: Report each contract fix as: [TAG] {what was mismatched} — {which side changed and why}. Use [APPROACH] for definitive fixes, [PROVISIONAL] if the fix is a workaround, [UPDATE] if changing a prior decision.
+Last line: TASK_STATUS:pass or TASK_STATUS:fail
