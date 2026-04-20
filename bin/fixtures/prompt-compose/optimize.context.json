@@ -1,0 +1,16 @@
+{
+  "TASK_ID": "T30",
+  "METRIC": "p95_latency_ms",
+  "N": "3",
+  "MAX": "10",
+  "FILES": "src/query.ts",
+  "SPEC": "specs/doing-perf.md",
+  "CURRENT": "142ms",
+  "BASELINE": "180ms",
+  "BEST": "138ms",
+  "TARGET": "100ms",
+  "DIRECTION": "lower",
+  "METRIC_CMD": "npm run benchmark --silent | tail -1",
+  "HISTORY_BLOCK": "Last 5 cycles:\n  cycle 1: 180→165ms — added index (kept)\n  cycle 2: 165→170ms — query rewrite (reverted)\n  cycle 3: 165→142ms — eager load (kept)\nFailed hypotheses: query rewrite caused N+1\n",
+  "LEARNINGS": "Learnings: indexes on foreign keys yield largest gains; avoid eager loading across >2 joins. "
+}

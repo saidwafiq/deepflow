@@ -365,13 +365,9 @@ REPEAT:
 
 ### 6. PER-TASK (agent prompt)
 
-**Common preamble (all):** `Working directory: ${SPEC_WORKTREES[task.spec].path}. All file ops use this path. Commit format: {type}({spec}): {desc}`
-
-Resolve `task.spec` from the `WAVE_JSON` entry for this task (fallback: scan `.deepflow/plans/doing-*.md` for the task's block). Never hand an agent a worktree path that belongs to a different spec.
-
+**Common preamble (all):** `Working directory: ${SPEC_WORKTREES[task.spec].path}. All file ops use this path. Commit format: {type}({spec}): {desc}` — resolve `task.spec` from `WAVE_JSON` (fallback: `.deepflow/plans/doing-*.md`). Never route a task to a different spec's worktree.
 <!-- LSP type context (EXISTING_TYPES) is injected automatically by the df-implement-protocol PreToolUse hook — no agent action required. -->
-
-**Template selection (deterministic, from WAVE_JSON):**
+**Template selection** (flags from `WAVE_JSON` — authoritative; do NOT re-parse task description):
 
 | Flag                  | Template                           |
 |-----------------------|------------------------------------|
@@ -380,143 +376,19 @@ Resolve `task.spec` from the `WAVE_JSON` entry for this task (fallback: scan `.d
 | `isOptimize: true`    | Optimize Task                      |
 | (none)                | Standard Task                      |
 
-Read these fields from `WAVE_JSON` entries. Do NOT re-parse the task description for tags — the flags are authoritative. If `isIntegration` is true, skip Standard Task entirely and jump to Integration Task (below).
+**Template files** (render with `node bin/prompt-compose.js --template <name> --context <json-or-stdin>`):
 
-**Standard Task** (`Agent(model="{Model}", ...)`):
-```
---- START ---
-{task_id}: {description}  Files: {files}  Spec: {spec}
-{If reverted: DO NOT repeat: - Cycle {N}: "{reason}"}
-{If spike insights exist:
-spike_results:
-  hypothesis: {hypothesis from spike_insights}
-  outcome: {outcome}
-  edge_cases: {edge_cases}
-  insight: {insight from probe_learnings}
-}
-Success criteria: {ACs from spec relevant to this task}
-{If WAVE_JSON[task].domain_model is non-empty:
---- CONTEXT: Domain Model ---
-{WAVE_JSON[task].domain_model}
-}
-{If EXISTING_TYPES is non-empty:
---- CONTEXT: Existing Types ---
-{EXISTING_TYPES}
-}
---- MIDDLE (omit for low effort; omit deps for medium) ---
-{WAVE_JSON[task].task_detail_body if non-empty, else inline block:}
-Impact: Callers: {file} ({why}) | Duplicates: [active→consolidate] [dead→DELETE] | Data flow: {consumers}
-Prior tasks: {dep_id}: {summary}
-Steps: 1. chub search/get for APIs 2. Read with offset/limit on relevant ranges only (never read full files) 3. Implement 4. Commit
---- END ---
-Duplicates: [active]→consolidate [dead]→DELETE. ONLY job: code+commit. No merge/rename/checkout.
-**Acceptance Criteria Coverage:** If the spec has acceptance criteria (AC-N), emit this block:
-```
-AC_COVERAGE:
-AC-1:done:covered by TestXxx (specs/{slug}.md#AC-1)
-AC-2:skip:reason here (if applicable)
-AC_COVERAGE_END
-```
-Format: one line per AC with either `AC-N:done`, `AC-N:done:covered by TestXxx (specs/{slug}.md#AC-N)`, or `AC-N:skip:reason`. Omit this block if the spec has no acceptance criteria.
-DECISIONS: If you made non-obvious choices, cite with [APPROACH]. Append to the LAST LINE BEFORE TASK_STATUS:
-DECISIONS: [TAG] {decision} — {rationale} | [TAG] {decision2} — {rationale2}
-Tags:
-  [APPROACH] — chose X over Y (architectural/design choice)
-  [PROVISIONAL] — works for now but won't scale / needs revisit
-  [ASSUMPTION] — assumed X is true; if wrong, Y breaks
-  [FUTURE] — deferred X because Y; revisit when Z
-  [UPDATE] — changed prior decision from X to Y because Z
-Skip for trivial/mechanical changes.
-Files: List every file you modified or created, one per line, in the format `Files: path/to/file.ts, path/to/other.ts`. This is required so the orchestrator can detect file conflicts across concurrent tasks.
-Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed) or TASK_STATUS:revert (if reverted)
-```
+| Template | File | Required tokens (see the file for full list) |
+|---|---|---|
+| Standard Task | `templates/agent-prompts/standard-task.md` | `TASK_ID`, `DESCRIPTION`, `FILES`, `SPEC`, `ACS`, `TASK_BODY` (+ pre-rendered conditional blocks) |
+| Integration | `templates/agent-prompts/integration.md` | `TASK_ID`, `SPEC_A`, `SPEC_B`, `INTEGRATION_ACS`, `SPECS_INVOLVED`, `INTERFACE_MAP`, `CONTRACT_RISKS`, `AC_COVERAGE_INSTRUCTIONS` |
+| Bootstrap | `templates/agent-prompts/bootstrap.md` | `SPEC` |
+| Wave Test | `templates/agent-prompts/wave-test.md` | `TASK_ID`, `SPEC_NAME`, `SNAPSHOT_FILES`, `EXISTING_TEST_NAMES`, `SPEC_PATH`, `EDIT_SCOPE`, `SPEC` |
+| Spike | `templates/agent-prompts/spike.md` | `TASK_ID`, `HYPOTHESIS`, `SPEC`, `REVERTED_WARNINGS`, `DESC` |
+| Optimize Task | `templates/agent-prompts/optimize.md` | (see file) |
+| Optimize Probe | `templates/agent-prompts/optimize-probe.md` | (see file) |
 
-**Integration Task** (`Agent(model="opus")`):
-```
---- START ---
-{task_id} [INTEGRATION]: Verify contracts between {spec_a} ↔ {spec_b}
-Integration ACs: {list from PLAN.md}
---- MIDDLE ---
-Specs involved: {spec file paths}
-Interface Map: {from integration task detail}
-Contract Risks: {from integration task detail}
-LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files)
---- END ---
-RULES:
-- Fix the CONSUMER to match the PRODUCER's declared interface. Never weaken the producer.
-- Each fix must reference the specific contract being repaired.
-- If a migration conflict exists, make ALL migrations idempotent (IF NOT EXISTS, IF NOT COLUMN, etc.)
-- Do NOT create new variables or intermediate adapters to paper over mismatches. Fix the actual call site.
-- Do NOT modify acceptance criteria or spec definitions.
-- Commit as fix({spec}): {contract description}. One commit per contract fix.
-**Acceptance Criteria Coverage:** If the spec has acceptance criteria (AC-N), emit this block:
-```
-AC_COVERAGE:
-AC-1:done:covered by TestXxx (specs/{slug}.md#AC-1)
-AC-2:skip:reason here (if applicable)
-AC_COVERAGE_END
-```
-Format: one line per AC with either `AC-N:done`, `AC-N:done:covered by TestXxx (specs/{slug}.md#AC-N)`, or `AC-N:skip:reason`. Omit this block if the spec has no acceptance criteria.
-DECISIONS: Report each contract fix as: [TAG] {what was mismatched} — {which side changed and why}. Use [APPROACH] for definitive fixes, [PROVISIONAL] if the fix is a workaround, [UPDATE] if changing a prior decision.
-Last line: TASK_STATUS:pass or TASK_STATUS:fail
-```
-
-**Bootstrap:** `BOOTSTRAP: Write tests for edit_scope files. Do NOT change implementation. Commit as test({spec}): bootstrap. Last line: TASK_STATUS:pass or TASK_STATUS:fail`
-
-**Wave Test** (`Agent(model="sonnet")`):
-```
---- START ---
-{task_id} [TEST]: Write tests for {spec_name}. Files+Spec.
-Pre-existing test files:
-{SNAPSHOT_FILES}
-
-Existing test function names (do NOT duplicate these):
-{EXISTING_TEST_NAMES}
---- MIDDLE ---
-Spec: {spec_path}
-Edit scope: {edit_scope}
---- END ---
-RULES:
-- Use the `Read` tool (or `git diff HEAD~1`) to inspect what the implementation changed before writing tests.
-- Do not duplicate tests that already exist in the pre-existing test files listed above.
-- Do not modify pre-existing test files — write new test files only.
-- Each new test MUST annotate covered AC via `specs/{spec-slug}.md#AC-N` in a comment (e.g. `// covers specs/foo.md#AC-3`) or inside the test name itself.
-- Commit as test({spec}): {description}.
-Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed)
-```
-
-**Spike**: `{task_id} [SPIKE]: {hypothesis}. Files+Spec. {reverted warnings}. Minimal spike. Commit as spike({spec}): {desc}. If you discovered constraints, rejected approaches, or made assumptions, report: DECISIONS: [TAG] {finding} — {why it matters} (use PROVISIONAL for "works but needs revisit", ASSUMPTION for "assumed X; if wrong Y breaks", APPROACH for definitive choices). Last line: TASK_STATUS:pass or TASK_STATUS:fail`
-
-**Optimize Task** (`Agent(model="opus")`):
-```
---- START ---
-{task_id} [OPTIMIZE]: {metric} — cycle {N}/{max}. Files+Spec.
-Current: {val} (baseline: {b}, best: {best}). Target: {t} ({dir}). Metric: {cmd}
-CONSTRAINT: ONE atomic change.
---- MIDDLE ---
-Last 5 cycles + failed hypotheses + Impact/deps.
-LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files)
---- END ---
-{Learnings}. ONE change + commit. No metric run, no multiple changes.
-Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail or TASK_STATUS:revert
-```
-
-**Optimize Probe** (`Agent(model="opus")`):
-```
---- START ---
-{task_id} [OPTIMIZE PROBE]: {metric} — probe {id} ({role})
-Current/Target. Role instruction:
-  contextualizada: "Build on best: {summary}. Refine."
-  contraditoria: "Best was: {summary}. Try OPPOSITE."
-  ingenua: "Ignore prior. Fresh approach."
---- MIDDLE ---
-Full history + all failed hypotheses.
-LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files)
---- END ---
-ONE atomic change. Commit. STOP.
-Last line of your response MUST be: TASK_STATUS:pass or TASK_STATUS:fail or TASK_STATUS:revert
-```
-
+Conditional blocks (`REVERTED_BLOCK`, `SPIKE_BLOCK`, `DOMAIN_MODEL_BLOCK`, `EXISTING_TYPES_BLOCK`) are pre-rendered by the caller — pass empty string to collapse, pre-formatted content (with trailing `\n`) to include.
 ### 8. COMPLETE SPECS
 
 All tasks done for `doing-*` spec:

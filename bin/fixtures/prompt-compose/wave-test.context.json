@@ -1,0 +1,9 @@
+{
+  "TASK_ID": "T15",
+  "SPEC_NAME": "upload",
+  "SNAPSHOT_FILES": "src/upload.test.ts\nsrc/upload-handler.test.ts",
+  "EXISTING_TEST_NAMES": "describe('upload', () => {\nit('rejects oversized files')\nit('accepts valid mime types')\n})",
+  "SPEC_PATH": "specs/doing-upload.md",
+  "EDIT_SCOPE": "src/upload.ts, src/upload-handler.ts",
+  "SPEC": "upload"
+}
