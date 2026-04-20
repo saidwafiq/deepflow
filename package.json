@@ -40,6 +40,9 @@
   "engines": {
     "node": ">=16.0.0"
   },
+  "scripts": {
+    "test:lsp-query": "node --test bin/lsp-query.test.js"
+  },
   "dependencies": {
     "playwright": "^1.58.2"
   }
