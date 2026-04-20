@@ -1,0 +1,178 @@
+/**
+ * Tests for bin/prompt-compose.js — agent-prompt template resolver.
+ *
+ * Coverage (AC-3, AC-4, AC-8):
+ *   - happy render: all tokens present → stdout contains rendered text, exit 0
+ *   - missing-token error: stderr names the token, exit 1
+ *   - --help output: documents {{TOKEN}} grammar and "missing = error" rule
+ *   - stdin context via "-": JSON piped on fd 0 renders correctly
+ *
+ * Uses Node's built-in node:test to avoid dependencies. Because
+ * templates/agent-prompts/<name>.md is not yet populated (T9 lands the first
+ * real template), the CLI tests install a scratch template into the real
+ * templates/agent-prompts/ directory under a test-only name and delete it on
+ * teardown. This exercises the resolveTemplatePath() behavior end-to-end.
+ */
+
+'use strict';
+
+const { test, describe, before, after } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const SCRIPT = path.resolve(__dirname, 'prompt-compose.js');
+const REPO_ROOT = path.resolve(__dirname, '..');
+const TEMPLATES_DIR = path.join(REPO_ROOT, 'templates', 'agent-prompts');
+const TEST_TEMPLATE_NAME = '_prompt_compose_test_fixture';
+const TEST_TEMPLATE_PATH = path.join(TEMPLATES_DIR, TEST_TEMPLATE_NAME + '.md');
+
+const TEMPLATE_BODY =
+  'START\n' +
+  '{{TASK_ID}}: {{DESCRIPTION}}\n' +
+  '{{OPTIONAL_BLOCK}}END\n';
+
+const { parseArgv, render, HELP_TEXT } = require('./prompt-compose.js');
+
+function runCli(args, opts = {}) {
+  return spawnSync(process.execPath, [SCRIPT, ...args], {
+    encoding: 'utf8',
+    input: opts.input,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests — pure functions
+// ---------------------------------------------------------------------------
+
+describe('parseArgv', () => {
+  test('parses --template and --context as space-separated', () => {
+    const a = parseArgv(['--template', 'standard-task', '--context', 'ctx.json']);
+    assert.equal(a.template, 'standard-task');
+    assert.equal(a.context, 'ctx.json');
+    assert.equal(a.help, false);
+  });
+
+  test('parses --flag=value form', () => {
+    const a = parseArgv(['--template=foo', '--context=-']);
+    assert.equal(a.template, 'foo');
+    assert.equal(a.context, '-');
+  });
+
+  test('recognizes -h and --help', () => {
+    assert.equal(parseArgv(['-h']).help, true);
+    assert.equal(parseArgv(['--help']).help, true);
+  });
+
+  test('throws on unknown flag', () => {
+    assert.throws(() => parseArgv(['--bogus', 'x']), /unknown flag/);
+  });
+});
+
+describe('render', () => {
+  test('substitutes all present tokens', () => {
+    const out = render('{{A}}-{{B}}', { A: 'x', B: 'y' });
+    assert.equal(out, 'x-y');
+  });
+
+  test('empty-string value renders as empty (conditional-empty idiom)', () => {
+    const out = render('pre{{BLOCK}}post', { BLOCK: '' });
+    assert.equal(out, 'prepost');
+  });
+
+  test('throws on missing token', () => {
+    assert.throws(() => render('{{MISSING}}', {}), /missing token: MISSING/);
+  });
+
+  test('only matches uppercase snake tokens', () => {
+    // Lowercase tokens are passed through untouched.
+    const out = render('{{lower}} {{UPPER}}', { UPPER: 'x' });
+    assert.equal(out, '{{lower}} x');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CLI tests — spawn the real script
+// ---------------------------------------------------------------------------
+
+describe('cli', () => {
+  before(() => {
+    fs.mkdirSync(TEMPLATES_DIR, { recursive: true });
+    fs.writeFileSync(TEST_TEMPLATE_PATH, TEMPLATE_BODY);
+  });
+
+  after(() => {
+    try { fs.unlinkSync(TEST_TEMPLATE_PATH); } catch (_) { /* already gone */ }
+  });
+
+  test('happy render via --context file → stdout + exit 0 (AC-3)', () => {
+    const ctxPath = path.join(TEMPLATES_DIR, '_prompt_compose_test_ctx.json');
+    fs.writeFileSync(ctxPath, JSON.stringify({
+      TASK_ID: 'T1',
+      DESCRIPTION: 'hello',
+      OPTIONAL_BLOCK: '',
+    }));
+    try {
+      const r = runCli(['--template', TEST_TEMPLATE_NAME, '--context', ctxPath]);
+      assert.equal(r.status, 0, 'stderr: ' + r.stderr);
+      assert.equal(r.stdout, 'START\nT1: hello\nEND\n');
+    } finally {
+      fs.unlinkSync(ctxPath);
+    }
+  });
+
+  test('missing token → exit 1 + stderr names token (AC-4)', () => {
+    const ctxPath = path.join(TEMPLATES_DIR, '_prompt_compose_test_ctx.json');
+    // DESCRIPTION intentionally omitted.
+    fs.writeFileSync(ctxPath, JSON.stringify({ TASK_ID: 'T1', OPTIONAL_BLOCK: '' }));
+    try {
+      const r = runCli(['--template', TEST_TEMPLATE_NAME, '--context', ctxPath]);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /missing token: DESCRIPTION/);
+      assert.equal(r.stdout, '');
+    } finally {
+      fs.unlinkSync(ctxPath);
+    }
+  });
+
+  test('--help output documents placeholder grammar (AC-8)', () => {
+    const r = runCli(['--help']);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /\{\{TOKEN\}\}/);
+    assert.match(r.stdout, /missing = error/);
+    // Sanity: module-exported HELP_TEXT is what the CLI prints.
+    assert.ok(r.stdout.startsWith(HELP_TEXT));
+  });
+
+  test('stdin context via "-"', () => {
+    const input = JSON.stringify({
+      TASK_ID: 'T9',
+      DESCRIPTION: 'from-stdin',
+      OPTIONAL_BLOCK: 'MID\n',
+    });
+    const r = runCli(['--template', TEST_TEMPLATE_NAME, '--context', '-'], { input });
+    assert.equal(r.status, 0, 'stderr: ' + r.stderr);
+    assert.equal(r.stdout, 'START\nT9: from-stdin\nMID\nEND\n');
+  });
+
+  test('missing --template flag → exit 1', () => {
+    const r = runCli(['--context', '-'], { input: '{}' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /--template is required/);
+  });
+
+  test('non-existent template file → exit 1', () => {
+    const r = runCli(['--template', '_does_not_exist_xyz', '--context', '-'], { input: '{}' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /cannot read template/);
+  });
+
+  test('invalid JSON context → exit 1', () => {
+    const r = runCli(['--template', TEST_TEMPLATE_NAME, '--context', '-'], {
+      input: 'not json',
+    });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /invalid JSON context/);
+  });
+});
