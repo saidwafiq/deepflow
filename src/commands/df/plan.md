@@ -78,7 +78,7 @@ Implementation tasks BLOCKED until spike validates.
 
 ### 3. EXPLORE & IMPACT (PARALLEL AGENTS)
 
-Spawn three parallel `Task(subagent_type="default", model="sonnet")` agents simultaneously. Collect all outputs before proceeding.
+Spawn three parallel `Task(subagent_type="general-purpose", model="sonnet")` agents simultaneously. Collect all outputs before proceeding.
 
 #### Agent A — Code Style & Conventions
 
@@ -212,7 +212,7 @@ Count plannable specs (no `doing-`/`done-` prefix, passed `validateSpec`).
 
 #### 4.7.2. Spawn Sub-Agents (Thin Dispatcher)
 
-For each plannable spec (up to 5), spawn a **parallel non-background** `Task(subagent_type="default", model="sonnet")` call. All calls are independent — spawn them simultaneously.
+For each plannable spec (up to 5), spawn a **parallel non-background** `Task(subagent_type="general-purpose", model="sonnet")` call. All calls are independent — spawn them simultaneously.
 
 **The master orchestrator is a thin dispatcher.** Each sub-agent receives ONLY the spec file path — no pre-computed context, no spec content, no impact analysis, no experiment results.
 
@@ -294,7 +294,7 @@ Continue processing remaining specs regardless of individual failures. Only succ
 
 #### 4.8.1. Detect Shared Interfaces
 
-After §4.7.3 collects mini-plans, spawn a single `Task(subagent_type="default", model="sonnet")` to scan all plannable specs for interface overlap:
+After §4.7.3 collects mini-plans, spawn a single `Task(subagent_type="general-purpose", model="sonnet")` to scan all plannable specs for interface overlap:
 
 ```
 You are an integration analyst. Detect shared interfaces across specs AND the existing codebase.

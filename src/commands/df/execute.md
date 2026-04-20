@@ -183,36 +183,18 @@ After ALL wave-N agents complete, cherry-pick each wave-N commit back to the mai
 
 ### 5.5. RATCHET CHECK
 
-Run `node bin/ratchet.js` in the **task's spec worktree** after each agent completes, using that spec's snapshot file:
+Run after each agent completes, using the task's spec worktree and snapshot file:
 ```bash
 node bin/ratchet.js --worktree ${SPEC_WORKTREES[task.spec].path} --snapshot .deepflow/auto-snapshot-{task.spec}.txt --task T{N}
 ```
 
-The script handles all health checks internally and outputs structured JSON:
-```json
-{"status": "PASS"|"FAIL"|"SALVAGEABLE", "reason": "...", "details": "..."}
-```
+See `node bin/ratchet.js --help` for exit codes and scope rules.
 
-**Exit codes:** 0 = PASS, 1 = FAIL (script already ran `git revert HEAD --no-edit`), 2 = SALVAGEABLE (lint/typecheck only; build+tests passed).
+- **Exit 0 (PASS):** commit stands. Run §5.5.1 AC coverage → §5.5.2 decision extraction.
+- **Exit 1 (FAIL):** script already reverted HEAD. `TaskUpdate(status: 'pending')`. Recompute remaining waves with `--recalc --failed T{N}`.
+- **Exit 2 (SALVAGEABLE):** spawn `Agent(model='sonnet')` fix, re-run ratchet; still non-zero → revert both commits, set pending.
 
-**You MUST NOT inspect, classify, or reinterpret test failures. FAIL means revert. No exceptions.**
-
-**Prohibited actions during ratchet:**
-- No `git stash` or `git checkout` for investigation purposes
-- No inline edits to pre-existing test files
-- No reading raw test output to decide what "really" failed
-
-**Broken-tests policy:** Updating pre-existing tests requires a separate dedicated task in PLAN.md with explicit justification — never inline during execution.
-
-**Orchestrator response by exit code:**
-- **Exit 0 (PASS):** Commit stands. **AC coverage check** (see §5.5.1). TaskUpdate(status: "completed"), update PLAN.md [x] + commit hash. **Extract decisions** (see §5.5.2).
-- **Exit 1 (FAIL):** Script already reverted. Set `TaskUpdate(status: "pending")`. Recompute remaining waves:
-  ```
-  WAVE_JSON=!`node "${HOME}/.claude/bin/wave-runner.js" --json --plan PLAN.md --recalc --failed T{N} 2>/dev/null || echo 'WAVE_ERROR'`
-  ```
-  (Fall back to text mode if `--json` is unavailable: `node "${HOME}/.claude/bin/wave-runner.js" --plan PLAN.md --recalc --failed T{N}`)
-  Report: `"✗ T{n}: reverted"`.
-- **Exit 2 (SALVAGEABLE):** Spawn `Agent(model="sonnet")` to fix lint/typecheck issues. Re-run `node bin/ratchet.js`. If still non-zero → revert both commits, set status pending.
+Pre-existing test updates require a dedicated PLAN.md task — never inline.
 
 #### 5.5.1. AC COVERAGE CHECK (after ratchet pass)
 
@@ -555,7 +537,7 @@ All tasks done for `doing-*` spec:
 
 ## Skills & Agents
 
-Skills: `atomic-commits`, `browse-fetch`. Agents: Implementation (`general-purpose`), Debugger (`reasoner`).
+Skills: `atomic-commits`, `browse-fetch`.
 
 **Model+effort routing** (read from PLAN.md, defaults: sonnet/medium):
 
