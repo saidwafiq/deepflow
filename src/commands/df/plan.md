@@ -1,6 +1,7 @@
 ---
 name: df:plan
 description: Compare specs against codebase and past experiments, generate prioritized tasks
+allowed-tools: [Read, Bash, Task]
 ---
 
 # /df:plan — Generate Task Plan from Specs

@@ -1,6 +1,7 @@
 ---
 name: df:execute
 description: Execute tasks from PLAN.md with agent spawning, ratchet health checks, and worktree management
+allowed-tools: [Agent, Bash, TaskCreate, TaskUpdate, TaskList, Read, Write]
 ---
 
 # /df:execute — Execute Tasks from Plan
@@ -304,7 +305,7 @@ Git operations that produce large output (diff, stash, cherry-pick conflict outp
 
 **Pattern:**
 ```
-Spawn Agent(model="haiku", run_in_background=false):
+Spawn Agent(subagent_type: "df-haiku-ops", run_in_background=false):
   Working directory: ${SPEC_WORKTREES[task.spec].path}
   Run: {git command}
   Return exactly ONE line: "{operation}: {N lines changed / N files / outcome}"
@@ -382,14 +383,24 @@ REPEAT:
 
 **Common preamble (all):** `Working directory: ${SPEC_WORKTREES[task.spec].path}. All file ops use this path. Commit format: {type}({spec}): {desc}` — resolve `task.spec` from `WAVE_JSON` (fallback: `.deepflow/plans/doing-*.md`). Never route a task to a different spec's worktree.
 <!-- LSP type context (EXISTING_TYPES) is injected automatically by the df-implement-protocol PreToolUse hook — no agent action required. -->
-**Template selection** (flags from `WAVE_JSON` — authoritative; do NOT re-parse task description):
+**Template selection and subagent routing** (flags from `WAVE_JSON` — authoritative; do NOT re-parse task description):
 
-| Flag                  | Template                           |
-|-----------------------|------------------------------------|
-| `isIntegration: true` | Integration Task (below)           |
-| `isSpike: true`       | Spike                              |
-| `isOptimize: true`    | Optimize Task                      |
-| (none)                | Standard Task                      |
+| Flag                  | `subagent_type`          | Template                           |
+|-----------------------|--------------------------|------------------------------------|
+| `isIntegration: true` | `df-integration`         | Integration Task (below)           |
+| `isSpike: true`       | `df-spike`               | Spike                              |
+| `isOptimize: true`    | `df-optimize`            | Optimize Task                      |
+| `isTest: true`        | `df-test`                | Wave Test                          |
+| (none)                | `df-implement`           | Standard Task                      |
+
+Spawn each agent as:
+```
+Agent(subagent_type: "{subagent_type}", run_in_background=true):
+  Working directory: ${SPEC_WORKTREES[task.spec].path}
+  {rendered template content}
+```
+
+Never use bare `Agent(model="sonnet")` or `Agent(model="opus")` for task agents — route through `subagent_type` instead. Tool restrictions are enforced by the sub-agent definition, not by the prompt.
 
 **Template files** (render with `node "${HOME}/.claude/bin/prompt-compose.js" --template <name> --context <json-or-stdin>`):
 
@@ -426,13 +437,13 @@ All tasks done for `doing-*` spec:
 
 Skills: `atomic-commits`, `browse-fetch`.
 
-**Model+effort routing** (read from PLAN.md, defaults: sonnet/medium):
+**Model+effort routing** (read from PLAN.md, defaults: sonnet/medium). Sub-agent type is selected by §6 flag table; `effort` controls preamble only:
 
-| Fields | Agent | Preamble |
-|--------|-------|----------|
-| sonnet/low | `Agent(model="sonnet")` | `Maximally efficient: skip explanations, minimize tool calls, straight to implementation.` |
-| sonnet/medium | `Agent(model="sonnet")` | `Direct and efficient. Explain only non-obvious logic.` |
-| opus/high | `Agent(model="opus")` | _(none)_ |
+| Effort | Preamble injected into prompt |
+|--------|-------------------------------|
+| low    | `Maximally efficient: skip explanations, minimize tool calls, straight to implementation.` |
+| medium | `Direct and efficient. Explain only non-obvious logic.` |
+| high   | _(none)_ |
 
 **Checkpoint:** `.deepflow/checkpoint.json`:
 ```json
