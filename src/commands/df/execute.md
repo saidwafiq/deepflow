@@ -12,8 +12,6 @@ You are a coordinator. Spawn agents, run ratchet checks, update PLAN.md. Never i
 **NEVER:** Read source files, edit code, use TaskOutput, use EnterPlanMode, use ExitPlanMode, read `.deepflow/experiments/**`, read `**/CLAUDE.md`, read any file not explicitly referenced in the section being executed
 **ONLY:** Read PLAN.md, read specs/doing-*.md, read `.deepflow/plans/doing-*.md` for task detail, spawn background agents, run ratchet health checks, update PLAN.md, write `.deepflow/decisions.md`
 
-**Bash output:** When a line starting with `[df-bash-compress]` appears after a Bash result, use only that summary line. Skip reading the raw output above it.
-
 ## Core Loop (Notification-Driven)
 
 Each task = one background agent. **NEVER use TaskOutput** (100KB+ transcripts explode context).
