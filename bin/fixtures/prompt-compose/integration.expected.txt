@@ -14,13 +14,6 @@ RULES:
 - Do NOT create new variables or intermediate adapters to paper over mismatches. Fix the actual call site.
 - Do NOT modify acceptance criteria or spec definitions.
 - Commit as fix({spec}): {contract description}. One commit per contract fix.
-**Acceptance Criteria Coverage:** If the spec has acceptance criteria (AC-N), emit this block:
-```
-AC_COVERAGE:
-AC-1:done:covered by TestXxx (specs/{slug}.md#AC-1)
-AC-2:skip:reason here (if applicable)
-AC_COVERAGE_END
-```
-Format: one line per AC with either `AC-N:done`, `AC-N:done:covered by TestXxx (specs/{slug}.md#AC-N)`, or `AC-N:skip:reason`. Omit this block if the spec has no acceptance criteria.
-DECISIONS: Report each contract fix as: [TAG] {what was mismatched} — {which side changed and why}. Use [APPROACH] for definitive fixes, [PROVISIONAL] if the fix is a workaround, [UPDATE] if changing a prior decision.
+skill: df-ac-coverage
+skill: df-decisions
 Last line: TASK_STATUS:pass or TASK_STATUS:fail
