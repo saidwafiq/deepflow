@@ -389,7 +389,12 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
    rm -f ".deepflow/plans/done-${NAME}.md" ".deepflow/plans/doing-${NAME}.md"
    ```
    Idempotent: missing files are silent no-ops.
-7. **Extract decisions (additive):** Read done spec, extract `[APPROACH]`/`[ASSUMPTION]`/`[PROVISIONAL]`/`[FUTURE]`/`[UPDATE]` decisions, append to `.deepflow/decisions.md` under `### {date} — {spec}` header. If the header already exists (decisions were captured incrementally during execution via §5.5.1), append only NEW decisions not already present (deduplicate by comparing decision text). Delete done spec after successful write; preserve on failure.
+7. **Extract decisions (additive):** Read done spec, extract `[APPROACH]`/`[ASSUMPTION]`/`[PROVISIONAL]`/`[FUTURE]`/`[UPDATE]` decisions, append to `.deepflow/decisions.md` under `### {date} — {spec}` header. For each extracted decision line, guard against duplicates with a grep check before appending — never read the full file first:
+   ```sh
+   grep -Fxq -- "- [TAG] {decision_text}" .deepflow/decisions.md 2>/dev/null || \
+     printf -- '- [TAG] %s\n' "{decision_text}" >> .deepflow/decisions.md
+   ```
+   Where `[TAG]` is the actual tag (`[APPROACH]`, `[ASSUMPTION]`, `[PROVISIONAL]`, `[FUTURE]`, or `[UPDATE]`). Apply one guard per decision line. Delete done spec after successful write; preserve on failure.
 8. **Clean PLAN.md:** Find the `### {spec-name}` section (match on name stem, strip `doing-`/`done-` prefix). Delete from header through the line before the next `### ` header (or EOF). Recalculate Summary table (recount `### ` headers for spec count, `- [ ]`/`- [x]` for task counts). If no spec sections remain, delete PLAN.md entirely. Skip silently if PLAN.md missing or section already gone.
 
 Output: `✓ Merged → main | ✓ Cleaned worktree | ✓ Spec → done | ✓ Decisions extracted | ✓ Cleaned PLAN.md | Workflow complete! Ready: /df:spec <name>`
