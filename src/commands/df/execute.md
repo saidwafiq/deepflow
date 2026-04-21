@@ -210,7 +210,7 @@ Pre-existing test updates require a dedicated PLAN.md task — never inline.
 
 After ratchet PASS (exit 0), run AC coverage check to verify agent reported all acceptance criteria:
 ```bash
-node "${HOME}/.claude/bin/hooks/ac-coverage.js" --spec {spec_path} --output-file {agent_output_file} --status pass
+node "${HOME}/.claude/hooks/ac-coverage.js" --spec {spec_path} --output-file {agent_output_file} --status pass
 ```
 
 where `{spec_path}` is the path to `specs/doing-{spec_name}.md` and `{agent_output_file}` is the task agent's full output transcript (from TaskOutput or notification context).
@@ -226,7 +226,11 @@ Parse the agent's response for `DECISIONS:` line. If present:
 1. Split by ` | ` to get individual decisions
 2. If any entry does not start with `[TAG]` where TAG ∈ {APPROACH, PROVISIONAL, ASSUMPTION, FUTURE, UPDATE}, emit SALVAGEABLE and skip writing that entry to decisions.md (valid entries still get written).
 3. Each decision has format `[TAG] description — rationale` where TAG ∈ {APPROACH, PROVISIONAL, ASSUMPTION, FUTURE, UPDATE}
-4. Append to `.deepflow/decisions.md` under `### {date} — {spec_name}` header (create header if first decision for this spec today, reuse if exists)
+4. Append to `.deepflow/decisions.md` under `### {date} — {spec_name}` header using this exact shell pattern:
+   ```sh
+   grep -q "^### $(date +%Y-%m-%d) — {spec_name}$" .deepflow/decisions.md 2>/dev/null || printf '\n### %s — %s\n' "$(date +%Y-%m-%d)" "{spec_name}" >> .deepflow/decisions.md
+   printf -- '- [%s] %s\n' "{TAG}" "{decision_text}" >> .deepflow/decisions.md
+   ```
 5. Format: `- [TAG] description — rationale`
 
 If no `DECISIONS:` line in agent output and the task effort is not `low` → emit SALVAGEABLE (non-trivial tasks without a decision line may indicate the agent skipped documenting architectural choices). For tasks with effort `low`, skip silently (mechanical tasks don't produce decisions).
