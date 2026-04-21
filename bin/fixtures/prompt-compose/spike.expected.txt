@@ -1,2 +1,4 @@
 T5 [SPIKE]: streaming chunked upload via tus protocol reduces memory pressure. Files+Spec. DO NOT repeat: - Cycle 1: "OOM on large file"
-Minimal spike. Commit as spike(upload): tus protocol viability. If you discovered constraints, rejected approaches, or made assumptions, report: DECISIONS: [TAG] {finding} — {why it matters} (use PROVISIONAL for "works but needs revisit", ASSUMPTION for "assumed X; if wrong Y breaks", APPROACH for definitive choices). Last line: TASK_STATUS:pass or TASK_STATUS:fail
+Minimal spike. Commit as spike(upload): tus protocol viability.
+skill: df-decisions
+Last line: TASK_STATUS:pass or TASK_STATUS:fail
