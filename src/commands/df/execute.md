@@ -9,8 +9,10 @@ description: Execute tasks from PLAN.md with agent spawning, ratchet health chec
 
 You are a coordinator. Spawn agents, run ratchet checks, update PLAN.md. Never implement code yourself.
 
-**NEVER:** Read source files, edit code, use TaskOutput, use EnterPlanMode, use ExitPlanMode
+**NEVER:** Read source files, edit code, use TaskOutput, use EnterPlanMode, use ExitPlanMode, read `.deepflow/experiments/**`, read `**/CLAUDE.md`, read any file not explicitly referenced in the section being executed
 **ONLY:** Read PLAN.md, read specs/doing-*.md, read `.deepflow/plans/doing-*.md` for task detail, spawn background agents, run ratchet health checks, update PLAN.md, write `.deepflow/decisions.md`
+
+**Bash output:** When a line starting with `[df-bash-compress]` appears after a Bash result, use only that summary line. Skip reading the raw output above it.
 
 ## Core Loop (Notification-Driven)
 
@@ -37,8 +39,18 @@ Each task = one background agent. **NEVER use TaskOutput** (100KB+ transcripts e
 
 ### 1. CHECK CHECKPOINT
 
-`--continue` → load `.deepflow/checkpoint.json`, verify worktree exists (else error "Use --fresh"), skip completed. `--fresh` → delete checkpoint. Checkpoint exists → prompt "Resume? (y/n)".
+`--fresh` → delete checkpoint. Checkpoint exists without flag → prompt "Resume? (y/n)".
 Shell: `` !`cat .deepflow/checkpoint.json 2>/dev/null || echo 'NOT_FOUND'` `` / `` !`git diff --quiet && echo 'CLEAN' || echo 'DIRTY'` ``
+
+**`--continue` EXPRESS LANE — skip §1.5 through §2.5 entirely:**
+1. Load checkpoint.json. If NOT_FOUND → error "No checkpoint found. Use --fresh."
+2. Rehydrate `SPEC_WORKTREES` from `checkpoint.spec_worktrees` — no discovery needed.
+3. Verify each worktree path exists (one `ls -d` per spec). Missing → error "Worktree {path} gone. Use --fresh."
+4. Load current wave: if checkpoint has `wave3_ready` (or equivalent `waveN_ready`), use it directly — **skip wave-runner**. Otherwise: `node "${HOME}/.claude/bin/wave-runner.js" --json --plan PLAN.md 2>/dev/null`.
+5. TaskCreate only for wave tasks NOT already in `checkpoint.native_task_ids`. Reuse existing IDs for the rest.
+6. Jump directly to §5 (SPAWN AGENTS).
+
+**NEVER on `--continue`:** read `specs/doing-*.md`, `PLAN.md`, `.deepflow/plans/*.md`, `.deepflow/experiments/**`, `**/CLAUDE.md`, any source file, or any file not listed in steps 1–4 above.
 
 ### 1.5. CREATE WORKTREES (per spec)
 
@@ -185,10 +197,10 @@ After ALL wave-N agents complete, cherry-pick each wave-N commit back to the mai
 
 Run after each agent completes, using the task's spec worktree and snapshot file:
 ```bash
-node bin/ratchet.js --worktree ${SPEC_WORKTREES[task.spec].path} --snapshot .deepflow/auto-snapshot-{task.spec}.txt --task T{N}
+node "${HOME}/.claude/bin/ratchet.js" --worktree ${SPEC_WORKTREES[task.spec].path} --snapshot .deepflow/auto-snapshot-{task.spec}.txt --task T{N}
 ```
 
-See `node bin/ratchet.js --help` for exit codes and scope rules.
+See `node "${HOME}/.claude/bin/ratchet.js" --help` for exit codes and scope rules.
 
 - **Exit 0 (PASS):** commit stands. Run §5.5.1 AC coverage → §5.5.2 decision extraction.
 - **Exit 1 (FAIL):** script already reverted HEAD. `TaskUpdate(status: 'pending')`. Recompute remaining waves with `--recalc --failed T{N}`.
@@ -376,7 +388,7 @@ REPEAT:
 | `isOptimize: true`    | Optimize Task                      |
 | (none)                | Standard Task                      |
 
-**Template files** (render with `node bin/prompt-compose.js --template <name> --context <json-or-stdin>`):
+**Template files** (render with `node "${HOME}/.claude/bin/prompt-compose.js" --template <name> --context <json-or-stdin>`):
 
 | Template | File | Required tokens (see the file for full list) |
 |---|---|---|
