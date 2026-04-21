@@ -5,6 +5,7 @@
 {{TASK_BODY}}
 --- END ---
 Duplicates: [active]→consolidate [dead]→DELETE. ONLY job: code+commit. No merge/rename/checkout.
+New packages: declare `"types": "./dist/index.d.ts"` in package.json; add `"node"` to tsconfig `compilerOptions.types` when using `__dirname`/`__filename`.
 **Acceptance Criteria Coverage:** If the spec has acceptance criteria (AC-N), emit this block:
 ```
 AC_COVERAGE:
