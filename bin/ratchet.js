@@ -651,6 +651,14 @@ async function main() {
     process.exit(1);
   }
 
+  // pnpm pre-install: resolve dependencies for new workspace packages non-fatally
+  if (fs.existsSync(path.join(cwd, 'pnpm-workspace.yaml')) || fs.existsSync(path.join(cwd, 'pnpm-lock.yaml'))) {
+    const preInstall = spawnSync('pnpm', ['install', '--prefer-offline'], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (preInstall.status !== 0) {
+      process.stderr.write(`[ratchet] pre-install warning (non-fatal): ${preInstall.stderr?.toString() || 'unknown error'}\n`);
+    }
+  }
+
   for (const stage of STAGE_ORDER) {
     if (stageFilter && stage !== stageFilter) continue;
 
