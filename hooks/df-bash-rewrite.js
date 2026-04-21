@@ -51,6 +51,8 @@ const RULES = [
   { pattern: /^npm run build(\s|$)/,     lines: 5 },
   { pattern: /^pnpm(\s+run)?\s+build(\s|$)/, lines: 5 },
   { pattern: /^yarn build(\s|$)/,        lines: 5 },
+  // context reduction
+  { pattern: /^cat\s+\.deepflow\/decisions\.md(\s*$|\s+2>)/, lines: 5 },
 ];
 
 function isDeepflowProject(cwd) {
