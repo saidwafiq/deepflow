@@ -1,6 +1,7 @@
 ---
 name: df:spec
 description: Transform conversation context into a structured specification file with requirements and acceptance criteria
+allowed-tools: [Task, AskUserQuestion, Write]
 ---
 
 # /df:spec — Generate Spec from Conversation

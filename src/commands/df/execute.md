@@ -1,6 +1,7 @@
 ---
 name: df:execute
 description: Execute tasks from PLAN.md with agent spawning, ratchet health checks, and worktree management
+allowed-tools: [Agent, Bash, TaskCreate, TaskUpdate, TaskList, Read, Write]
 ---
 
 # /df:execute — Execute Tasks from Plan

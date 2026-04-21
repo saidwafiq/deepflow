@@ -1,6 +1,7 @@
 ---
 name: df:auto
 description: Set up and launch fully autonomous execution with plan generation and ratchet snapshots
+allowed-tools: [Skill, Read, Write, Bash]
 ---
 
 # /df:auto — Autonomous Mode Setup
