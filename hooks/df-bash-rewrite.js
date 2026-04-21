@@ -2,13 +2,13 @@
 // @hook-event: PreToolUse
 // @hook-owner: deepflow
 /**
- * deepflow bash output rewriter
- * PreToolUse hook: rewrites known verbose-but-confirmatory commands to limit
- * their output before execution — nothing verbose ever enters the context.
+ * Bash output rewriter — reduces context rot from verbose-but-confirmatory commands.
+ * PreToolUse hook: rewrites known noisy commands to pipe through tail -N before
+ * execution so their full output never enters the context window.
  *
  * Only rewrites when ALL conditions hold:
  *   1. Tool is Bash
- *   2. Running inside a deepflow project (.deepflow dir present)
+ *   2. DF_BASH_REWRITE != "0" (opt-out escape hatch)
  *   3. Command matches a known safe pattern (allowlist)
  *   4. Command is not already compressed (no existing | tail / | head)
  *   5. Command output is not consumed programmatically (protected list)
@@ -19,8 +19,6 @@
 
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const { readStdinIfMain } = require('./lib/hook-stdin');
 
 // Commands whose output is parsed by the orchestrator or agents — never rewrite.
@@ -55,12 +53,8 @@ const RULES = [
   { pattern: /^cat\s+\.deepflow\/decisions\.md(\s*$|\s+2>)/, lines: 5 },
 ];
 
-function isDeepflowProject(cwd) {
-  try {
-    return fs.existsSync(path.join(cwd, '.deepflow'));
-  } catch (_) {
-    return false;
-  }
+function isOptedOut() {
+  return process.env.DF_BASH_REWRITE === '0';
 }
 
 function isProtected(cmd) {
@@ -87,8 +81,7 @@ function matchRule(cmd) {
 readStdinIfMain(module, (data) => {
   if (data.tool_name !== 'Bash') return;
 
-  const cwd = data.cwd || process.cwd();
-  if (!isDeepflowProject(cwd)) return;
+  if (isOptedOut()) return;
 
   const input = data.tool_input || {};
   const cmd = input.command || '';

@@ -19,7 +19,7 @@ function makeDeepflowProject(dir) {
   fs.mkdirSync(path.join(dir, '.deepflow'), { recursive: true });
 }
 
-function runHook(input, { cwd } = {}) {
+function runHook(input, { cwd, env } = {}) {
   const json = JSON.stringify(input);
   try {
     const stdout = execFileSync(process.execPath, [HOOK_PATH], {
@@ -27,6 +27,7 @@ function runHook(input, { cwd } = {}) {
       cwd: cwd || os.tmpdir(),
       encoding: 'utf8',
       timeout: 5000,
+      env: { ...process.env, ...env },
     });
     return { stdout, code: 0 };
   } catch (err) {
@@ -58,12 +59,20 @@ describe('df-bash-rewrite — pass-through (no output)', () => {
     assert.equal(r.stdout, '');
   });
 
-  test('skips non-deepflow projects', () => {
+  test('rewrites in non-deepflow projects (universal)', () => {
     const plain = makeTmpDir();
     try {
       const r = runHook({ tool_name: 'Bash', tool_input: { command: 'npm ci' }, cwd: plain });
-      assert.equal(r.stdout, '');
+      assert.ok(rewrittenCmd(r.stdout)?.endsWith('| tail -3'));
     } finally { rmrf(plain); }
+  });
+
+  test('skips when DF_BASH_REWRITE=0 (opt-out)', () => {
+    const r = runHook(
+      { tool_name: 'Bash', tool_input: { command: 'npm ci' }, cwd: tmp },
+      { env: { DF_BASH_REWRITE: '0' } },
+    );
+    assert.equal(r.stdout, '');
   });
 
   test('skips unknown commands', () => {
