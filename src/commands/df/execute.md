@@ -70,6 +70,7 @@ After each worktree is created, symlink `node_modules` from the main repo so Typ
 node "${HOME}/.claude/bin/worktree-deps.js" --source "$(git rev-parse --show-toplevel)" --worktree "${SPEC_WORKTREES[spec].path}"
 ```
 The script finds `node_modules` at root and inside monorepo directories (`packages/`, `apps/`, etc.) and creates symlinks in the worktree. Outputs JSON: `{"linked": N, "total": M}`. Errors are non-fatal — log and continue.
+<!-- NOTE: worktree-deps.js only symlinks pre-existing node_modules (gate: line 49 `if (fs.existsSync(abs))`). Dependencies for newly-created workspace packages are NOT resolved by symlink — they are installed by the ratchet pre-install step (bin/ratchet.js, before STAGE_ORDER loop). -->
 
 ### 1.6. RATCHET SNAPSHOT (per worktree)
 
