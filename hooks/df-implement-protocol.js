@@ -5,12 +5,12 @@
  * deepflow implement protocol injector
  *
  * PreToolUse hook: fires before the Agent tool executes. When the Agent
- * prompt looks like a /df:execute-spawned task, the hook appends three
+ * prompt looks like a /df:execute-spawned task, the hook appends two
  * structured blocks to the prompt:
  *   - CONTEXT: Impact       — callers discovered via LSP `findReferences`
  *   - CONTEXT: Existing Types — exported symbols via LSP `documentSymbol`
- *   - CONTEXT: Tool Prohibition — the exact prohibition literal required
- *     by AC-4.
+ *
+ * Tool restriction is now enforced via sub-agent `tools:` frontmatter (REQ-10).
  *
  * When the LSP path returns nothing for every queried file, the hook falls
  * back to a grep-style approximation via `runPhase1` from the shared
@@ -36,8 +36,6 @@ const { readStdinIfMain } = require('./lib/hook-stdin');
 const { runPhase1 } = require('./lib/symbol-extract');
 
 const INJECTION_MARKER = '<!-- df-implement-protocol-injected -->';
-const PROHIBITION_LITERAL =
-  'Read ONLY these files. No Grep/Glob exploration. Bash only for build/test/git.';
 
 // Per-hook caps (AC-7 budget). The budget is a hard ceiling on total lines
 // appended, split roughly 60/40 between Impact and Types blocks.
@@ -312,10 +310,6 @@ function buildTypesLines(types, cwd) {
   return lines;
 }
 
-function buildProhibitionLines() {
-  return ['--- CONTEXT: Tool Prohibition ---', PROHIBITION_LITERAL];
-}
-
 /**
  * Assemble full injection text. Enforces MAX_TOTAL_LINES hard cap.
  */
@@ -325,8 +319,6 @@ function buildInjectionBlock({ callers, types, cwd }) {
   out.push(...buildImpactLines(callers, cwd));
   out.push('');
   out.push(...buildTypesLines(types, cwd));
-  out.push('');
-  out.push(...buildProhibitionLines());
 
   if (out.length > MAX_TOTAL_LINES) {
     return out.slice(0, MAX_TOTAL_LINES - 1).concat(['... (truncated)']).join('\n');
@@ -474,9 +466,8 @@ function main(payload) {
     };
   }
 
-  // If we have literally nothing to say beyond the prohibition, we still
-  // emit — the prohibition is load-bearing (AC-4). The Impact/Types blocks
-  // degrade gracefully to "(none discovered)".
+  // Emit even when no callers/types found — Impact/Types blocks degrade
+  // gracefully to "(none discovered)" which is still useful context.
   const injection = buildInjectionBlock({
     callers: data.callers,
     types: data.types,
@@ -519,10 +510,8 @@ module.exports = {
   collectFallbackData,
   buildImpactLines,
   buildTypesLines,
-  buildProhibitionLines,
   buildInjectionBlock,
   INJECTION_MARKER,
-  PROHIBITION_LITERAL,
   TYPE_KINDS,
   KIND_NAME,
   MAX_TOTAL_LINES,

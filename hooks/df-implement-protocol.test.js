@@ -1,12 +1,14 @@
 /**
  * Tests for hooks/df-implement-protocol.js
  *
- * Covers AC-3 (Impact block injected), AC-4 (prohibition literal present),
- * AC-6 (fail-open on malformed input), AC-7 (LSP unavailable → runPhase1
- * fallback), and AC-10 (dedup marker → no-op).
+ * Covers AC-3 (Impact block injected), AC-6 (fail-open on malformed input),
+ * AC-7 (LSP unavailable → runPhase1 fallback), and AC-10 (dedup marker → no-op).
+ *
+ * Tool prohibition (formerly AC-4) is removed: enforcement moved to sub-agent
+ * `tools:` frontmatter (REQ-10 / AC-12).
  *
  * Strategy:
- *   - Direct require() tests for pure-function behaviour (AC-3, AC-4, AC-10)
+ *   - Direct require() tests for pure-function behaviour (AC-3, AC-10)
  *   - spawnSync of the hook binary for stdin/exit-code contracts (AC-6, malformed)
  *   - Fallback path verified by calling collectFallbackData directly with a
  *     fixture file that has a class declaration (AC-7 unit-level).
@@ -36,7 +38,6 @@ const {
   buildInjectionBlock,
   collectFallbackData,
   INJECTION_MARKER,
-  PROHIBITION_LITERAL,
 } = hook;
 
 // ---------------------------------------------------------------------------
@@ -141,47 +142,7 @@ describe('AC-3: Impact block injected into prompt', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Exact prohibition literal present (AC-4)
-// ---------------------------------------------------------------------------
-
-describe('AC-4: Exact prohibition literal in injected prompt', () => {
-  let tmpDir;
-
-  beforeEach(() => {
-    tmpDir = makeTmpDir('df-impl-prohibition-');
-    const hooksDir = path.join(tmpDir, 'hooks');
-    fs.mkdirSync(hooksDir, { recursive: true });
-    fs.writeFileSync(path.join(hooksDir, 'ac-coverage.js'), FIXTURE_CLASS_CONTENT);
-  });
-
-  afterEach(() => rmrf(tmpDir));
-
-  test('prohibition literal is exactly present in updated prompt', () => {
-    const prompt = [
-      'T99: check files',
-      'Files: hooks/ac-coverage.js',
-      '.deepflow/worktrees/slug/something',
-      'TASK_STATUS: pass|fail',
-    ].join('\n');
-
-    const result = main({ tool_name: 'Agent', tool_input: { prompt }, cwd: tmpDir });
-    assert.ok(result !== null, 'Injection should happen');
-    const updatedPrompt = result.hookSpecificOutput.updatedInput.prompt;
-    assert.ok(
-      updatedPrompt.includes(PROHIBITION_LITERAL),
-      `Expected exact prohibition string: "${PROHIBITION_LITERAL}"`
-    );
-  });
-
-  test('buildInjectionBlock always contains prohibition literal', () => {
-    const block = buildInjectionBlock({ callers: [], types: [], cwd: os.tmpdir() });
-    assert.ok(block.includes(PROHIBITION_LITERAL));
-    assert.ok(block.includes('--- CONTEXT: Tool Prohibition ---'));
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 3. Malformed input JSON → stdout empty, exit 0 (AC-6)
+// 2. Malformed input JSON → stdout empty, exit 0 (AC-6)
 // ---------------------------------------------------------------------------
 
 describe('AC-6: Fail-open on malformed stdin', () => {
@@ -209,7 +170,7 @@ describe('AC-6: Fail-open on malformed stdin', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. LSP unavailable → graceful fallback to runPhase1 (AC-7)
+// 3. LSP unavailable → graceful fallback to runPhase1 (AC-7)
 // ---------------------------------------------------------------------------
 
 describe('AC-7: LSP unavailable → fallback to runPhase1', () => {
@@ -260,7 +221,7 @@ describe('AC-7: LSP unavailable → fallback to runPhase1', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. Dedup marker already present → no-op (AC-10)
+// 4. Dedup marker already present → no-op (AC-10)
 // ---------------------------------------------------------------------------
 
 describe('AC-10: Dedup guard — marker already present → no-op', () => {
@@ -308,7 +269,7 @@ describe('AC-10: Dedup guard — marker already present → no-op', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. parseFilesList — unit-level sanity
+// 5. parseFilesList — unit-level sanity
 // ---------------------------------------------------------------------------
 
 describe('parseFilesList unit tests', () => {
