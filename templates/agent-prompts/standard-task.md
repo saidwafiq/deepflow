@@ -6,22 +6,7 @@
 --- END ---
 Duplicates: [active]→consolidate [dead]→DELETE. ONLY job: code+commit. No merge/rename/checkout.
 New packages: declare `"types": "./dist/index.d.ts"` in package.json; add `"node"` to tsconfig `compilerOptions.types` when using `__dirname`/`__filename`.
-**Acceptance Criteria Coverage:** If the spec has acceptance criteria (AC-N), emit this block:
-```
-AC_COVERAGE:
-AC-1:done:covered by TestXxx (specs/{slug}.md#AC-1)
-AC-2:skip:reason here (if applicable)
-AC_COVERAGE_END
-```
-Format: one line per AC with either `AC-N:done`, `AC-N:done:covered by TestXxx (specs/{slug}.md#AC-N)`, or `AC-N:skip:reason`. Omit this block if the spec has no acceptance criteria.
-DECISIONS: If you made non-obvious choices, cite with [APPROACH]. Append to the LAST LINE BEFORE TASK_STATUS:
-DECISIONS: [TAG] {decision} — {rationale} | [TAG] {decision2} — {rationale2}
-Tags:
-  [APPROACH] — chose X over Y (architectural/design choice)
-  [PROVISIONAL] — works for now but won't scale / needs revisit
-  [ASSUMPTION] — assumed X is true; if wrong, Y breaks
-  [FUTURE] — deferred X because Y; revisit when Z
-  [UPDATE] — changed prior decision from X to Y because Z
-Skip for trivial/mechanical changes.
+skill: df-ac-coverage
+skill: df-decisions
 Files: List every file you modified or created, one per line, in the format `Files: path/to/file.ts, path/to/other.ts`. This is required so the orchestrator can detect file conflicts across concurrent tasks.
 Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed) or TASK_STATUS:revert (if reverted)

@@ -1,1 +1,3 @@
-{{TASK_ID}} [SPIKE]: {{HYPOTHESIS}}. Files+Spec. {{REVERTED_WARNINGS}}Minimal spike. Commit as spike({{SPEC}}): {{DESC}}. If you discovered constraints, rejected approaches, or made assumptions, report: DECISIONS: [TAG] {finding} — {why it matters} (use PROVISIONAL for "works but needs revisit", ASSUMPTION for "assumed X; if wrong Y breaks", APPROACH for definitive choices). Last line: TASK_STATUS:pass or TASK_STATUS:fail
+{{TASK_ID}} [SPIKE]: {{HYPOTHESIS}}. Files+Spec. {{REVERTED_WARNINGS}}Minimal spike. Commit as spike({{SPEC}}): {{DESC}}.
+skill: df-decisions
+Last line: TASK_STATUS:pass or TASK_STATUS:fail
