@@ -1,6 +1,6 @@
 'use strict';
 
-const { test, describe, beforeEach, afterEach } = require('node:test');
+const { test, describe, beforeEach, afterEach, before } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -456,5 +456,243 @@ describe('df-bash-rewrite — prompt-compose --help mute (REQ-2)', () => {
       cwd: tmp,
     });
     assert.equal(r.stdout, '');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. Snapshot tests — full pipeline via dispatch() per archetype (AC-2, AC-3)
+// ---------------------------------------------------------------------------
+//
+// These tests exercise the full rewrite pipeline: loadBuiltinTemplates() loads
+// all 8 archetype filter objects into dispatch(); each fixture command is routed
+// through dispatch() which returns the matched filter; filter.apply(raw) is
+// called and the rendered output (header + '\n' + body + optional truncation
+// marker) is validated against the schema regex:
+//
+//   ^# .+\n(.*\n)*(-- truncated \d+ lines --)?$
+//
+// The schema encodes: header line starts with "# "; zero-or-more body lines;
+// optional trailing "-- truncated N lines --" line.
+
+describe('snapshot pipeline — one fixture per archetype (AC-2, AC-3)', () => {
+  const { dispatch: dispatchFn, loadTemplates: lt, loadBuiltinTemplates: lbt } =
+    require('./lib/filter-dispatch');
+
+  // Schema regex: header line + optional body lines + optional truncation marker
+  const SCHEMA_RE = /^# .+\n(.*\n)*(-- truncated \d+ lines --)?\s*$/;
+
+  /**
+   * Render a FilteredOutput to the canonical schema string so the regex can
+   * be matched against it.
+   *
+   * Format:
+   *   # <header text>\n
+   *   <body (may be multi-line)>\n
+   *   -- truncated N lines --   (only when truncated is present)
+   */
+  function render(result) {
+    let out = result.header + '\n';
+    if (result.body) out += result.body + '\n';
+    if (result.truncated) out += `-- truncated ${result.truncated.lines} lines --\n`;
+    return out;
+  }
+
+  // Load all built-in templates before this suite runs.
+  before(() => { lbt(); });
+  // Re-load before each test because afterEach resets the registry.
+  beforeEach(() => { lbt(); });
+  // Reset after each test to avoid bleed into other suites.
+  afterEach(() => { lt([]); });
+
+  // ---------------------------------------------------------------------------
+  // truncate-stable
+  // ---------------------------------------------------------------------------
+  test('truncate-stable: dispatch routes npm ci; rendered output matches schema', () => {
+    const { filter } = dispatchFn('npm ci');
+    assert.ok(filter, 'dispatch should match npm ci to a template');
+    assert.equal(filter.name, 'truncate-stable');
+
+    // 12 lines — exceeds KEEP_LINES=5 so truncation fires
+    const raw = Array.from({ length: 12 }, (_, i) => `added ${i + 1} packages`).join('\n');
+    const result = filter.apply(raw);
+
+    assert.ok(result.header.startsWith('# '), 'header starts with "# "');
+    const rendered = render(result);
+    assert.match(rendered, SCHEMA_RE, `truncate-stable schema mismatch:\n${rendered}`);
+    assert.ok(result.truncated, 'truncation expected for 12-line input');
+  });
+
+  // ---------------------------------------------------------------------------
+  // group-by-prefix
+  // ---------------------------------------------------------------------------
+  test('group-by-prefix: dispatch routes ls -la /path; rendered output matches schema', () => {
+    const { filter } = dispatchFn('ls -la /usr/local/lib');
+    assert.ok(filter, 'dispatch should match ls -la /path to a template');
+    assert.equal(filter.name, 'group-by-prefix');
+
+    const raw = [
+      'lib/node_modules/express',
+      'lib/node_modules/lodash',
+      'lib/node_modules/react',
+      'share/doc/node',
+      'share/man/man1',
+    ].join('\n');
+    const result = filter.apply(raw);
+
+    assert.ok(result.header.startsWith('# '), 'header starts with "# "');
+    const rendered = render(result);
+    assert.match(rendered, SCHEMA_RE, `group-by-prefix schema mismatch:\n${rendered}`);
+  });
+
+  // ---------------------------------------------------------------------------
+  // json-project
+  // ---------------------------------------------------------------------------
+  test('json-project: dispatch routes cat package.json; rendered output matches schema', () => {
+    const { filter } = dispatchFn('cat package.json');
+    assert.ok(filter, 'dispatch should match cat package.json to a template');
+    assert.equal(filter.name, 'json-project');
+
+    const pkg = JSON.stringify({
+      name: 'deepflow',
+      version: '0.9.0',
+      scripts: { test: 'node --test', build: 'echo ok', lint: 'eslint .' },
+      dependencies: { chalk: '^5.0.0' },
+      devDependencies: { eslint: '^8.0.0' },
+    }, null, 2);
+    const result = filter.apply(pkg);
+
+    assert.ok(result.header.startsWith('# '), 'header starts with "# "');
+    const rendered = render(result);
+    assert.match(rendered, SCHEMA_RE, `json-project schema mismatch:\n${rendered}`);
+    assert.ok(result.body.includes('deepflow'), 'name field present in body');
+  });
+
+  // ---------------------------------------------------------------------------
+  // resolve-and-report
+  // ---------------------------------------------------------------------------
+  test('resolve-and-report: dispatch routes readlink -f; rendered output matches schema', () => {
+    const { filter } = dispatchFn('readlink -f /var/lib/node');
+    assert.ok(filter, 'dispatch should match readlink to a template');
+    assert.equal(filter.name, 'resolve-and-report');
+
+    const raw = [
+      '/usr/local/lib/node',
+      'readlink: /broken: too many levels of symbolic links',
+      '/real/other/path',
+    ].join('\n');
+    const result = filter.apply(raw);
+
+    assert.ok(result.header.startsWith('# '), 'header starts with "# "');
+    const rendered = render(result);
+    assert.match(rendered, SCHEMA_RE, `resolve-and-report schema mismatch:\n${rendered}`);
+    assert.ok(result.body.includes('too many levels'), 'error line surfaced');
+  });
+
+  // ---------------------------------------------------------------------------
+  // failures-only
+  // ---------------------------------------------------------------------------
+  test('failures-only: dispatch routes node --test; rendered output matches schema', () => {
+    const { filter } = dispatchFn('node --test hooks/df-bash-rewrite.test.js');
+    assert.ok(filter, 'dispatch should match node --test to a template');
+    assert.equal(filter.name, 'failures-only');
+
+    const raw = [
+      'TAP version 14',
+      'ok 1 - passes',
+      'ok 2 - also passes',
+      'not ok 3 - dispatch returns wrong filter',
+      '  Error: expected "diff-stat-only", got null',
+      '    at Object.<anonymous> (test.js:55:5)',
+      '# tests 3',
+      '# pass  2',
+      '# fail  1',
+    ].join('\n');
+    const result = filter.apply(raw);
+
+    assert.ok(result.header.startsWith('# '), 'header starts with "# "');
+    const rendered = render(result);
+    assert.match(rendered, SCHEMA_RE, `failures-only schema mismatch:\n${rendered}`);
+    assert.ok(result.body.includes('not ok 3'), 'failure line present');
+    assert.ok(!result.body.includes('ok 1 -'), 'passing lines suppressed');
+  });
+
+  // ---------------------------------------------------------------------------
+  // head-tail-window
+  // ---------------------------------------------------------------------------
+  test('head-tail-window: dispatch routes git log --oneline; rendered output matches schema', () => {
+    const { filter } = dispatchFn('git log --oneline');
+    assert.ok(filter, 'dispatch should match git log --oneline to a template');
+    assert.equal(filter.name, 'head-tail-window');
+
+    // 20 commits — exceeds HEAD+TAIL window of 10
+    const raw = Array.from({ length: 20 }, (_, i) =>
+      `abc${String(i).padStart(4, '0')} commit message ${i + 1}`
+    ).join('\n');
+    const result = filter.apply(raw);
+
+    assert.ok(result.header.startsWith('# '), 'header starts with "# "');
+    const rendered = render(result);
+    assert.match(rendered, SCHEMA_RE, `head-tail-window schema mismatch:\n${rendered}`);
+    assert.ok(result.truncated, 'truncation expected for 20-line log');
+    // body contains the omitted-lines marker inline
+    assert.ok(result.body.includes('-- 10 lines omitted --'), 'omission marker in body');
+  });
+
+  // ---------------------------------------------------------------------------
+  // summarize-tree
+  // ---------------------------------------------------------------------------
+  test('summarize-tree: dispatch routes tree src/; rendered output matches schema', () => {
+    const { filter } = dispatchFn('tree src/');
+    assert.ok(filter, 'dispatch should match tree to a template');
+    assert.equal(filter.name, 'summarize-tree');
+
+    const raw = [
+      'src',
+      '├── commands',
+      '│   ├── df-discover.md',
+      '│   └── df-plan.md',
+      '├── skills',
+      '│   ├── atomic-commits',
+      '│   └── browse-fetch',
+      '└── agents',
+      '    └── reasoner.md',
+      '',
+      '3 directories, 5 files',
+    ].join('\n');
+    const result = filter.apply(raw);
+
+    assert.ok(result.header.startsWith('# '), 'header starts with "# "');
+    const rendered = render(result);
+    assert.match(rendered, SCHEMA_RE, `summarize-tree schema mismatch:\n${rendered}`);
+    assert.ok(result.body.includes('depth'), 'depth summary in body');
+  });
+
+  // ---------------------------------------------------------------------------
+  // diff-stat-only
+  // ---------------------------------------------------------------------------
+  test('diff-stat-only: dispatch routes git diff HEAD~1; rendered output matches schema', () => {
+    const { filter } = dispatchFn('git diff HEAD~1');
+    assert.ok(filter, 'dispatch should match git diff to a template');
+    assert.equal(filter.name, 'diff-stat-only');
+
+    const raw = [
+      'diff --git a/hooks/df-bash-rewrite.js b/hooks/df-bash-rewrite.js',
+      'index 1a2b3c..4d5e6f 100644',
+      '--- a/hooks/df-bash-rewrite.js',
+      '+++ b/hooks/df-bash-rewrite.js',
+      '@@ -1,10 +1,12 @@',
+      '-old line',
+      '+new line',
+      ' context',
+      ' hooks/df-bash-rewrite.js | 4 ++--',
+      ' hooks/lib/filter-dispatch.js | 12 +++++++-----',
+      ' 2 files changed, 10 insertions(+), 6 deletions(-)',
+    ].join('\n');
+    const result = filter.apply(raw);
+
+    assert.ok(result.header.startsWith('# '), 'header starts with "# "');
+    const rendered = render(result);
+    assert.match(rendered, SCHEMA_RE, `diff-stat-only schema mismatch:\n${rendered}`);
+    assert.ok(result.body.includes('2 files changed'), 'summary line present');
   });
 });

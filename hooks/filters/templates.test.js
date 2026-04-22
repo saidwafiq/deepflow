@@ -1,6 +1,9 @@
 'use strict';
 
 /**
+ * Covers specs/auto-evolving-bash-filters.md#AC-2 and
+ *        specs/auto-evolving-bash-filters.md#AC-3
+ *
  * AC-2: ≥8 template files in hooks/filters/templates/; each exports
  *       { name, archetype, match(cmd), apply(raw) -> {header, body, truncated?} }.
  * AC-3: apply() output matches schema  ^# .+\n(.*\n)*(-- truncated \d+ lines --)?$
