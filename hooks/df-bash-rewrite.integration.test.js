@@ -2,7 +2,20 @@
 
 /**
  * Integration tests for the canary shadow runner + auto-promotion pipeline.
- * AC-8 coverage.
+ *
+ * AC coverage (specs/auto-evolving-bash-filters.md):
+ *   specs/auto-evolving-bash-filters.md#AC-1  — dispatch() template resolution (via df-bash-rewrite test suite, exercised here via hook subprocess)
+ *   specs/auto-evolving-bash-filters.md#AC-2  — ≥8 archetype templates present (covered by templates.test.js; hook calls them here)
+ *   specs/auto-evolving-bash-filters.md#AC-3  — structured output schema per template (covered by templates.test.js)
+ *   specs/auto-evolving-bash-filters.md#AC-4  — PROTECTED list + DF_BASH_REWRITE=0 (covered by df-bash-rewrite.test.js; end-to-end verified here)
+ *   specs/auto-evolving-bash-filters.md#AC-5  — df-bash-telemetry JSONL row per invocation (covered by df-bash-telemetry.test.js)
+ *   specs/auto-evolving-bash-filters.md#AC-6  — df-filter-suggest ranked table, N≥5 gate (covered by bin/df-filter-suggest tests)
+ *   specs/auto-evolving-bash-filters.md#AC-7  — --propose mode writes filters-proposed.yaml (covered by bin/df-filter-suggest tests)
+ *   specs/auto-evolving-bash-filters.md#AC-8  — canary latency <5ms p95 delta; promotion at ≥20 rows; non-promotion at 19 rows
+ *   specs/auto-evolving-bash-filters.md#AC-9  — normalization unit tests (covered by lib/filter-dispatch.test.js)
+ *   specs/auto-evolving-bash-filters.md#AC-10 — gitignore entries for telemetry + canary logs (covered by ac-coverage.test.js)
+ *
+ * Primary focus: specs/auto-evolving-bash-filters.md#AC-8 end-to-end integration.
  *
  * Test 1 — latency (50 runs, p95 delta < 5ms)
  * Test 2 — promotion path: 20 clean canary rows → proposal promoted to generated/
