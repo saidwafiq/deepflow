@@ -66,6 +66,8 @@ function counterPath(dir, taskId) {
 // AC-2: Test invocation cap
 // ---------------------------------------------------------------------------
 
+// specs/cut-implement-task-waste.md#AC-2
+
 describe('df-implement-test-invocation-cap — first invocation allowed', () => {
   let tmp;
   beforeEach(() => {
