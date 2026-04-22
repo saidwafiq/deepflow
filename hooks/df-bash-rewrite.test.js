@@ -299,3 +299,93 @@ describe('df-bash-rewrite — rewrites applied', () => {
     assert.equal(r.code, 0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 3. Mute rules (REQ-1 and REQ-2)
+// ---------------------------------------------------------------------------
+
+describe('df-bash-rewrite — cat /tmp/t<N>-prompt mute (REQ-1)', () => {
+  let tmp;
+  beforeEach(() => { tmp = makeTmpDir(); makeDeepflowProject(tmp); });
+  afterEach(() => rmrf(tmp));
+
+  test('mutes cat /tmp/t1-prompt.txt', () => {
+    const r = runHook({
+      tool_name: 'Bash',
+      tool_input: { command: 'cat /tmp/t1-prompt.txt' },
+      cwd: tmp,
+    });
+    assert.equal(rewrittenCmd(r.stdout), ': # muted by df-bash-rewrite');
+  });
+
+  test('mutes cat /tmp/t12-prompt.txt', () => {
+    const r = runHook({
+      tool_name: 'Bash',
+      tool_input: { command: 'cat /tmp/t12-prompt.txt' },
+      cwd: tmp,
+    });
+    assert.equal(rewrittenCmd(r.stdout), ': # muted by df-bash-rewrite');
+  });
+
+  test('does NOT mute cat /tmp/other.txt (near-miss)', () => {
+    const r = runHook({
+      tool_name: 'Bash',
+      tool_input: { command: 'cat /tmp/other.txt' },
+      cwd: tmp,
+    });
+    assert.equal(r.stdout, '');
+  });
+});
+
+describe('df-bash-rewrite — prompt-compose --help mute (REQ-2)', () => {
+  let tmp;
+  beforeEach(() => { tmp = makeTmpDir(); makeDeepflowProject(tmp); });
+  afterEach(() => rmrf(tmp));
+
+  test('mutes node /path/to/prompt-compose.js --help', () => {
+    const r = runHook({
+      tool_name: 'Bash',
+      tool_input: { command: 'node /path/to/prompt-compose.js --help' },
+      cwd: tmp,
+    });
+    assert.equal(rewrittenCmd(r.stdout), ': # muted by df-bash-rewrite');
+  });
+
+  test('mutes node prompt-compose.js -h', () => {
+    const r = runHook({
+      tool_name: 'Bash',
+      tool_input: { command: 'node prompt-compose.js -h' },
+      cwd: tmp,
+    });
+    assert.equal(rewrittenCmd(r.stdout), ': # muted by df-bash-rewrite');
+  });
+
+  test('does NOT mute prompt-compose --template standard-task --context - (near-miss)', () => {
+    const r = runHook({
+      tool_name: 'Bash',
+      tool_input: { command: 'node prompt-compose.js --template standard-task --context -' },
+      cwd: tmp,
+    });
+    assert.equal(r.stdout, '');
+  });
+
+  test('PROTECTED list does NOT block prompt-compose --help (help rule fires)', () => {
+    // The PROTECTED pattern is /prompt-compose(?!.*--help)/ so --help invocations
+    // are NOT protected and the mute rule should fire.
+    const r = runHook({
+      tool_name: 'Bash',
+      tool_input: { command: 'node ~/.claude/bin/prompt-compose.js --help' },
+      cwd: tmp,
+    });
+    assert.equal(rewrittenCmd(r.stdout), ': # muted by df-bash-rewrite');
+  });
+
+  test('PROTECTED list still blocks normal prompt-compose invocation', () => {
+    const r = runHook({
+      tool_name: 'Bash',
+      tool_input: { command: 'node ~/.claude/bin/prompt-compose.js --template standard-task --context -' },
+      cwd: tmp,
+    });
+    assert.equal(r.stdout, '');
+  });
+});

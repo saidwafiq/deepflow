@@ -27,7 +27,7 @@ const PROTECTED = [
   /ratchet\.js/,
   /ac-coverage/,
   /worktree-deps/,
-  /prompt-compose(?!.*--help)/,
+  /prompt-compose(?!.*(-h|--help)(\s|$))/,
   /plan-consolidator/,
 ];
 
@@ -53,6 +53,8 @@ const RULES = [
   { pattern: /^cat\s+\.deepflow\/decisions\.md(\s*$|\s+2>)/, lines: 5 },
   // prompt-compose template rendering — mute entirely (output is not consumed)
   { pattern: /^cat\s+\/tmp\/t\d+-prompt/, mute: true },
+  // prompt-compose --help invocations — help output is redundant in context
+  { pattern: /prompt-compose(\.js)?\s+(-h|--help)(\s|$)/, mute: true },
 ];
 
 function isOptedOut() {
