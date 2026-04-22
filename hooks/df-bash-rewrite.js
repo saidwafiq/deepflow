@@ -97,8 +97,20 @@ function _unquoteYaml(s) {
 }
 
 /**
+ * Module-level proposals cache — keyed by cwd + file mtime.
+ * Avoids repeated synchronous file reads within a single process lifetime.
+ * Since each hook invocation is a fresh child process, the cache is rarely
+ * hit in production, but it protects against any future in-process reuse.
+ *
+ * @type {{ cwd: string, mtime: number, proposals: Array } | null}
+ */
+let _proposalsCache = null;
+
+/**
  * Load proposals from .deepflow/filters-proposed.yaml relative to cwd.
  * Returns [] if the file does not exist or cannot be parsed.
+ * Results are cached at module level keyed on (cwd, file mtime) so the
+ * file is read at most once per process even if called multiple times.
  *
  * @param {string} cwd
  * @returns {Array<{pattern: string, template: string}>}
@@ -106,9 +118,22 @@ function _unquoteYaml(s) {
 function loadProposals(cwd) {
   const proposedPath = path.join(cwd, '.deepflow', 'filters-proposed.yaml');
   try {
-    if (!fs.existsSync(proposedPath)) return [];
+    // Stat the file to get mtime — a single stat is cheaper than readFile.
+    let mtime;
+    try {
+      mtime = fs.statSync(proposedPath).mtimeMs;
+    } catch (_) {
+      // File does not exist.
+      return [];
+    }
+    // Return cached value if cwd and mtime match.
+    if (_proposalsCache && _proposalsCache.cwd === cwd && _proposalsCache.mtime === mtime) {
+      return _proposalsCache.proposals;
+    }
     const yaml = fs.readFileSync(proposedPath, 'utf8');
-    return parseProposalsYaml(yaml);
+    const proposals = parseProposalsYaml(yaml);
+    _proposalsCache = { cwd, mtime, proposals };
+    return proposals;
   } catch (_) {
     return [];
   }

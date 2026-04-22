@@ -15,10 +15,10 @@
  *     The hook PreToolUse path is never blocked by canary work.
  *
  * Child process communication:
- *   - Parent writes a JSON data file to /tmp/canary-{ts}-{pid}.json
- *   - Parent spawns: node <this-file> <tmpPath> <canaryPath>
- *     (the child detects argv[2] !== undefined to know it is the child)
- *   - Child reads the file, processes, appends JSONL, unlinks the tmp file.
+ *   - Parent JSON-encodes {filterName,rawOutput,filteredOutput,cmd} and base64s it.
+ *   - Parent spawns: node <this-file> <base64Payload> <canaryPath>
+ *     (no temp file written — avoids synchronous disk I/O in the hot path)
+ *   - Child decodes the argv payload, processes, appends JSONL.
  *
  * JSONL row shape:
  *   { filter: string, raw_signal_tokens: number, filtered_signal_tokens: number,
@@ -33,7 +33,6 @@
 
 const path  = require('node:path');
 const fs    = require('node:fs');
-const os    = require('node:os');
 const { spawn } = require('node:child_process');
 
 const { countIndicators } = require('./signal-loss-detector');
@@ -44,20 +43,20 @@ const { detectSignalLoss } = require('./signal-loss-detector');
 // ---------------------------------------------------------------------------
 
 if (require.main === module) {
-  // argv: node canary-runner.js <tmpPath> <canaryPath>
-  const tmpPath    = process.argv[2];
-  const canaryPath = process.argv[3];
+  // argv: node canary-runner.js <base64Payload> <canaryPath>
+  // base64Payload is a base64-encoded JSON string with fields:
+  //   { filterName, rawOutput, filteredOutput, cmd }
+  // This avoids writing a temp file in the parent process (hot-path optimisation).
+  const base64Payload = process.argv[2];
+  const canaryPath    = process.argv[3];
 
-  if (!tmpPath || !canaryPath) {
+  if (!base64Payload || !canaryPath) {
     process.exit(0); // Missing args — bail silently.
   }
 
   try {
-    const raw = fs.readFileSync(tmpPath, 'utf8');
+    const raw  = Buffer.from(base64Payload, 'base64').toString('utf8');
     const data = JSON.parse(raw);
-
-    // Unlink temp file immediately after reading.
-    try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
 
     const { filterName, rawOutput, filteredOutput } = data;
 
@@ -129,22 +128,20 @@ function runCanary(cmd, rawOutput, proposedFilter, canaryPath) {
   // as serialisable data to the child (functions cannot be serialised).
   const filteredOutput = applyFilter(proposedFilter.apply.bind(proposedFilter), rawOutput);
 
-  // Write data to a temp file for the child to read.
-  const tmpPath = path.join(os.tmpdir(), `canary-${Date.now()}-${process.pid}.json`);
-
+  // Encode payload as base64 JSON and pass via argv — avoids synchronous
+  // writeFileSync in the hot path (eliminates ~5ms disk I/O per invocation).
   const payload = JSON.stringify({
     filterName:     proposedFilter.name || 'unknown',
     rawOutput:      rawOutput      || '',
     filteredOutput: filteredOutput || '',
     cmd,
   });
-
-  fs.writeFileSync(tmpPath, payload, 'utf8');
+  const base64Payload = Buffer.from(payload, 'utf8').toString('base64');
 
   // Spawn the detached child — SPIKE-A pattern.
   const child = spawn(
     process.execPath,
-    [__filename, tmpPath, resolvedCanaryPath],
+    [__filename, base64Payload, resolvedCanaryPath],
     { detached: true, stdio: 'ignore' }
   );
   child.unref();
