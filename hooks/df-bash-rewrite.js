@@ -27,7 +27,7 @@ const PROTECTED = [
   /ratchet\.js/,
   /ac-coverage/,
   /worktree-deps/,
-  /prompt-compose/,
+  /prompt-compose(?!.*--help)/,
   /plan-consolidator/,
 ];
 
@@ -51,6 +51,8 @@ const RULES = [
   { pattern: /^yarn build(\s|$)/,        lines: 5 },
   // context reduction
   { pattern: /^cat\s+\.deepflow\/decisions\.md(\s*$|\s+2>)/, lines: 5 },
+  // prompt-compose template rendering — mute entirely (output is not consumed)
+  { pattern: /^cat\s+\/tmp\/t\d+-prompt/, mute: true },
 ];
 
 function isOptedOut() {
@@ -94,7 +96,9 @@ readStdinIfMain(module, (data) => {
   const rule = matchRule(cmd);
   if (!rule) return;
 
-  const rewritten = `${cmd} 2>&1 | tail -${rule.lines}`;
+  const rewritten = rule.mute
+    ? ': # muted by df-bash-rewrite'
+    : `${cmd} 2>&1 | tail -${rule.lines}`;
 
   process.stdout.write(JSON.stringify({
     hookSpecificOutput: {
