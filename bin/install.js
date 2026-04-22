@@ -156,7 +156,7 @@ async function main() {
   // Copy bin utilities (plan-consolidator, wave-runner, ratchet)
   const binDest = path.join(CLAUDE_DIR, 'bin');
   fs.mkdirSync(binDest, { recursive: true });
-  for (const script of ['plan-consolidator.js', 'prompt-compose.js', 'wave-runner.js', 'ratchet.js', 'worktree-deps.js']) {
+  for (const script of ['plan-consolidator.js', 'prompt-compose.js', 'wave-runner.js', 'ratchet.js', 'worktree-deps.js', 'df-filter-suggest.js']) {
     const src = path.join(PACKAGE_DIR, 'bin', script);
     if (fs.existsSync(src)) {
       fs.copyFileSync(src, path.join(binDest, script));
@@ -606,6 +606,7 @@ async function uninstall() {
     'bin/wave-runner.js',
     'bin/ratchet.js',
     'bin/worktree-deps.js',
+    'bin/df-filter-suggest.js',
     'templates'
   ];
 
