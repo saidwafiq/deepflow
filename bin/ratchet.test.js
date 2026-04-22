@@ -1238,6 +1238,87 @@ describe('loadSnapshotFiles — resolveBase parameter resolves paths against cwd
   });
 });
 
+// ---------------------------------------------------------------------------
+// 20. REQ-7: empty stderr produces no pre-install warning
+// ---------------------------------------------------------------------------
+
+describe('pre-install warning guard — empty stderr produces no warning (REQ-7)', () => {
+  test('source no longer contains literal "unknown error" fallback', () => {
+    assert.ok(
+      !RATCHET_SRC.includes("'unknown error'"),
+      'ratchet.js should not contain the literal "unknown error" fallback'
+    );
+  });
+
+  test('source guards pre-install warning with errOut check', () => {
+    assert.ok(
+      RATCHET_SRC.includes('const errOut = preInstall.stderr?.toString().trim()'),
+      'Source should extract errOut from stderr before emitting warning'
+    );
+    assert.ok(
+      RATCHET_SRC.includes('if (errOut) process.stderr.write'),
+      'Source should only write warning when errOut is truthy'
+    );
+  });
+
+  test('subprocess: no pre-install warning when project has no pnpm workspace files', () => {
+    // Without pnpm-workspace.yaml or pnpm-lock.yaml, the pre-install block is skipped entirely.
+    // Stderr should contain no [ratchet] pre-install warning substring.
+    const tmpDir = makeTmpDir();
+    try {
+      execFileSync('git', ['init'], { cwd: tmpDir, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir, stdio: 'ignore' });
+      fs.writeFileSync(path.join(tmpDir, 'dummy.txt'), 'hello');
+      execFileSync('git', ['add', '.'], { cwd: tmpDir, stdio: 'ignore' });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: tmpDir, stdio: 'ignore' });
+
+      const result = spawnSync(process.execPath, [RATCHET_PATH], {
+        cwd: tmpDir,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      assert.ok(
+        !(result.stderr || '').includes('[ratchet] pre-install warning'),
+        `stderr should not contain pre-install warning; got: ${result.stderr}`
+      );
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+
+  test('subprocess: no pre-install warning when pnpm install succeeds (empty stderr from success)', () => {
+    // When pnpm-workspace.yaml is present but pnpm install exits 0, no warning is emitted.
+    // We use a minimal workspace that succeeds (empty packages list).
+    const tmpDir = makeTmpDir();
+    try {
+      execFileSync('git', ['init'], { cwd: tmpDir, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir, stdio: 'ignore' });
+      // Create a minimal pnpm workspace so the pre-install block is entered
+      fs.writeFileSync(path.join(tmpDir, 'pnpm-workspace.yaml'), 'packages: []\n');
+      fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'test-ws', version: '0.0.1', private: true }));
+      fs.writeFileSync(path.join(tmpDir, 'dummy.txt'), 'hello');
+      execFileSync('git', ['add', '.'], { cwd: tmpDir, stdio: 'ignore' });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: tmpDir, stdio: 'ignore' });
+
+      const result = spawnSync(process.execPath, [RATCHET_PATH], {
+        cwd: tmpDir,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      assert.ok(
+        !(result.stderr || '').includes('[ratchet] pre-install warning'),
+        `stderr should not contain pre-install warning; got: ${result.stderr}`
+      );
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+});
+
 describe('Subprocess integration — --worktree flag routes commands to worktree cwd', () => {
   let repoDir;
   let worktreeDir;
