@@ -162,8 +162,8 @@ Before wave 1 spawn, orchestrator MUST NOT read specs/*.md, .deepflow/plans/*.md
 ```bash
 _ctx_pct=$(node -e "try{process.stdout.write(String(JSON.parse(require('fs').readFileSync('.deepflow/context.json','utf8')).percentage))}catch(e){process.stdout.write('0')}")
 _cp=$(cat .deepflow/checkpoint.json 2>/dev/null || echo '{}')
+# Persist context percentage to checkpoint; value available via checkpoint.json for downstream analysis
 node -e "const d=JSON.parse(process.argv[1]);d.pre_spawn_context_pct=${_ctx_pct};require('fs').writeFileSync('.deepflow/checkpoint.json',JSON.stringify(d,null,2))" "$_cp"
-echo "📊 pre-spawn context: ${_ctx_pct}%"
 ```
 
 Context ≥50% → checkpoint and exit. Before spawning: `TaskUpdate(status: "in_progress")`.
@@ -415,6 +415,12 @@ Never use bare `Agent(model="sonnet")` or `Agent(model="opus")` for task agents 
 | Optimize Probe | `templates/agent-prompts/optimize-probe.md` | (see file) |
 
 Conditional blocks (`REVERTED_BLOCK`, `SPIKE_BLOCK`, `DOMAIN_MODEL_BLOCK`, `EXISTING_TYPES_BLOCK`) are pre-rendered by the caller — pass empty string to collapse, pre-formatted content (with trailing `\n`) to include.
+
+**Render efficiency (stdin-pipe):** Avoid temp-file heredocs; use stdin-pipe to render templates:
+```bash
+printf '%s' "$ctx" | node "${HOME}/.claude/bin/prompt-compose.js" --template standard-task --context -
+```
+This pattern avoids intermediate file writes and reduces I/O overhead.
 ### 8. COMPLETE SPECS
 
 All tasks done for `doing-*` spec:
