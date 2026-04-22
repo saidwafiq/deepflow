@@ -256,8 +256,8 @@ function consolidate(specEntries, fileConflicts) {
 
 /**
  * Render consolidated tasks as PLAN.md-compatible markdown.
- * Groups tasks under ### doing-{specName} headings with a details reference line.
- * One line per task — no sub-bullets. Files omitted (live in mini-plans only).
+ * Groups tasks under ### {specName} headings.
+ * Each task has sub-bullet annotations: Files, Blocked by.
  * Compatible with wave-runner's parsePlan regex (see wave-runner.js parsePlan).
  */
 function formatConsolidated(consolidated) {
@@ -270,15 +270,11 @@ function formatConsolidated(consolidated) {
 
   for (const task of consolidated) {
     if (task.specName !== lastSpec) {
-      // Close previous spec with trailing blank line (already added after last task)
-      const doingName = `doing-${task.specName}`;
-      const planPath = `.deepflow/plans/${doingName}.md`;
-      lines.push(`### ${doingName}\n`);
-      lines.push(`> Details: [\`${planPath}\`](${planPath})\n`);
+      lines.push(`### ${task.specName}\n`);
       lastSpec = task.specName;
     }
 
-    // Task header line — one line, no sub-bullets
+    // Task header line
     const tagPart = task.tags ? ` ${task.tags}` : '';
     // Append conflict annotations to description if any
     const conflictPart = task.conflictAnnotations.length > 0
@@ -287,12 +283,18 @@ function formatConsolidated(consolidated) {
     const descPart = (task.description + conflictPart).trim();
     const headerDesc = descPart ? `: ${descPart}` : '';
 
-    // Blocked by suffix — omit entirely when empty
-    const blockedSuffix = task.blockedBy.length > 0
-      ? ` | Blocked by: ${task.blockedBy.join(', ')}`
-      : '';
+    lines.push(`- [ ] **${task.globalId}**${tagPart}${headerDesc}`);
 
-    lines.push(`- [ ] **${task.globalId}**${tagPart}${headerDesc}${blockedSuffix}`);
+    // Sub-bullet: Files (always emit when files present)
+    if (task.files.length > 0) {
+      lines.push(`  - Files: ${task.files.join(', ')}`);
+    }
+
+    // Sub-bullet: Blocked by (always emit — "none" when empty)
+    const blockedValue = task.blockedBy.length > 0
+      ? task.blockedBy.join(', ')
+      : 'none';
+    lines.push(`  - Blocked by: ${blockedValue}`);
   }
 
   // Trailing newline after last task
@@ -316,7 +318,8 @@ function main() {
   const plansDir = path.resolve(process.cwd(), args.plansDir);
 
   if (!fs.existsSync(plansDir)) {
-    process.exit(0);
+    process.stderr.write(`plan-consolidator: plans directory not found: ${plansDir}\n`);
+    process.exit(1);
   }
 
   // Collect mini-plan files: doing-{name}.md, sorted alphabetically for determinism
