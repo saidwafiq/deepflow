@@ -655,7 +655,8 @@ async function main() {
   if (fs.existsSync(path.join(cwd, 'pnpm-workspace.yaml')) || fs.existsSync(path.join(cwd, 'pnpm-lock.yaml'))) {
     const preInstall = spawnSync('pnpm', ['install', '--prefer-offline'], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     if (preInstall.status !== 0) {
-      process.stderr.write(`[ratchet] pre-install warning (non-fatal): ${preInstall.stderr?.toString() || 'unknown error'}\n`);
+      const errOut = preInstall.stderr?.toString().trim();
+      if (errOut) process.stderr.write(`[ratchet] pre-install warning (non-fatal): ${errOut}\n`);
     }
   }
 
