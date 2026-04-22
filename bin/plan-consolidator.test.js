@@ -51,14 +51,14 @@ const extractedFns = (() => {
 
   const wrapped = `
     ${modifiedSrc}
-    return { parseArgs, parseMiniPlan, detectFileConflicts, consolidate, formatConsolidated };
+    return { parseArgs, parseMiniPlan, detectFileConflicts, consolidate, formatConsolidated, filterVerifyShapeTasks, VERIFY_SHAPE_RE };
   `;
 
   const factory = new Function('require', 'process', '__dirname', '__filename', 'module', 'exports', wrapped);
   return factory(require, process, __dirname, __filename, module, exports);
 })();
 
-const { parseArgs, parseMiniPlan, detectFileConflicts, consolidate, formatConsolidated } = extractedFns;
+const { parseArgs, parseMiniPlan, detectFileConflicts, consolidate, formatConsolidated, filterVerifyShapeTasks, VERIFY_SHAPE_RE } = extractedFns;
 
 // ---------------------------------------------------------------------------
 // CLI runner helper
@@ -1028,5 +1028,122 @@ describe('CLI integration — stale-filter', () => {
     } finally {
       rmrf(plansDir);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. filterVerifyShapeTasks — AC-3 (REQ-3)
+// ---------------------------------------------------------------------------
+
+describe('filterVerifyShapeTasks — AC-3: verify-shape rejection', () => {
+  function makeEntry(specName, tasks) {
+    return { specName, tasks };
+  }
+
+  function makeTask(description, files = []) {
+    return { localId: 'T1', num: 1, description, tags: '', blockedBy: [], files };
+  }
+
+  // AC-3 case 1: verify-shape description + empty Files → rejected
+  test('rejects task with verify-regression description and no Files declared', () => {
+    const entry = makeEntry('engine', [makeTask('Verify no-regression in engine consumers', [])]);
+    const result = filterVerifyShapeTasks([entry]);
+    assert.equal(result[0].tasks.length, 0, 'verify-shape task with no files must be removed');
+  });
+
+  // AC-3 case 2: verify-shape description + non-empty Files → allowed
+  test('allows task with verify-regression description when Files are declared', () => {
+    const entry = makeEntry('engine', [makeTask('Verify no-regression in engine consumers', ['pkg/foo.go'])]);
+    const result = filterVerifyShapeTasks([entry]);
+    assert.equal(result[0].tasks.length, 1, 'verify-shape task with files must be kept');
+  });
+
+  // AC-3 case 3: non-verify description + empty Files → allowed (conjunction non-negotiable)
+  test('allows non-verify task with no Files (description does not match pattern)', () => {
+    const entry = makeEntry('engine', [makeTask('Add caching to handler', [])]);
+    const result = filterVerifyShapeTasks([entry]);
+    assert.equal(result[0].tasks.length, 1, 'non-verify task with no files must not be rejected');
+  });
+
+  // AC-3: VERIFY_SHAPE_RE matches all required patterns
+  test('VERIFY_SHAPE_RE matches "verify.*regression"', () => {
+    assert.ok(VERIFY_SHAPE_RE.test('Verify no-regression in consumers'));
+    assert.ok(VERIFY_SHAPE_RE.test('verify regression on auth module'));
+  });
+
+  test('VERIFY_SHAPE_RE matches "spot-audit" and "spot audit"', () => {
+    assert.ok(VERIFY_SHAPE_RE.test('spot-audit of the API layer'));
+    assert.ok(VERIFY_SHAPE_RE.test('spot audit all usages'));
+  });
+
+  test('VERIFY_SHAPE_RE matches "consumer.*verification"', () => {
+    assert.ok(VERIFY_SHAPE_RE.test('consumer verification pass'));
+    assert.ok(VERIFY_SHAPE_RE.test('Run consumer verification for billing'));
+  });
+
+  test('VERIFY_SHAPE_RE matches "ensure .* still passes"', () => {
+    assert.ok(VERIFY_SHAPE_RE.test('ensure auth flow still passes'));
+    assert.ok(VERIFY_SHAPE_RE.test('ensure the old tests still passes'));
+  });
+
+  test('VERIFY_SHAPE_RE does not match normal implementation tasks', () => {
+    assert.ok(!VERIFY_SHAPE_RE.test('Add caching to handler'));
+    assert.ok(!VERIFY_SHAPE_RE.test('Refactor billing module'));
+    assert.ok(!VERIFY_SHAPE_RE.test('Write tests for auth'));
+  });
+
+  // AC-3: rejection emits structured stderr log line
+  test('rejection writes structured log line to stderr including matched task description', () => {
+    const stderrChunks = [];
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk) => { stderrChunks.push(chunk); return true; };
+    try {
+      const entry = makeEntry('engine', [makeTask('Verify no-regression in engine consumers', [])]);
+      filterVerifyShapeTasks([entry]);
+    } finally {
+      process.stderr.write = origWrite;
+    }
+    const stderrOutput = stderrChunks.join('');
+    assert.ok(stderrOutput.includes('[plan-consolidator]'), 'stderr must include [plan-consolidator] prefix');
+    assert.ok(stderrOutput.includes('Verify no-regression'), 'stderr must include the rejected description');
+  });
+
+  // CLI integration: verify-shape filter runs end-to-end in CLI
+  test('CLI: verify-shape task with no Files is excluded from output and logged to stderr', () => {
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(path.join(tmpDir, 'doing-engine.md'), `## Tasks
+- [ ] **T1**: Verify no-regression in engine consumers
+- [ ] **T2**: Add caching layer
+  - Files: src/cache.js
+`);
+      const result = runConsolidator(['--plans-dir', tmpDir]);
+      assert.equal(result.code, 0);
+      assert.ok(!result.stdout.includes('Verify no-regression'), 'rejected task must not appear in stdout');
+      assert.ok(result.stdout.includes('Add caching layer'), 'non-verify task must remain in output');
+      assert.ok(result.stderr.includes('filtered verify-shape task'), 'stderr must log the rejection');
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+
+  // filterVerifyShapeTasks preserves multiple specs and their non-rejected tasks
+  test('preserves tasks across multiple specs when some are filtered', () => {
+    const entries = [
+      makeEntry('alpha', [
+        makeTask('Verify no-regression in auth', []),    // rejected
+        makeTask('Implement login endpoint', ['src/auth.js']),  // kept
+      ]),
+      makeEntry('beta', [
+        makeTask('spot-audit of billing layer', []),     // rejected
+        makeTask('Add billing API', ['src/billing.js']), // kept
+      ]),
+    ];
+    const result = filterVerifyShapeTasks(entries);
+    assert.equal(result.length, 2);
+    assert.equal(result[0].tasks.length, 1);
+    assert.equal(result[0].tasks[0].description, 'Implement login endpoint');
+    assert.equal(result[1].tasks.length, 1);
+    assert.equal(result[1].tasks[0].description, 'Add billing API');
   });
 });
