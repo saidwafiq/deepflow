@@ -127,6 +127,38 @@ function parseMiniPlan(text) {
 }
 
 // ---------------------------------------------------------------------------
+// Verify-shape task filter
+// ---------------------------------------------------------------------------
+
+const VERIFY_SHAPE_RE = /verify.*regression|no[-\s]regression|spot[-\s]audit|consumer.*verification|ensure .* still passes/i;
+
+/**
+ * Remove tasks that are pure verify-shape tasks with no declared files.
+ * These are tasks whose description matches a "no new code" pattern AND
+ * have no Files: annotation — they would block the wave runner without doing
+ * any real work.
+ *
+ * Mutates nothing; returns new specEntries array with filtered task arrays.
+ */
+function filterVerifyShapeTasks(specEntries) {
+  const filtered = [];
+  for (const entry of specEntries) {
+    const keptTasks = [];
+    for (const task of entry.tasks) {
+      if (VERIFY_SHAPE_RE.test(task.description) && task.files.length === 0) {
+        process.stderr.write(
+          `[plan-consolidator] filtered verify-shape task "${task.localId}": "${task.description.slice(0, 60)}..." (no Files: declared)\n`
+        );
+      } else {
+        keptTasks.push(task);
+      }
+    }
+    filtered.push({ ...entry, tasks: keptTasks });
+  }
+  return filtered;
+}
+
+// ---------------------------------------------------------------------------
 // Cross-spec file-conflict detection
 // ---------------------------------------------------------------------------
 
@@ -337,8 +369,11 @@ function main() {
     specEntries.push({ specName, tasks, filePath });
   }
 
+  // Remove verify-shape tasks that have no declared files — they add no value to the plan
+  const filteredSpecEntries = filterVerifyShapeTasks(specEntries);
+
   // Detect cross-spec file conflicts (read phase complete — no more file I/O on inputs)
-  const fileConflicts = detectFileConflicts(specEntries);
+  const fileConflicts = detectFileConflicts(filteredSpecEntries);
 
   if (fileConflicts.size > 0) {
     process.stderr.write(
@@ -350,7 +385,7 @@ function main() {
   }
 
   // Consolidate: renumber T-ids globally, remap blocking, annotate conflicts
-  const consolidated = consolidate(specEntries, fileConflicts);
+  const consolidated = consolidate(filteredSpecEntries, fileConflicts);
 
   // Render and emit to stdout
   const output = formatConsolidated(consolidated);
@@ -359,3 +394,6 @@ function main() {
 }
 
 main();
+
+// Exported for unit-test access (require plan-consolidator.js directly to access these)
+module.exports = { filterVerifyShapeTasks, VERIFY_SHAPE_RE };
