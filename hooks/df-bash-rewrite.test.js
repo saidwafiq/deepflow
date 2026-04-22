@@ -696,3 +696,130 @@ describe('snapshot pipeline — one fixture per archetype (AC-2, AC-3)', () => {
     assert.ok(result.body.includes('2 files changed'), 'summary line present');
   });
 });
+
+// ---------------------------------------------------------------------------
+// 4. AC-4 regression — protection-list pass-through and DF_BASH_REWRITE=0 disable
+// ---------------------------------------------------------------------------
+//
+// These tests confirm that:
+//   (a) Commands in the PROTECTED list always pass through unchanged, even when
+//       filter templates are loaded and would otherwise match the command.
+//   (b) DF_BASH_REWRITE=0 short-circuits the entire hook including the dispatch
+//       path — no output even when a template would fire.
+//
+// Both invariants must hold regardless of which templates are registered, so
+// the tests explicitly load templates before asserting the guard behaviour.
+
+describe('AC-4 regression — protection-list and DF_BASH_REWRITE=0', () => {
+  let tmp;
+  const { loadTemplates, loadBuiltinTemplates, PROTECTED } = require('./lib/filter-dispatch');
+
+  beforeEach(() => {
+    tmp = makeTmpDir();
+    makeDeepflowProject(tmp);
+  });
+
+  afterEach(() => {
+    rmrf(tmp);
+    // Reset template registry to avoid bleed into other suites.
+    loadTemplates([]);
+  });
+
+  // ---- protection-list pass-through (unit level via dispatch + isProtected guard) ----
+
+  test('PROTECTED list contains expected orchestrator patterns', () => {
+    // Verify the exported PROTECTED array covers the core orchestrator scripts.
+    const expectedPatterns = ['wave-runner', 'ratchet\\.js', 'ac-coverage', 'worktree-deps'];
+    for (const expected of expectedPatterns) {
+      const re = new RegExp(expected);
+      assert.ok(
+        PROTECTED.some(p => p.toString().includes(expected.replace('\\', '\\\\').split('\\.')[0])),
+        `PROTECTED should include a regex matching "${expected}"`,
+      );
+    }
+  });
+
+  test('hook: wave-runner passes through unchanged even when templates are loaded (DF_BASH_REWRITE unset)', () => {
+    // loadBuiltinTemplates() ensures at least truncate-stable is active so
+    // dispatch() can return a filter for npm ci — but wave-runner must still
+    // be blocked before dispatch is called.
+    loadBuiltinTemplates();
+    const r = runHook(
+      { tool_name: 'Bash', tool_input: { command: 'node ~/.claude/bin/wave-runner.js --json --plan PLAN.md' }, cwd: tmp },
+      { env: {} },
+    );
+    assert.equal(r.stdout, '', 'wave-runner must produce no output (pass-through)');
+  });
+
+  test('hook: ratchet.js passes through unchanged even when templates are loaded', () => {
+    loadBuiltinTemplates();
+    const r = runHook(
+      { tool_name: 'Bash', tool_input: { command: 'node ~/.claude/bin/ratchet.js --worktree x' }, cwd: tmp },
+      { env: {} },
+    );
+    assert.equal(r.stdout, '', 'ratchet.js must produce no output (pass-through)');
+  });
+
+  test('hook: ac-coverage passes through unchanged even when templates are loaded', () => {
+    loadBuiltinTemplates();
+    const r = runHook(
+      { tool_name: 'Bash', tool_input: { command: 'node ~/.claude/bin/ac-coverage.js PLAN.md' }, cwd: tmp },
+      { env: {} },
+    );
+    assert.equal(r.stdout, '', 'ac-coverage must produce no output (pass-through)');
+  });
+
+  test('hook: a fake template matching "node" does NOT override PROTECTED guard', () => {
+    // Register a greedy template that matches any "node ..." command.
+    // The PROTECTED guard in df-bash-rewrite.js runs before dispatch(), so
+    // even this catch-all template must not rewrite protected commands.
+    loadTemplates([
+      { name: 'greedy-node', match: (cmd) => /^node\b/.test(cmd.trimStart()), apply: () => ({ header: '# greedy', body: '' }) },
+    ]);
+    const r = runHook(
+      { tool_name: 'Bash', tool_input: { command: 'node ~/.claude/bin/wave-runner.js --plan PLAN.md' }, cwd: tmp },
+      { env: {} },
+    );
+    assert.equal(r.stdout, '', 'PROTECTED guard must fire before dispatch even with a matching template registered');
+  });
+
+  // ---- DF_BASH_REWRITE=0 disables dispatch end-to-end ----
+
+  test('hook: DF_BASH_REWRITE=0 produces no output for a template-matched command (npm ci)', () => {
+    // npm ci matches the truncate-stable template when templates are loaded.
+    // DF_BASH_REWRITE=0 must short-circuit before dispatch is reached.
+    loadBuiltinTemplates();
+    const r = runHook(
+      { tool_name: 'Bash', tool_input: { command: 'npm ci' }, cwd: tmp },
+      { env: { DF_BASH_REWRITE: '0' } },
+    );
+    assert.equal(r.stdout, '', 'DF_BASH_REWRITE=0 must suppress output for template-matched command');
+  });
+
+  test('hook: DF_BASH_REWRITE=0 produces no output for a tail-rule command (git stash)', () => {
+    // git stash matches a RULES tail-rewrite. DF_BASH_REWRITE=0 must also block this path.
+    const r = runHook(
+      { tool_name: 'Bash', tool_input: { command: 'git stash' }, cwd: tmp },
+      { env: { DF_BASH_REWRITE: '0' } },
+    );
+    assert.equal(r.stdout, '', 'DF_BASH_REWRITE=0 must suppress output for tail-rule command');
+  });
+
+  test('hook: DF_BASH_REWRITE=0 produces no output for git diff (diff-stat-only template)', () => {
+    loadBuiltinTemplates();
+    const r = runHook(
+      { tool_name: 'Bash', tool_input: { command: 'git diff HEAD~1' }, cwd: tmp },
+      { env: { DF_BASH_REWRITE: '0' } },
+    );
+    assert.equal(r.stdout, '', 'DF_BASH_REWRITE=0 must suppress output for diff-stat-only template match');
+  });
+
+  test('hook: DF_BASH_REWRITE=0 produces no output for node --test (failures-only template)', () => {
+    loadBuiltinTemplates();
+    const r = runHook(
+      { tool_name: 'Bash', tool_input: { command: 'node --test hooks/df-bash-rewrite.test.js' }, cwd: tmp },
+      { env: { DF_BASH_REWRITE: '0' } },
+    );
+    assert.equal(r.stdout, '', 'DF_BASH_REWRITE=0 must suppress output for failures-only template match');
+  });
+});
