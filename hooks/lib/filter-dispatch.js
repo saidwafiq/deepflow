@@ -13,12 +13,14 @@
  */
 
 // Commands whose output is parsed by the orchestrator or agents — never rewrite.
+// Note: prompt-compose --help invocations are NOT protected (negative lookahead)
+// so the mute rule in RULES can fire for them.
 const PROTECTED = [
   /wave-runner/,
   /ratchet\.js/,
   /ac-coverage/,
   /worktree-deps/,
-  /prompt-compose/,
+  /prompt-compose(?!.*(-h|--help)(\s|$))/,
   /plan-consolidator/,
 ];
 
@@ -42,6 +44,10 @@ const RULES = [
   { pattern: /^yarn build(\s|$)/,        lines: 5 },
   // context reduction
   { pattern: /^cat\s+\.deepflow\/decisions\.md(\s*$|\s+2>)/, lines: 5 },
+  // prompt-compose template rendering — mute entirely (output is not consumed)
+  { pattern: /^cat\s+\/tmp\/t\d+-prompt/, mute: true },
+  // prompt-compose --help invocations — help output is redundant in context
+  { pattern: /prompt-compose(\.js)?\s+(-h|--help)(\s|$)/, mute: true },
 ];
 
 // Registry of filter templates loaded at runtime via loadTemplates().
@@ -111,9 +117,12 @@ function dispatch(cmd) {
     return { filter: tpl, rewrite: cmd };
   }
 
-  // Phase 2: legacy tail-rewrite rules
+  // Phase 2: legacy tail-rewrite rules (including mute rules)
   const rule = matchRule(normalized);
   if (rule) {
+    if (rule.mute) {
+      return { filter: null, rewrite: ': # muted by df-bash-rewrite' };
+    }
     return { filter: null, rewrite: `${cmd} 2>&1 | tail -${rule.lines}` };
   }
 
