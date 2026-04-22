@@ -41,8 +41,10 @@ const { BUILTIN_TEMPLATE_NAMES } = require('../hooks/lib/filter-dispatch');
 
 const DEFAULT_TELEMETRY     = path.join('.deepflow', 'bash-telemetry.jsonl');
 const DEFAULT_OUT           = path.join('.deepflow', 'filters-proposed.yaml');
+const DEFAULT_CANARY        = path.join('.deepflow', 'auto-filter-canary.jsonl');
 const DEFAULT_MIN_OBS       = 5;
 const FOLLOW_UP_WINDOW_MS   = 10_000;
+const PROMOTE_THRESHOLD     = 20;
 
 // ---------------------------------------------------------------------------
 // CLI arg parsing
@@ -69,8 +71,12 @@ function printHelp() {
     `                             (default: ${DEFAULT_TELEMETRY})`,
     '  --out <file>               Output path for --propose mode',
     `                             (default: ${DEFAULT_OUT})`,
+    '  --canary <file>            Path to auto-filter-canary.jsonl (for --promote)',
+    `                             (default: ${DEFAULT_CANARY})`,
     `  --min-observations <N>     Minimum occurrences per pattern (default: ${DEFAULT_MIN_OBS})`,
     '  --propose                  Write ranked candidates to --out as YAML',
+    `  --promote                  Promote proposals with >=${PROMOTE_THRESHOLD} canary rows and zero signal_lost`,
+    '                             to hooks/filters/generated/{name}.js',
     '  --help                     Show this help',
     '',
     'Env:',
@@ -252,6 +258,164 @@ function printRankedTable(ranked) {
 }
 
 // ---------------------------------------------------------------------------
+// YAML parsing (minimal — covers the format written by toYaml above)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse the filters-proposed.yaml format produced by toYaml().
+ * Returns an array of proposal objects.
+ * Keys parsed: pattern, template, score, mode, createdAt, name, archetype.
+ *
+ * The format is a hand-rolled YAML where each proposal is a sequence item
+ * under a 'proposals:' key. We parse line-by-line to avoid an external dep.
+ */
+function parseProposalsYaml(text) {
+  const proposals = [];
+  let current = null;
+
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trimEnd();
+
+    // Start of a new list item
+    if (/^\s{2}-\s+\w+:/.test(line)) {
+      if (current) proposals.push(current);
+      current = {};
+      // Also parse the key-value on the same line as the dash
+      const m = line.match(/^\s{2}-\s+(\w+):\s*(.*)/);
+      if (m) current[m[1]] = unquoteYamlScalar(m[2]);
+      continue;
+    }
+
+    // Continuation key-value inside a list item
+    if (current && /^\s{4}\w+:/.test(line)) {
+      const m = line.match(/^\s{4}(\w+):\s*(.*)/);
+      if (m) current[m[1]] = unquoteYamlScalar(m[2]);
+      continue;
+    }
+  }
+
+  if (current) proposals.push(current);
+  return proposals;
+}
+
+/**
+ * Reverse the escaping applied by yamlEscape(): strip surrounding double-quotes
+ * if present (JSON-quoted scalar) and unescape JSON escape sequences.
+ */
+function unquoteYamlScalar(s) {
+  const t = s.trim();
+  if (t.startsWith('"') && t.endsWith('"')) {
+    try { return JSON.parse(t); } catch (_) { return t; }
+  }
+  return t;
+}
+
+// ---------------------------------------------------------------------------
+// Canary grouping
+// ---------------------------------------------------------------------------
+
+/**
+ * Read auto-filter-canary.jsonl and group rows by filter name.
+ * Returns a Map<filterName, {count: number, signalLostCount: number}>.
+ */
+function groupCanaryRows(file) {
+  const records = readTelemetry(file); // reuse the JSONL reader
+  const groups = new Map();
+
+  for (const rec of records) {
+    if (!rec || typeof rec.filter !== 'string') continue;
+    const key = rec.filter;
+    if (!groups.has(key)) groups.set(key, { count: 0, signalLostCount: 0 });
+    const g = groups.get(key);
+    g.count += 1;
+    if (rec.signal_lost === true) g.signalLostCount += 1;
+  }
+
+  return groups;
+}
+
+// ---------------------------------------------------------------------------
+// Promote logic
+// ---------------------------------------------------------------------------
+
+/**
+ * Promote proposals that have accumulated >= PROMOTE_THRESHOLD canary rows
+ * with zero signal_lost=true rows.
+ *
+ * @param {string} proposalsFile — path to filters-proposed.yaml
+ * @param {string} canaryFile    — path to auto-filter-canary.jsonl
+ * @param {string} templatesDir  — path to hooks/filters/templates/
+ * @param {string} generatedDir  — path to hooks/filters/generated/
+ * @returns {{ promoted: number, remaining: number }}
+ */
+function promoteFilters(proposalsFile, canaryFile, templatesDir, generatedDir) {
+  if (!fs.existsSync(proposalsFile)) {
+    process.stdout.write('df-filter-suggest --promote: no proposals file found.\n');
+    return { promoted: 0, remaining: 0 };
+  }
+
+  const proposalsText = fs.readFileSync(proposalsFile, 'utf8');
+  const proposals = parseProposalsYaml(proposalsText);
+  const canaryGroups = groupCanaryRows(canaryFile);
+
+  const remaining = [];
+  let promotedCount = 0;
+
+  for (const proposal of proposals) {
+    // Derive the filter name used in canary rows: prefer 'name', fall back to 'template'
+    const filterName = proposal.name || proposal.template;
+    const archetype  = proposal.archetype || proposal.template;
+
+    if (!filterName || !archetype) {
+      // Incomplete proposal — keep as-is
+      remaining.push(proposal);
+      continue;
+    }
+
+    const canary = canaryGroups.get(filterName);
+    const count  = canary ? canary.count : 0;
+    const signalLostCount = canary ? canary.signalLostCount : 0;
+
+    if (count >= PROMOTE_THRESHOLD && signalLostCount === 0) {
+      // Create generated/ dir if needed
+      fs.mkdirSync(generatedDir, { recursive: true });
+
+      const src  = path.join(templatesDir, `${archetype}.js`);
+      const dest = path.join(generatedDir, `${filterName}.js`);
+
+      if (!fs.existsSync(src)) {
+        // Template file missing — leave proposal in place, warn
+        process.stderr.write(
+          `df-filter-suggest --promote: template not found: ${src} (skipping ${filterName})\n`
+        );
+        remaining.push(proposal);
+        continue;
+      }
+
+      fs.copyFileSync(src, dest);
+      promotedCount += 1;
+    } else {
+      remaining.push(proposal);
+    }
+  }
+
+  // Rewrite proposals file with only the remaining (non-promoted) entries
+  const newYaml = toYaml(remaining.map(p => ({
+    pattern:   p.pattern   || '',
+    template:  p.template  || p.archetype || '',
+    score:     parseFloat(p.score) || 0,
+    mode:      p.mode      || 'auto',
+    createdAt: p.createdAt || new Date().toISOString(),
+  })));
+  atomicWriteFileSync(proposalsFile, newYaml);
+
+  process.stdout.write(
+    `df-filter-suggest: ${promotedCount} promoted, ${remaining.length} remaining\n`
+  );
+  return { promoted: promotedCount, remaining: remaining.length };
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -265,9 +429,11 @@ function main(argv) {
 
   const telemetryFile  = getArg(args, '--telemetry') || DEFAULT_TELEMETRY;
   const outFile        = getArg(args, '--out')       || DEFAULT_OUT;
+  const canaryFile     = getArg(args, '--canary')    || DEFAULT_CANARY;
   const minObsRaw      = getArg(args, '--min-observations');
   const minObservations = minObsRaw ? parseInt(minObsRaw, 10) : DEFAULT_MIN_OBS;
   const propose        = hasFlag(args, '--propose');
+  const promote        = hasFlag(args, '--promote');
   const llmEnabled     = process.env.DF_FILTER_LLM === '1';
 
   if (!Number.isFinite(minObservations) || minObservations < 1) {
@@ -280,6 +446,13 @@ function main(argv) {
   const ranked   = rankPatterns(groups, minObservations);
 
   printRankedTable(ranked);
+
+  if (promote) {
+    const templatesDir = path.join('hooks', 'filters', 'templates');
+    const generatedDir = path.join('hooks', 'filters', 'generated');
+    promoteFilters(outFile, canaryFile, templatesDir, generatedDir);
+    return 0;
+  }
 
   if (!propose) return 0;
 
@@ -333,8 +506,12 @@ module.exports = {
   rankPatterns,
   suggestTemplate,
   toYaml,
+  parseProposalsYaml,
+  groupCanaryRows,
+  promoteFilters,
   FOLLOW_UP_WINDOW_MS,
   DEFAULT_MIN_OBS,
+  PROMOTE_THRESHOLD,
   BUILTIN_TEMPLATE_NAMES,
 };
 
