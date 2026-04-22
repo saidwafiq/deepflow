@@ -7,6 +7,75 @@ const path = require('node:path');
 const os = require('node:os');
 const { execFileSync } = require('node:child_process');
 
+// ---------------------------------------------------------------------------
+// dispatch() unit tests (AC-1: template name resolution + tail-rewrite)
+// ---------------------------------------------------------------------------
+
+describe('dispatch() — module export', () => {
+  const { dispatch } = require('./df-bash-rewrite');
+  const { loadTemplates } = require('./lib/filter-dispatch');
+
+  // Reset templates after each test so state does not bleed between suites.
+  afterEach(() => loadTemplates([]));
+
+  test('returns {filter: null, rewrite: unchanged} for unrecognised command', () => {
+    const { filter, rewrite } = dispatch('echo hello');
+    assert.equal(filter, null);
+    assert.equal(rewrite, 'echo hello');
+  });
+
+  test('returns tail-rewrite for npm ci (no template registered)', () => {
+    const { filter, rewrite } = dispatch('npm ci');
+    assert.equal(filter, null);
+    assert.ok(rewrite.endsWith('| tail -3'), `expected tail-3, got: ${rewrite}`);
+    assert.ok(rewrite.startsWith('npm ci'));
+  });
+
+  test('returns tail-rewrite for git worktree add', () => {
+    const { filter, rewrite } = dispatch('git worktree add -b df/spec .deepflow/worktrees/spec');
+    assert.equal(filter, null);
+    assert.ok(rewrite.endsWith('| tail -1'));
+  });
+
+  test('returns tail-rewrite for pnpm build', () => {
+    const { filter, rewrite } = dispatch('pnpm build');
+    assert.equal(filter, null);
+    assert.ok(rewrite.endsWith('| tail -5'));
+  });
+
+  test('template match takes precedence over tail-rule', () => {
+    // Register a fake template that matches npm ci
+    const fakeFilter = { name: 'fake-npm-filter', match: (cmd) => /^npm ci/.test(cmd.trimStart()), apply: () => ({}) };
+    loadTemplates([fakeFilter]);
+
+    const { filter, rewrite } = dispatch('npm ci');
+    assert.equal(filter, fakeFilter, 'should return the matched template object');
+    assert.equal(filter.name, 'fake-npm-filter');
+    // rewrite equals original cmd when a template handles it (no tail suffix)
+    assert.equal(rewrite, 'npm ci');
+  });
+
+  test('returns correct template name for second registered template', () => {
+    const t1 = { name: 'failures-only', match: (cmd) => /^npm test/.test(cmd.trimStart()), apply: () => ({}) };
+    const t2 = { name: 'diff-stat-only', match: (cmd) => /^git diff/.test(cmd.trimStart()), apply: () => ({}) };
+    loadTemplates([t1, t2]);
+
+    const r1 = dispatch('npm test');
+    assert.equal(r1.filter?.name, 'failures-only');
+
+    const r2 = dispatch('git diff HEAD~3');
+    assert.equal(r2.filter?.name, 'diff-stat-only');
+  });
+
+  test('returns no-match for protected-like command (caller guards PROTECTED)', () => {
+    // dispatch() itself does NOT filter protected commands — the caller does.
+    // Verify dispatch still returns a rewrite if the command happens to match a rule.
+    const { filter, rewrite } = dispatch('git stash');
+    assert.equal(filter, null);
+    assert.ok(rewrite.endsWith('| tail -2'));
+  });
+});
+
 const HOOK_PATH = path.resolve(__dirname, 'df-bash-rewrite.js');
 
 function makeTmpDir() {

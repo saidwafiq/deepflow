@@ -9,7 +9,7 @@
  * Only rewrites when ALL conditions hold:
  *   1. Tool is Bash
  *   2. DF_BASH_REWRITE != "0" (opt-out escape hatch)
- *   3. Command matches a known safe pattern (allowlist)
+ *   3. Command matches a known safe pattern (allowlist) or a filter template
  *   4. Command is not already compressed (no existing | tail / | head)
  *   5. Command output is not consumed programmatically (protected list)
  *
@@ -20,42 +20,7 @@
 'use strict';
 
 const { readStdinIfMain } = require('./lib/hook-stdin');
-
-// Commands whose output is parsed by the orchestrator or agents — never rewrite.
-const PROTECTED = [
-  /wave-runner/,
-  /ratchet\.js/,
-  /ac-coverage/,
-  /worktree-deps/,
-  /prompt-compose(?!.*(-h|--help)(\s|$))/,
-  /plan-consolidator/,
-];
-
-// Safe rewrites: [pattern, tailLines]
-// Pattern matches against the trimmed command string.
-// Only simple confirmatory commands — no complex pipelines.
-const RULES = [
-  // git setup
-  { pattern: /^git worktree add\b/,      lines: 1 },
-  { pattern: /^git sparse-checkout\b/,   lines: 1 },
-  { pattern: /^git checkout -b\b/,       lines: 1 },
-  { pattern: /^git stash\b/,             lines: 2 },
-  // package managers
-  { pattern: /^npm ci(\s|$)/,            lines: 3 },
-  { pattern: /^npm install(\s|$)/,       lines: 3 },
-  { pattern: /^pnpm install(\s|$)/,      lines: 3 },
-  { pattern: /^yarn install(\s|$)/,      lines: 3 },
-  // builds
-  { pattern: /^npm run build(\s|$)/,     lines: 5 },
-  { pattern: /^pnpm(\s+run)?\s+build(\s|$)/, lines: 5 },
-  { pattern: /^yarn build(\s|$)/,        lines: 5 },
-  // context reduction
-  { pattern: /^cat\s+\.deepflow\/decisions\.md(\s*$|\s+2>)/, lines: 5 },
-  // prompt-compose template rendering — mute entirely (output is not consumed)
-  { pattern: /^cat\s+\/tmp\/t\d+-prompt/, mute: true },
-  // prompt-compose --help invocations — help output is redundant in context
-  { pattern: /prompt-compose(\.js)?\s+(-h|--help)(\s|$)/, mute: true },
-];
+const { PROTECTED, dispatch } = require('./lib/filter-dispatch');
 
 function isOptedOut() {
   return process.env.DF_BASH_REWRITE === '0';
@@ -74,14 +39,6 @@ function isComplex(cmd) {
   return cmd.includes('<<') || /^\s*\w+=\$\(/.test(cmd);
 }
 
-function matchRule(cmd) {
-  const trimmed = cmd.trimStart();
-  for (const rule of RULES) {
-    if (rule.pattern.test(trimmed)) return rule;
-  }
-  return null;
-}
-
 readStdinIfMain(module, (data) => {
   if (data.tool_name !== 'Bash') return;
 
@@ -95,19 +52,25 @@ readStdinIfMain(module, (data) => {
   if (isAlreadyCompressed(cmd)) return;
   if (isComplex(cmd)) return;
 
-  const rule = matchRule(cmd);
-  if (!rule) return;
+  const { filter, rewrite } = dispatch(cmd);
 
-  const rewritten = rule.mute
-    ? ': # muted by df-bash-rewrite'
-    : `${cmd} 2>&1 | tail -${rule.lines}`;
+  // No rewrite needed (dispatch returned original cmd unchanged)
+  if (rewrite === cmd && filter === null) return;
+
+  // filter templates handle output themselves; for now only tail-rewrites are active.
+  // When a filter template matches, rewrite equals cmd — future PostToolUse step applies it.
+  // Only emit updatedInput when the command string actually changed.
+  if (rewrite === cmd) return;
 
   process.stdout.write(JSON.stringify({
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
       permissionDecision: 'allow',
       permissionDecisionReason: 'df-bash-rewrite: confirmatory command',
-      updatedInput: { ...input, command: rewritten },
+      updatedInput: { ...input, command: rewrite },
     },
   }));
 });
+
+// Named export so consumers (tests, T19 normalize, T20 telemetry) can call dispatch directly.
+module.exports = { dispatch };
