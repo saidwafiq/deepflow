@@ -5,6 +5,11 @@ Thumbs.db
 # Claude Code (project-local)
 .claude/
 
+# deepflow telemetry
+.deepflow/bash-telemetry.jsonl
+.deepflow/auto-filter-canary.jsonl
+.deepflow/bash-telemetry.last-ts
+
 # Editor
 .vscode/
 .idea/

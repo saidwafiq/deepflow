@@ -132,6 +132,10 @@ eval:
   max_history_tokens: 4000
   # Future: rework metric (fix count) as secondary signal — requires spec-lineage tracking (not in v1)
 
+# Filter synthesis — LLM-assisted filter proposal (opt-in)
+filter_synthesis:
+  DF_FILTER_LLM: 0  # Set to 1 to enable LLM-assisted filter synthesis (requires Claude API access)
+
 # Recommended .gitignore entries
 # Add these entries to your .gitignore to exclude instrumentation artifacts
 gitignore_entries:
