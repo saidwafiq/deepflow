@@ -7,9 +7,12 @@ allowed-tools: [Read, Bash, Write]
 
 # /df:verify — Verify Specs Satisfied
 
-**OUTPUT:** Terse. No narration. No reasoning. Only the compact report (section 3). One line per level, issues block if any, next step.
+**OUTPUT:** Terse. No narration. No reasoning. Only the compact report (section 3). One line per level, issues block if any, next step. No emojis (✓/✗/⚠/— only). No post-merge commentary beyond the single merge-status line in §4.
 
-**NEVER:** use EnterPlanMode, use ExitPlanMode
+**NEVER:**
+- use EnterPlanMode or ExitPlanMode
+- call the LSP tool, `mcp__ide__getDiagnostics`, or any other diagnostics tool — L0/L4 rely SOLELY on build/test command exit codes. Worktrees have symlinked `node_modules` that produce false-positive module-resolution errors (TS 2307, 2875). If the build exits 0, L0 passes — do not second-guess it.
+- output diagnostics and then explain they are false positives. If you know they would be false positives, do not collect or display them at all. This rule applies to the parent context after the skill returns as well: do not invoke diagnostics tools on worktree paths post-merge.
 
 ## Usage
 ```
@@ -357,9 +360,7 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
 - All checks machine-verifiable — no LLM judgment
 - Don't auto-fix — add fix tasks to PLAN.md, then `/df:execute --continue`
 - Capture learnings for significant approaches
-- **Terse output** — Output ONLY the compact report format (section 3)
-- **No LSP diagnostics** — Use ONLY build/test command exit codes and output for L0/L4. Do NOT use the LSP tool to collect TypeScript diagnostics — worktree environments have incomplete `node_modules` symlinks that produce false-positive module-resolution errors (2307, 2875). If the build command exits 0, L0 passes — do not second-guess it with LSP.
-- **No narration of false positives** — Never output diagnostics and then explain they are false positives. If you know they are false positives, suppress them entirely. Wasted output tokens cost money.
+- **Terse output** — Output ONLY the compact report format (section 3); obey the top-of-file OUTPUT and NEVER contracts (including the LSP/diagnostics prohibition).
 
 ## Post-Verification: Worktree Merge & Cleanup
 
@@ -398,7 +399,10 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
    Where `[TAG]` is the actual tag (`[APPROACH]`, `[ASSUMPTION]`, `[PROVISIONAL]`, `[FUTURE]`, or `[UPDATE]`). Apply one guard per decision line. Delete done spec after successful write; preserve on failure.
 8. **Clean PLAN.md:** Find the `### {spec-name}` section (match on name stem, strip `doing-`/`done-` prefix). Delete from header through the line before the next `### ` header (or EOF). Recalculate Summary table (recount `### ` headers for spec count, `- [ ]`/`- [x]` for task counts). If no spec sections remain, delete PLAN.md entirely. Skip silently if PLAN.md missing or section already gone.
 
-Output: `✓ Merged → main | ✓ Cleaned worktree | ✓ Spec → done | ✓ Decisions extracted | ✓ Cleaned PLAN.md | Workflow complete! Ready: /df:spec <name>`
+Output (exactly one line, no emojis beyond `✓`, no commentary before or after):
+`✓ Merged → main | ✓ Cleaned worktree | ✓ Spec → done | ✓ Decisions extracted | ✓ Cleaned PLAN.md | Ready: /df:spec <name>`
+
+**Do NOT** append congratulatory text (e.g. "🎉 Spec merged successfully"), explanations of LSP/worktree behavior, or any other narration after this line. After printing the merge-status line, end the turn.
 
 <!--
 ## T26 Integration Validation — AC-1 through AC-9 (verify-auto-continue)
