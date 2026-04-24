@@ -1,3 +1,12 @@
+## v0.1.128 — 2026-04-23
+
+Tighten `/df:verify` output contract to suppress LSP false-positives from worktree symlinks.
+
+### What's new
+
+- **No more LSP noise from `/df:verify`** — The prohibition on calling the LSP tool / `mcp__ide__getDiagnostics` (and the ban on narrating false positives as "these are false positives") is now at the top of the verify contract, next to the existing OUTPUT/NEVER block, so it reads before the 350+ lines of level definitions. L0/L4 rely solely on build/test exit codes; worktree `node_modules` symlinks no longer produce spurious TS 2307/2875 errors in your terminal.
+- **Prescribed post-merge output** — `/df:verify`'s merge-status line is now fixed to a single `✓ Merged → main | ... | Ready: /df:spec <name>` format, with explicit prohibition on trailing congratulatory narration (e.g. "🎉 Spec merged successfully…").
+
 ## v0.1.127 — 2026-04-22
 
 Three new specs shipped: auto-evolving bash filters (canary-driven promotion pipeline), implement-task guards (hook-enforced search and test-cap discipline), and slimmer execute output.
