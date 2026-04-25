@@ -18,6 +18,7 @@ Coordinate reasoner agents to debate a problem from multiple perspectives, then 
 
 | Agent | subagent_type | model | Focus |
 |-------|---------------|-------|-------|
+| Summarizer | `reasoner` | `opus` | Compress raw conversation into neutral problem statement |
 | User Advocate | `reasoner` | `opus` | UX, simplicity, real user needs |
 | Tech Skeptic | `reasoner` | `opus` | Technical risks, hidden complexity, feasibility |
 | Systems Thinker | `reasoner` | `opus` | Integration, scalability, long-term effects |
@@ -26,8 +27,23 @@ Coordinate reasoner agents to debate a problem from multiple perspectives, then 
 
 ## Behavior
 
-### 1. SUMMARIZE
-Summarize conversation context in ~200 words: core problem, requirements, constraints, user priorities. Passed to each perspective agent.
+### 1. SUMMARIZE (delegated — orchestrator MUST NOT write the summary)
+
+Spawn a summarizer reasoner (`subagent_type="reasoner"`, `model="opus"`) with prompt:
+
+```
+## Task: Neutral Problem Statement
+
+Produce a ~200 word summary covering: core problem, requirements, constraints, user priorities.
+Factual compression only. No recommendations, no framing, no editorial phrasing.
+
+## Raw Conversation Context
+{verbatim conversation context — orchestrator pastes transcript, does not paraphrase}
+
+Return ONLY the summary text. No preamble.
+```
+
+Store response verbatim as `{summary}`. The orchestrator never composes its own summary and never edits the returned text before passing it to downstream agents.
 
 ### 2. GATHER CODEBASE CONTEXT
 Spawn a context-fork agent (subagent_type="general-purpose", model="sonnet") with the following prompt:
@@ -99,5 +115,7 @@ Present key tensions and open decisions, then: `Next: Run /df:spec {name} to for
 
 - ALL 4 perspective agents MUST be spawned in ONE message (parallel, non-background)
 - Orchestrator delegates codebase gathering (step 2) to a context-fork agent — orchestrator never reads files directly
+- Orchestrator delegates summarization (step 1) to a summarizer reasoner — orchestrator never writes or edits the summary
+- Orchestrator is a router: collect agent outputs verbatim, pass to the next phase, write the final file. No interpretation, no paraphrasing, no compression.
 - File name MUST be `.debate-{name}.md` (dot prefix = auxiliary file, lives in `specs/`)
 - Word limits: each perspective <400 words, synthesis <500 words

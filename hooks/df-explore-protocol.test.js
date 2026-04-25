@@ -20,7 +20,7 @@ const os = require('node:os');
 
 const HOOK_PATH = path.resolve(__dirname, 'df-explore-protocol.js');
 const PROTOCOL_CONTENT =
-  '# Explore Agent Pattern\n\nReturn ONLY:\n- filepath:startLine-endLine -- why relevant';
+  '# Explore Agent Pattern\n\nReturn ONLY:\n- filepath:startLine-endLine';
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -38,7 +38,7 @@ Fallback: search `node_modules/`/`vendor/` ONLY when not found in app code.
 ## OUTPUT FORMAT — your ENTIRE response MUST be ONLY these lines:
 
 ```
-filepath:startLine-endLine -- why relevant
+filepath:startLine-endLine
 ```
 
-Nothing else. No narration. No headers. No tables. No explanations. Max 500 tokens.
+Nothing else. No narration. No headers. No tables. No explanations. No relevance notes, no editorial phrasing, no trailing comments. Just locations. Max 500 tokens.

@@ -52,7 +52,7 @@ Agent(subagent_type="Explore", model="haiku", prompt="Read and summarize: {targe
 Agent(subagent_type="Explore", model="haiku", prompt="Use browse-fetch skill to fetch: {url}. Summarize contents. Rules: factual observations only. No recommendations. Under 4000 tokens. Bullet points.")
 ```
 
-After receiving context: share factual summary, then **resume Socratic questioning** incorporating new facts. Do NOT shift to suggesting solutions. Soft cap: ~3 context fetches per session.
+After receiving context: relay the agent's output **verbatim** to the user (do NOT paraphrase, summarize, re-frame, or add commentary), then **resume Socratic questioning** with the new facts in scope. Do NOT shift to suggesting solutions. Soft cap: ~3 context fetches per session.
 
 ## When the User Wants to Move On
 
