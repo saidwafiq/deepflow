@@ -153,6 +153,16 @@ async function main() {
   );
   log('Templates installed');
 
+  // Copy map artifact templates (sketch-template, impact-template, findings-template)
+  // These scaffold .deepflow/maps/{spec}/ artifacts written by discover/plan/execute commands.
+  for (const mapTemplate of ['sketch-template.md', 'impact-template.md', 'findings-template.md']) {
+    const src = path.join(PACKAGE_DIR, 'templates', mapTemplate);
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(CLAUDE_DIR, 'templates', mapTemplate));
+    }
+  }
+  log('Map artifact templates installed (sketch, impact, findings)');
+
   // Copy bin utilities (plan-consolidator, wave-runner, ratchet)
   const binDest = path.join(CLAUDE_DIR, 'bin');
   fs.mkdirSync(binDest, { recursive: true });
