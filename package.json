@@ -45,6 +45,7 @@
     "test:prompt-compose": "node --test bin/prompt-compose.test.js"
   },
   "dependencies": {
+    "gpt-tokenizer": "^2.8.1",
     "playwright": "^1.58.2"
   }
 }
