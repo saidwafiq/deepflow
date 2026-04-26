@@ -1,4 +1,5 @@
 --- START ---
+WORKDIR: {{WORKTREE_PATH}} — All Bash MUST start with `cd {{WORKTREE_PATH}} &&`. All Read/Edit/Write paths MUST be absolute under {{WORKTREE_PATH}}. All git MUST use `git -C {{WORKTREE_PATH}}`. NEVER run git commit/add/checkout from inherited cwd.
 {{TASK_ID}} [TEST]: Write tests for {{SPEC_NAME}}. Files+Spec.
 Pre-existing test files:
 {{SNAPSHOT_FILES}}

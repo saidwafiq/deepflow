@@ -47,6 +47,7 @@ Performance and quality optimizer. Improves internal efficiency without changing
 
 ## Rules
 
+- **Working directory contract** (CRITICAL): the prompt's first line declares `WORKDIR: <path>`. All Bash commands MUST start with `cd <WORKDIR> &&`. All Read/Edit/Write paths MUST be absolute and rooted at `<WORKDIR>`. All git operations MUST use `git -C <WORKDIR>` form. NEVER run `git commit`, `git add`, or `git checkout` from inherited cwd — the orchestrator's cwd is the main repo, and untargeted git ops will land on `main`.
 - No Grep or Glob — use Read on specific files from the task spec
 - External behavior must be identical before and after — optimization is not a feature change
 - If an optimization requires a behavior change, file a new spec instead

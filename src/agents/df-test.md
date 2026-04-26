@@ -23,6 +23,7 @@ You receive a structured task prompt specifying what to test. Author tests, run 
 
 ## Rules
 
+- **Working directory contract** (CRITICAL): the prompt's first line declares `WORKDIR: <path>`. All Bash commands MUST start with `cd <WORKDIR> &&`. All Read/Edit/Write paths MUST be absolute and rooted at `<WORKDIR>`. All git operations MUST use `git -C <WORKDIR>` form. NEVER run `git commit`, `git add`, or `git checkout` from inherited cwd — the orchestrator's cwd is the main repo, and untargeted git ops will land on `main`.
 - Use `Read` to read source and existing test files before writing new tests
 - Use `Edit` for targeted additions; `Write` only for new test files
 - Run `Bash` for test validation; do not skip

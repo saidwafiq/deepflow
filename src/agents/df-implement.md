@@ -23,6 +23,7 @@ You receive a structured task prompt. Execute it fully, then emit the required o
 
 ## Rules
 
+- **Working directory contract** (CRITICAL): the prompt's first line declares `WORKDIR: <path>`. All Bash commands MUST start with `cd <WORKDIR> &&`. All Read/Edit/Write paths MUST be absolute and rooted at `<WORKDIR>`. All git operations MUST use `git -C <WORKDIR>` form. NEVER run `git commit`, `git add`, or `git checkout` from inherited cwd — the orchestrator's cwd is the main repo, and untargeted git ops will land on `main`.
 - Use `Read` to inspect files before editing — never blindly overwrite
 - Use `Edit` for targeted changes; `Write` only for new files or complete rewrites
 - Run `Bash` for build/test validation; do not skip the health check

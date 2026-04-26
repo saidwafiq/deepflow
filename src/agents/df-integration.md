@@ -46,6 +46,7 @@ Cross-spec integration implementer. Handles tasks that touch shared boundaries: 
 
 ## Rules
 
+- **Working directory contract** (CRITICAL): the prompt's first line declares `WORKDIR: <path>`. All Bash commands MUST start with `cd <WORKDIR> &&`. All Read/Edit/Write paths MUST be absolute and rooted at `<WORKDIR>`. All git operations MUST use `git -C <WORKDIR>` form. NEVER run `git commit`, `git add`, or `git checkout` from inherited cwd — the orchestrator's cwd is the main repo, and untargeted git ops will land on `main`.
 - No Grep or Glob — use Read on specific files identified from the spec
 - If a required change is out of task scope, note it in DECISIONS and stop — do not expand scope
 - Changes that break the build must be fixed before reporting TASK_STATUS:pass

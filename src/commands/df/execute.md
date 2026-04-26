@@ -404,15 +404,17 @@ Never use bare `Agent(model="sonnet")` or `Agent(model="opus")` for task agents 
 
 **Template files** (render with `node "${HOME}/.claude/bin/prompt-compose.js" --template <name> --context <json-or-stdin>`):
 
+> **EVERY template requires `WORKTREE_PATH`** in addition to its template-specific tokens. Set it from `${SPEC_WORKTREES[task.spec].path}` — absolute path preferred. The templates use it to render the WORKDIR rules block that enforces `cd <path>`, absolute Read/Edit/Write paths, and `git -C <path>` for every sub-agent operation. `prompt-compose.js` will exit 1 if `WORKTREE_PATH` is missing from the context JSON.
+
 | Template | File | Required tokens (see the file for full list) |
 |---|---|---|
-| Standard Task | `templates/agent-prompts/standard-task.md` | `TASK_ID`, `DESCRIPTION`, `FILES`, `SPEC`, `ACS`, `TASK_BODY` (+ pre-rendered conditional blocks) |
-| Integration | `templates/agent-prompts/integration.md` | `TASK_ID`, `SPEC_A`, `SPEC_B`, `INTEGRATION_ACS`, `SPECS_INVOLVED`, `INTERFACE_MAP`, `CONTRACT_RISKS`, `AC_COVERAGE_INSTRUCTIONS` |
-| Bootstrap | `templates/agent-prompts/bootstrap.md` | `SPEC` |
-| Wave Test | `templates/agent-prompts/wave-test.md` | `TASK_ID`, `SPEC_NAME`, `SNAPSHOT_FILES`, `EXISTING_TEST_NAMES`, `SPEC_PATH`, `EDIT_SCOPE`, `SPEC` |
-| Spike | `templates/agent-prompts/spike.md` | `TASK_ID`, `HYPOTHESIS`, `SPEC`, `REVERTED_WARNINGS`, `DESC` |
-| Optimize Task | `templates/agent-prompts/optimize.md` | (see file) |
-| Optimize Probe | `templates/agent-prompts/optimize-probe.md` | (see file) |
+| Standard Task | `templates/agent-prompts/standard-task.md` | `WORKTREE_PATH`, `TASK_ID`, `DESCRIPTION`, `FILES`, `SPEC`, `ACS`, `TASK_BODY` (+ pre-rendered conditional blocks) |
+| Integration | `templates/agent-prompts/integration.md` | `WORKTREE_PATH`, `TASK_ID`, `SPEC_A`, `SPEC_B`, `INTEGRATION_ACS`, `SPECS_INVOLVED`, `INTERFACE_MAP`, `CONTRACT_RISKS`, `AC_COVERAGE_INSTRUCTIONS` |
+| Bootstrap | `templates/agent-prompts/bootstrap.md` | `WORKTREE_PATH`, `SPEC` |
+| Wave Test | `templates/agent-prompts/wave-test.md` | `WORKTREE_PATH`, `TASK_ID`, `SPEC_NAME`, `SNAPSHOT_FILES`, `EXISTING_TEST_NAMES`, `SPEC_PATH`, `EDIT_SCOPE`, `SPEC` |
+| Spike | `templates/agent-prompts/spike.md` | `WORKTREE_PATH`, `TASK_ID`, `HYPOTHESIS`, `SPEC`, `REVERTED_WARNINGS`, `DESC` |
+| Optimize Task | `templates/agent-prompts/optimize.md` | `WORKTREE_PATH` + (see file) |
+| Optimize Probe | `templates/agent-prompts/optimize-probe.md` | `WORKTREE_PATH` + (see file) |
 
 Conditional blocks (`REVERTED_BLOCK`, `SPIKE_BLOCK`, `DOMAIN_MODEL_BLOCK`, `EXISTING_TYPES_BLOCK`) are pre-rendered by the caller — pass empty string to collapse, pre-formatted content (with trailing `\n`) to include.
 
