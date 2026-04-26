@@ -41,6 +41,7 @@ Determine source_dir from config or default to src/
 Shell injection:
 - `` !`ls specs/*.md 2>/dev/null || echo 'NOT_FOUND'` ``
 - `` !`cat PLAN.md 2>/dev/null || echo 'NOT_FOUND'` ``
+- `` !`cat .deepflow/maps/{spec}/sketch.md 2>/dev/null || echo 'NOT_FOUND'` `` (loaded after spec name is resolved; prior from `/df:discover`; skip if absent)
 - `` !`cat .deepflow/maps/{spec}/impact.md 2>/dev/null || echo 'NOT_FOUND'` `` (loaded after spec name is resolved; skip if absent)
 
 Run `validateSpec` on each spec. Hard failures → skip + error. Advisory → include.

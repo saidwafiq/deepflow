@@ -241,13 +241,13 @@ describe('AC-6: downstream commands load maps artifacts via shell-injection', ()
     );
   });
 
-  it('execute.md has shell-injection for .deepflow/maps/ artifact', { todo: 'Implemented by T9 (not yet merged)' }, () => {
+  it('execute.md has shell-injection for .deepflow/maps/ artifact', () => {
     // specs/artifact-chain.md#AC-6
     const EXECUTE = load('src/commands/df/execute.md');
     assert.ok(EXECUTE.includes('cat .deepflow/maps/'), 'execute.md must include shell-injection: cat .deepflow/maps/...');
   });
 
-  it('spec.md has shell-injection for .deepflow/maps/ artifact', { todo: 'Implemented by T9 (not yet merged)' }, () => {
+  it('spec.md has shell-injection for .deepflow/maps/ artifact', () => {
     // specs/artifact-chain.md#AC-6
     const SPEC = load('src/commands/df/spec.md');
     assert.ok(SPEC.includes('cat .deepflow/maps/'), 'spec.md must include shell-injection: cat .deepflow/maps/...');
