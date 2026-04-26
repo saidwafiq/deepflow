@@ -41,6 +41,7 @@ Determine source_dir from config or default to src/
 Shell injection:
 - `` !`ls specs/*.md 2>/dev/null || echo 'NOT_FOUND'` ``
 - `` !`cat PLAN.md 2>/dev/null || echo 'NOT_FOUND'` ``
+- `` !`cat .deepflow/maps/{spec}/impact.md 2>/dev/null || echo 'NOT_FOUND'` `` (loaded after spec name is resolved; skip if absent)
 
 Run `validateSpec` on each spec. Hard failures → skip + error. Advisory → include.
 Record each spec's computed layer (gates task generation per §1.5).
@@ -143,6 +144,15 @@ Perform LSP-first impact analysis for each file in the spec's Files list. Produc
 ### LSP Fallback Log
 - {file}: LSP unavailable — {reason} (grep used)
 ```
+
+**Persist Agent B output (L3 specs only):** After Agent B returns, write its raw output verbatim to `.deepflow/maps/{spec}/impact.md`. Create the directory if it does not exist:
+
+```
+mkdir -p .deepflow/maps/{spec}
+# then write Agent B's full output to .deepflow/maps/{spec}/impact.md
+```
+
+The file must be written before Agent B's output is passed into the §5A reasoner prompt. Skip this step entirely for L0–L2 specs (Agent B does not run for those layers).
 
 #### Agent C — Dead Code & TODOs
 
