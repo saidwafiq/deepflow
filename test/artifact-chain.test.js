@@ -261,7 +261,7 @@ describe('AC-6: downstream commands load maps artifacts via shell-injection', ()
 // ---------------------------------------------------------------------------
 
 describe('AC-7: verify.md invalidates maps dir on spec completion', () => {
-  it('verify.md references .deepflow/maps/ invalidation', { todo: 'Implemented by T11 (not yet merged)' }, () => {
+  it('verify.md references .deepflow/maps/ invalidation', () => {
     // specs/artifact-chain.md#AC-7
     const VERIFY = load('src/commands/df/verify.md');
     assert.ok(
@@ -270,7 +270,7 @@ describe('AC-7: verify.md invalidates maps dir on spec completion', () => {
     );
   });
 
-  it('verify.md includes remove or archive action for maps directory', { todo: 'Implemented by T11 (not yet merged)' }, () => {
+  it('verify.md includes remove or archive action for maps directory', () => {
     // specs/artifact-chain.md#AC-7
     const VERIFY = load('src/commands/df/verify.md');
     assert.ok(
