@@ -4,6 +4,16 @@
 // covers specs/ac-scope-isolation.md#AC-4
 // covers specs/ac-scope-isolation.md#AC-5
 // covers specs/ac-scope-isolation.md#AC-8
+// covers specs/agent-delegation-contract.md#AC-1
+// covers specs/agent-delegation-contract.md#AC-2
+// covers specs/agent-delegation-contract.md#AC-3
+// covers specs/agent-delegation-contract.md#AC-4
+// covers specs/agent-delegation-contract.md#AC-5
+// covers specs/agent-delegation-contract.md#AC-6
+// covers specs/agent-delegation-contract.md#AC-7
+// covers specs/agent-delegation-contract.md#AC-8
+// covers specs/agent-delegation-contract.md#AC-9
+// covers specs/agent-delegation-contract.md#AC-10
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
