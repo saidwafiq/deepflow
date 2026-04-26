@@ -69,9 +69,9 @@ _Note: Keep to max 15 terms for clarity._
      Never reuse REQ-N as the AC identifier — the lint flags both a missing **AC-N** marker
      AND a duplicate REQ-N ID (since the same REQ-N would appear in both sections). -->
 
-- [ ] **AC-1** — (REQ-1) [Testable criterion: e.g., "User can upload jpg/png/webp files"]
-- [ ] **AC-2** — (REQ-2) [Testable criterion: e.g., "Files over 10MB show clear error"]
-- [ ] **AC-3** — (REQ-3) [Testable criterion: e.g., "Upload progress is visible"]
+- [ ] **AC-1** — (REQ-1) WHEN a user submits a valid input THEN the system SHALL accept it and return a success response.
+- [ ] **AC-2** — (REQ-2) WHEN a user submits an invalid input THEN the system SHALL reject it and return a descriptive error message.
+- [ ] **AC-3** — (REQ-3) WHEN the operation completes THEN the result SHALL be persisted and visible to the user within one second.
 
 ## Test Annotation Convention
 
