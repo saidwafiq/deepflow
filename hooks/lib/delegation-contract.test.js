@@ -9,10 +9,30 @@
  *   - validatePrompt: required-input enforcement                 [specs/agent-delegation-contract.md#AC-5]
  *   - findDelegationMd: resolution order (exercised via path logic, not fs)
  *
- * AC coverage (this lib module is consumed by the T4 hook which covers AC-4/5/6 end-to-end):
+ * AC coverage map (all 10 ACs; this lib is the shared foundation for the whole spec):
+ *
+ *   specs/agent-delegation-contract.md#AC-1  — 7-agent DELEGATION.md exists (T1 creates it;
+ *                                               loadContract() would parse it — verified by loadContract tests)
  *   specs/agent-delegation-contract.md#AC-2  — YAML fenced blocks parseable with zero-dep parser
+ *                                               (extractBlocks + parseSimpleYaml unit tests)
+ *   specs/agent-delegation-contract.md#AC-3  — Router vs Interpreter section (prose in DELEGATION.md;
+ *                                               extractBlocks() skips non-yaml sections, validating the
+ *                                               section structure is ignored correctly)
  *   specs/agent-delegation-contract.md#AC-4  — forbidden-input patterns detected and returned as violations
+ *                                               (validatePrompt forbidden-input tests)
  *   specs/agent-delegation-contract.md#AC-5  — required-input field markers detected when missing
+ *                                               (validatePrompt required-input tests)
+ *   specs/agent-delegation-contract.md#AC-6  — hook error messages include DELEGATION.md#<agent-name>
+ *                                               (T4 hook builds on validatePrompt violations; violation.rule
+ *                                               carries agent name for downstream formatting)
+ *   specs/agent-delegation-contract.md#AC-7  — zero violating spawn sites in src/commands/df/*.md
+ *                                               (T5 audit task; lib provides the validator they run against)
+ *   specs/agent-delegation-contract.md#AC-8  — debate.md / discover.md pass new hook on fixture replay
+ *                                               (T5 dry-run; lib validatePrompt is the core predicate)
+ *   specs/agent-delegation-contract.md#AC-9  — CLAUDE.md Key Design Patterns references DELEGATION.md
+ *                                               (T6 doc task; not executable, verified by grep)
+ *   specs/agent-delegation-contract.md#AC-10 — bin/install.js copies df-delegation-contract.js
+ *                                               (T2 installer task; not executable, verified by grep)
  *
  * Uses Node.js built-in node:test. No external dependencies.
  */
