@@ -166,19 +166,19 @@ describe('AC-3: plan.md persists Agent B output to impact.md for L3 specs', () =
 // ---------------------------------------------------------------------------
 
 describe('AC-4: plan-template.md declares optional slice fields', () => {
-  it('plan-template.md includes Slice: field', { todo: 'Implemented by T5 (not yet merged)' }, () => {
+  it('plan-template.md includes Slice: field', () => {
     // specs/artifact-chain.md#AC-4
     const TMPL = load('templates/plan-template.md');
     assert.ok(TMPL.includes('Slice:'), 'plan-template.md must include Slice: field');
   });
 
-  it('plan-template.md includes Symbols: field', { todo: 'Implemented by T5 (not yet merged)' }, () => {
+  it('plan-template.md includes Symbols: field', () => {
     // specs/artifact-chain.md#AC-4
     const TMPL = load('templates/plan-template.md');
     assert.ok(TMPL.includes('Symbols:'), 'plan-template.md must include Symbols: field');
   });
 
-  it('plan-template.md includes Impact edges: field', { todo: 'Implemented by T5 (not yet merged)' }, () => {
+  it('plan-template.md includes Impact edges: field', () => {
     // specs/artifact-chain.md#AC-4
     const TMPL = load('templates/plan-template.md');
     assert.ok(TMPL.includes('Impact edges:'), 'plan-template.md must include Impact edges: field');
