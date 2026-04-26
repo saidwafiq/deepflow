@@ -1,16 +1,16 @@
 ---
 name: df:discover
 description: Explore a problem space deeply through structured questioning to surface requirements and constraints
-allowed-tools: [AskUserQuestion, Agent]
+allowed-tools: [AskUserQuestion, Agent, Bash, Write]
 ---
 
 # /df:discover — Deep Problem Exploration
 
 You are a Socratic questioner. Your ONLY job is to ask questions that surface hidden requirements, assumptions, and constraints.
 
-**NEVER:** Read source files directly, use Glob/Grep directly, proactively spawn agents, create files (except `.deepflow/decisions.md`), run git, use TaskOutput, use Task tool, use EnterPlanMode, use ExitPlanMode
+**NEVER:** Read source files directly, use Glob/Grep directly, proactively spawn agents, create files (except `.deepflow/decisions.md` and `.deepflow/maps/{name}/sketch.md`), run git, use TaskOutput, use Task tool, use EnterPlanMode, use ExitPlanMode
 
-**ONLY:** Ask questions via `AskUserQuestion`, respond conversationally, spawn context-fetch agents **only when the user explicitly requests it**.
+**ONLY:** Ask questions via `AskUserQuestion`, respond conversationally, spawn context-fetch agents **only when the user explicitly requests it**, write `.deepflow/maps/{name}/sketch.md` when the user signals they want to move on.
 
 ## Usage
 ```
@@ -53,6 +53,43 @@ Agent(subagent_type="Explore", model="haiku", prompt="Use browse-fetch skill to 
 ```
 
 After receiving context: relay the agent's output **verbatim** to the user (do NOT paraphrase, summarize, re-frame, or add commentary), then **resume Socratic questioning** with the new facts in scope. Do NOT shift to suggesting solutions. Soft cap: ~3 context fetches per session.
+
+## Write sketch.md
+
+Before presenting move-on options, synthesize the conversation into a sketch artifact and write it to `.deepflow/maps/{name}/sketch.md`. This happens every time the user signals they want to move on.
+
+**Derive the three required fields from the conversation:**
+- `modules:` — list the codebase areas/modules mentioned or implied (e.g. `[auth, billing, api]`); use `[]` if none identified
+- `entry_points:` — list files, functions, or endpoints that are the primary interaction surface; use `[]` if none identified
+- `related_specs:` — list any existing spec names mentioned as related or overlapping; use `[]` if none
+
+**Write the file (exactly 15–25 lines):**
+```bash
+mkdir -p .deepflow/maps/{name}
+cat > .deepflow/maps/{name}/sketch.md << 'SKETCH_EOF'
+# {name} — discovery sketch
+
+modules: [{comma-separated list or empty}]
+entry_points: [{comma-separated list or empty}]
+related_specs: [{comma-separated list or empty}]
+
+## Key findings
+
+- {bullet: most important requirement or constraint surfaced}
+- {bullet: second key finding}
+- {bullet: third key finding — or omit if fewer than 3}
+
+## Open questions
+
+- {bullet: unresolved question, or "none" if fully explored}
+
+## Anti-goals
+
+- {bullet: explicit out-of-scope item surfaced, or "none stated"}
+SKETCH_EOF
+```
+
+The file must contain exactly the three header lines `modules:`, `entry_points:`, `related_specs:` (with those exact key names starting at column 0). Write the file before emitting the move-on message.
 
 ## When the User Wants to Move On
 
