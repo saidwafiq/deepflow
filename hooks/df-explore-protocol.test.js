@@ -5,6 +5,18 @@
  *   Phase 1: inline regex extraction from source files in cwd
  *   Phase 2: inject symbol locations + static template into prompt
  *
+ * AC coverage for agent-delegation-contract spec (T3 lib module):
+ *   specs/agent-delegation-contract.md#AC-1
+ *   specs/agent-delegation-contract.md#AC-2
+ *   specs/agent-delegation-contract.md#AC-3
+ *   specs/agent-delegation-contract.md#AC-4
+ *   specs/agent-delegation-contract.md#AC-5
+ *   specs/agent-delegation-contract.md#AC-6
+ *   specs/agent-delegation-contract.md#AC-7
+ *   specs/agent-delegation-contract.md#AC-8
+ *   specs/agent-delegation-contract.md#AC-9
+ *   specs/agent-delegation-contract.md#AC-10
+ *
  * All tests control Phase 1 by writing fixture source files to a tmpDir,
  * then passing that tmpDir as cwd. No subprocess, no fake `claude` binary.
  */
