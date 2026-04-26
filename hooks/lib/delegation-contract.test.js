@@ -3,10 +3,16 @@
  *
  * Covers:
  *   - extractBlocks: regex-based fenced-YAML block extraction
- *   - parseSimpleYaml: zero-dep flat key→value|string[] parser
- *   - loadContract: end-to-end parse from a markdown string
- *   - validatePrompt: forbidden-input and required-input enforcement
+ *   - parseSimpleYaml: zero-dep flat key→value|string[] parser  [specs/agent-delegation-contract.md#AC-2]
+ *   - loadContract: end-to-end parse from a markdown string     [specs/agent-delegation-contract.md#AC-2]
+ *   - validatePrompt: forbidden-input enforcement                [specs/agent-delegation-contract.md#AC-4]
+ *   - validatePrompt: required-input enforcement                 [specs/agent-delegation-contract.md#AC-5]
  *   - findDelegationMd: resolution order (exercised via path logic, not fs)
+ *
+ * AC coverage (this lib module is consumed by the T4 hook which covers AC-4/5/6 end-to-end):
+ *   specs/agent-delegation-contract.md#AC-2  — YAML fenced blocks parseable with zero-dep parser
+ *   specs/agent-delegation-contract.md#AC-4  — forbidden-input patterns detected and returned as violations
+ *   specs/agent-delegation-contract.md#AC-5  — required-input field markers detected when missing
  *
  * Uses Node.js built-in node:test. No external dependencies.
  */
@@ -159,7 +165,7 @@ describe('parseSimpleYaml', () => {
 describe('loadContract', () => {
   let tmpFile;
 
-  test('loads a two-agent contract from a temp file', () => {
+  test('loads a two-agent contract from a temp file', () => { // specs/agent-delegation-contract.md#AC-2
     tmpFile = path.join(os.tmpdir(), `delegation-test-${Date.now()}.md`);
     fs.writeFileSync(tmpFile, FIXTURE_MD, 'utf8');
     const map = loadContract(tmpFile);
@@ -227,7 +233,7 @@ describe('validatePrompt', () => {
     assert.equal(result.violations.length, 0);
   });
 
-  test('returns violation when forbidden pattern appears in prompt', () => {
+  test('returns violation when forbidden pattern appears in prompt', () => { // specs/agent-delegation-contract.md#AC-4
     contractMap = buildMap();
     const result = validatePrompt('df-spike', 'Please add implementation details here', contractMap);
     assert.equal(result.ok, false);
@@ -242,7 +248,7 @@ describe('validatePrompt', () => {
     assert.ok(result.violations[0].rule.includes('paraphrased objectives'));
   });
 
-  test('returns violation when required field marker is missing', () => {
+  test('returns violation when required field marker is missing', () => { // specs/agent-delegation-contract.md#AC-5
     contractMap = buildMap();
     // df-implement requires "task-description:" and "acceptance-criteria:" in prompt
     const result = validatePrompt('df-implement', 'just a description without the colon field', contractMap);
