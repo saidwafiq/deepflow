@@ -1,3 +1,11 @@
+---
+files: []
+# List relative repo paths this experiment concerns, e.g.:
+#   files: [src/commands/df/plan.md, bin/decisions-index.js]
+# Used by bin/decisions-index.js to surface prior spike results
+# when planning tasks that touch the same files.
+---
+
 # Experiment: {hypothesis-slug}
 
 > **Filename convention**: `{topic}--{hypothesis-slug}--{status}.md`
