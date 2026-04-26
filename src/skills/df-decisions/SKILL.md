@@ -45,6 +45,36 @@ Multiple decisions are separated by ` | ` (space-pipe-space). Each decision is *
 
 **Validation rule:** If a task has effort ≥ `medium` and no `DECISIONS:` line appears in your output, the orchestrator will emit SALVAGEABLE (indicating potential architectural choices were not documented).
 
+## Files Tag
+
+Each decision entry in `.deepflow/decisions.md` MAY carry an inline `Files:` tag listing relative repo paths the decision concerns. This enables `bin/decisions-index.js` to retrieve prior decisions and spike results touching a given file set during impact analysis.
+
+### Format
+
+```
+- [TAG] description — rationale  Files: [path/to/file.ts, path/to/other.ts]
+```
+
+The `Files:` tag is placed at the **end of the bullet**, after the rationale, separated by two spaces. The paths are relative to the repo root, comma-separated, enclosed in square brackets.
+
+### Examples
+
+```
+- [APPROACH] Used line-scan regex over AST parsing — simpler, zero deps, sufficient for flat markdown  Files: [bin/decisions-index.js]
+```
+
+```
+- [PROVISIONAL] Hardcoded max_retries=3; bump when traffic patterns change  Files: [src/commands/df/execute.md, src/skills/df-decisions/SKILL.md]
+```
+
+### When to Include `Files:`
+
+- When the decision directly concerns a specific file or module
+- When a future developer querying impact for those files should see this decision
+- When the decision was triggered by constraints in a particular file
+
+Omit the `Files:` tag when the decision is purely conceptual or spans the entire codebase with no specific file targets. Entries without a `Files:` tag are silently skipped by the query utility (no error).
+
 ## Decision Extraction & Storage
 
 The orchestrator runs decision extraction after each ratchet pass:
@@ -56,7 +86,7 @@ The orchestrator runs decision extraction after each ratchet pass:
    ```
    ### 2026-04-21 — spec-name
    - [APPROACH] description — rationale
-   - [PROVISIONAL] description — rationale
+   - [APPROACH] description with files — rationale  Files: [src/file.ts]
    ```
 5. **Invalid entries:** Skipped and trigger SALVAGEABLE; valid entries still written
 
