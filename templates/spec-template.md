@@ -1,5 +1,8 @@
 ---
 # derives-from: done-{parent-spec-name}  # optional: links this spec to a parent for lineage/rework tracking
+# touched_modules: []  # optional: list of modules/packages this spec is expected to touch (consumed by /df:plan for impact pre-loading)
+# likely_files: []     # optional: list of files anticipated to change (consumed by /df:plan to seed blast-radius analysis)
+# new_surface: []      # optional: new public API/type/table surfaces this spec introduces (consumed by /df:plan Agent B)
 ---
 
 # {Name}
