@@ -84,8 +84,8 @@ Create `specs/{name}.md`:
 - [Explicitly excluded item]
 
 ## Acceptance Criteria
-- [ ] **AC-1** — (REQ-1) [Testable criterion]
-- [ ] **AC-2** — (REQ-2) [Testable criterion]
+- [ ] **AC-1** — (REQ-1) WHEN [trigger/condition] THEN [observable outcome] SHALL [assertion]
+- [ ] **AC-2** — (REQ-2) WHEN [trigger/condition] THEN [observable outcome] SHALL [assertion]
 
 ## Technical Notes
 [Implementation hints from codebase analysis — patterns, integration points, constraints discovered by agents]
@@ -114,5 +114,10 @@ If layer < 2: `ℹ Spec is at L{N} — /df:plan will generate spikes to discover
 - Max 4 questions per AskUserQuestion call
 - Requirements must be testable; ACs must be verifiable (when present)
 - Every AC line MUST use format `- [ ] **AC-N** — (REQ-M) ...`. Never reuse `REQ-N:` as the AC identifier (lint hard-fails on missing **AC-N** and duplicate REQ-N).
+- Every AC description (the text after `(REQ-M)`) MUST follow WHEN/THEN/SHALL phrasing in that order: `WHEN [condition] THEN [outcome] SHALL [assertion]`. The comma after the WHEN clause is optional. Keywords are case-insensitive. Lint rejects ACs missing any of the three tokens.
+
+  **Vague vs. concrete example:**
+  - VAGUE (rejected): `(REQ-1) The API should respond quickly` — no trigger, no measurable bound, no assertion.
+  - CONCRETE (accepted): `(REQ-1) WHEN a client sends a valid request THEN the API response SHALL arrive within 200 ms under nominal load` — trigger is explicit, outcome is observable, SHALL asserts the bound.
 - Include agent-discovered context in Technical Notes
 - Keep specs concise (<100 lines)
