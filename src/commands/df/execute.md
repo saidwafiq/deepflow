@@ -30,7 +30,7 @@ Each task = one background agent. **NEVER use TaskOutput** (100KB+ transcripts e
 5. Repeat until: all done, all blocked, or context ≥50%.
 ```
 
-**Context threshold:** Statusline writes `.deepflow/context.json`: `{"percentage": 45}`. <50% = full parallelism (up to 5). ≥50% = wait, checkpoint, exit.
+**Context threshold:** Statusline writes `.deepflow/context.json`: `{"percentage": 45}`. <50% = full parallelism (no cap; spawn all ready tasks in one message). ≥50% = wait, checkpoint, exit.
 
 ---
 
