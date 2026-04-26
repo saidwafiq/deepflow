@@ -136,6 +136,30 @@ eval:
 filter_synthesis:
   DF_FILTER_LLM: 0  # Set to 1 to enable LLM-assisted filter synthesis (requires Claude API access)
 
+# Artifact validation — pre-stage existence, consistency, and drift checks
+# Runs via hooks/df-artifact-validate.js (PostToolUse) when any of the 5-artifact chain is written.
+artifact_validation:
+  # Enforcement mode per check family: "hard" (non-zero exit), "advisory" (warn only), "off" (skip)
+  # In auto-mode (runtime signal mode==='auto') all advisory entries escalate to hard automatically.
+  enforcement:
+    existence: hard       # File/symbol/task/edge reference must resolve — default hard
+    consistency: advisory # Cross-artifact consistency checks — default advisory
+    drift: advisory       # Numeric drift threshold breaches — default advisory
+
+  # Numeric drift thresholds (drift checks are skipped when upstream artifact is missing)
+  drift_thresholds:
+    # Maximum allowed Jaccard divergence between sketch.md modules and impact.md modules
+    # 0.0 = identical sets; 1.0 = completely disjoint. Raise advisory when jaccard_below > this value.
+    jaccard_max: 0.4
+
+    # Minimum % of spec likely_files that must be covered by PLAN task slices (0–100)
+    # Raise advisory when likely_files_coverage_pct < this value.
+    likely_files_min_pct: 50
+
+    # Maximum count of PLAN task Files entries that are not present in impact.md edges
+    # Raise advisory when out_of_scope_count > this value.
+    out_of_scope_max: 3
+
 # Recommended .gitignore entries
 # Add these entries to your .gitignore to exclude instrumentation artifacts
 gitignore_entries:
