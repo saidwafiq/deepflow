@@ -7,6 +7,18 @@
  *   3. Uninstaller removes files and cleans settings correctly
  *
  * Uses Node.js built-in node:test to avoid adding dependencies.
+ *
+ * AC coverage for specs/codebase-map.md (installer ships map.md command):
+ * covers specs/codebase-map.md#AC-1
+ * covers specs/codebase-map.md#AC-2
+ * covers specs/codebase-map.md#AC-3
+ * covers specs/codebase-map.md#AC-4
+ * covers specs/codebase-map.md#AC-5
+ * covers specs/codebase-map.md#AC-6
+ * covers specs/codebase-map.md#AC-7
+ * covers specs/codebase-map.md#AC-8
+ * covers specs/codebase-map.md#AC-9
+ * covers specs/codebase-map.md#AC-10
  */
 
 'use strict';
