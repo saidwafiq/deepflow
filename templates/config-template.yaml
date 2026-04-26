@@ -152,7 +152,34 @@ spike:
     # Orphan = worktree still present after its spike finished (e.g. cleanup_on_fail: false).
     worktree_gc_age_days: 7
 
-  # gate:  ← spike.gate.* keys will be added here by T93 (spike-gate integration task)
+  # Gate — pre-execute trigger logic and enforcement (spike-gate spec)
+  gate:
+    # Trigger thresholds — all values are integer counts unless noted
+    triggers:
+      # REQ-1: emit spike when symbol fan-out in impact.md exceeds this value
+      fanout_max: 8
+
+      # REQ-1: emit spike when subgraph depth in impact.md exceeds this value
+      depth_max: 4
+
+      # REQ-2: emit spike when task slice touches more files than this
+      slice_files_max: 5
+
+      # REQ-4: emit spike when artifact-validation drift signal exceeds this (jaccard_below or out_of_scope_count)
+      drift_max: 0.2
+
+    # REQ-7: maximum spike tasks that can be created for a single spec before blocking
+    budget_per_spec: 5
+
+    # REQ-7: wall-clock seconds a spike is allowed to run before it is killed
+    timebox_seconds: 120
+
+    # REQ-7: maximum lines of code a spike experiment file may contain
+    max_loc: 100
+
+    # REQ-9: enforcement mode — "hard" blocks /df:execute when spike-required is unmet;
+    # "advisory" warns only (mirrors hooks/df-invariant-check.js escalation pattern)
+    enforcement: hard
 
 # Port for `npx deepflow-dashboard serve` (team server mode)
 # Default: 3334  (3333 is reserved for local mode)
@@ -190,40 +217,6 @@ artifact_validation:
     # Maximum count of PLAN task Files entries that are not present in impact.md edges
     # Raise advisory when out_of_scope_count > this value.
     out_of_scope_max: 3
-
-# Spike configuration
-# Top-level spike: namespace coordinates gate and isolation sub-systems.
-# spike.isolation.* will be added here by T93 [INTEGRATION] as a sibling of spike.gate.*.
-spike:
-
-  # Gate — pre-execute trigger logic and enforcement (spike-gate spec)
-  gate:
-    # Trigger thresholds — all values are integer counts unless noted
-    triggers:
-      # REQ-1: emit spike when symbol fan-out in impact.md exceeds this value
-      fanout_max: 8
-
-      # REQ-1: emit spike when subgraph depth in impact.md exceeds this value
-      depth_max: 4
-
-      # REQ-2: emit spike when task slice touches more files than this
-      slice_files_max: 5
-
-      # REQ-4: emit spike when artifact-validation drift signal exceeds this (jaccard_below or out_of_scope_count)
-      drift_max: 0.2
-
-    # REQ-7: maximum spike tasks that can be created for a single spec before blocking
-    budget_per_spec: 5
-
-    # REQ-7: wall-clock seconds a spike is allowed to run before it is killed
-    timebox_seconds: 120
-
-    # REQ-7: maximum lines of code a spike experiment file may contain
-    max_loc: 100
-
-    # REQ-9: enforcement mode — "hard" blocks /df:execute when spike-required is unmet;
-    # "advisory" warns only (mirrors hooks/df-invariant-check.js escalation pattern)
-    enforcement: hard
 
 # Recommended .gitignore entries
 # Add these entries to your .gitignore to exclude instrumentation artifacts
