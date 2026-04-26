@@ -29,6 +29,22 @@ Generated: {timestamp}
   - Files: {files}
   - Blocked by: T1
 
+### Artifact-chain Fields Example
+
+Optional per-task fields sourced from `.deepflow/maps/{spec}/`. Tasks that omit them execute normally via `Files:`.
+
+- [ ] **T0** (example): {Task with all optional fields}
+  - Files: {files}
+  - Blocked by: none
+
+```
+Slice: {code region label, e.g. "auth/login flow"}
+Symbols: {key exported symbols modified, e.g. "LoginHandler, AuthToken"}
+Impact edges: {callers from impact.md, e.g. "SessionManager (auth.go:42-61) fan-out:3"}
+```
+
+The fields above are optional. A minimal task block needs only `Files:` and `Blocked by:`.
+
 ### Spike Task Example
 
 When no experiments exist to validate an approach, start with a minimal validation spike:
@@ -67,4 +83,8 @@ Plan Guidelines:
 - Example completed: [x] **T1**: Create API ✓ (abc1234)
 - Spike tasks: If no experiments validate the approach, first task should be a minimal validation spike
 - Spike tasks block full implementation tasks until the hypothesis is validated
+- Optional artifact-chain fields (omit freely — tasks without them still execute via Files:):
+  - Slice: human-readable label for the code region this task touches
+  - Symbols: comma-separated list of key exported symbols being modified
+  - Impact edges: caller/dependent list sourced from .deepflow/maps/{spec}/impact.md
 -->
