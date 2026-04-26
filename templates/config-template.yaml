@@ -123,6 +123,37 @@ ratchet:
   # Examples: "eslint .", "flake8", "cargo clippy"
   lint_command: ""
 
+# Spike configuration — shared parent for spike.isolation.* and spike.gate.*
+# spike.gate.* keys are owned by the spike-gate spec and will be merged here by integration task T93.
+# Both sub-blocks land under this single `spike:` parent to share the namespace.
+spike:
+  isolation:
+    # First port in the pool allocated to parallel spike runners (inclusive).
+    # Each running spike claims one port from [port_pool_start, port_pool_end].
+    port_pool_start: 40000
+
+    # Last port in the pool allocated to parallel spike runners (inclusive).
+    port_pool_end: 40099
+
+    # Maximum number of spikes that may run concurrently.
+    # Overflow spikes are queued until a slot is free (REQ-9).
+    max_parallel: 3
+
+    # Default outbound network policy for spikes that carry no network_policy frontmatter.
+    # "deny"  — all egress blocked (hermetic by default, REQ-4).
+    # "allow" — full egress permitted (opt-in for integration spikes).
+    network_policy_default: deny
+
+    # Whether to clean up the spike worktree, port, and tmpdir after a failed spike.
+    # Set to false to preserve the worktree for post-mortem debugging.
+    cleanup_on_fail: true
+
+    # Number of days after which an orphaned spike worktree is garbage-collected.
+    # Orphan = worktree still present after its spike finished (e.g. cleanup_on_fail: false).
+    worktree_gc_age_days: 7
+
+  # gate:  ← spike.gate.* keys will be added here by T93 (spike-gate integration task)
+
 # Port for `npx deepflow-dashboard serve` (team server mode)
 # Default: 3334  (3333 is reserved for local mode)
 dashboard_port: 3334
