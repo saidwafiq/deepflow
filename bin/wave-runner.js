@@ -315,15 +315,64 @@ function formatWavesJson(waves, cwd) {
 
         if (planText) {
           const taskId = t.num; // numeric part
+          // Format A: explicit `### T{N} \u2014` headers
           const startMarker = `### T${taskId} \u2014`;
           const startIdx = planText.indexOf(startMarker);
           if (startIdx !== -1) {
-            const afterStart = planText.indexOf('\n', startIdx); // skip header line itself
+            const afterStart = planText.indexOf('\n', startIdx);
             if (afterStart !== -1) {
               const rest = planText.slice(afterStart + 1);
               const nextSection = rest.search(/^### /m);
               task_detail_body = (nextSection === -1 ? rest : rest.slice(0, nextSection)).replace(/\n+$/, '');
             }
+          }
+          // Format B: bullet-list mini-plan items `- [ ] **T{N}** ...` with indented sub-bullets.
+          // Mini-plans may use per-spec local IDs (T1..N) while PLAN.md uses global IDs,
+          // so we first try ID match then fall back to description match.
+          if (!task_detail_body) {
+            const blockRe = new RegExp(
+              `^- \\[[ x]\\] \\*\\*T${taskId}\\*\\*[^\\n]*\\n([\\s\\S]*?)(?=^- \\[[ x]\\] \\*\\*T\\d+\\*\\*|^### |(?![\\s\\S]))`,
+              'm'
+            );
+            const m = planText.match(blockRe);
+            if (m) task_detail_body = m[1].replace(/\n+$/, '');
+          }
+          if (!task_detail_body && t.description) {
+            // Normalize: strip backticks/em-dashes, collapse whitespace, strip [tag]: prefixes
+            const norm = (s) => s.replace(/[`—–]/g, '').replace(/\s+/g, ' ').replace(/^\[[A-Z]+\]:?\s*/, '').trim();
+            const targetDesc = norm(t.description);
+            const sig = (s) => s.replace(/[^a-z0-9 ]/gi, '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 5).join(' ');
+            const targetSig = sig(targetDesc);
+            const allBlocksRe = /^- \[[ x]\] \*\*T\d+\*\*[^\n]*?:\s*([^\n]+)\n([\s\S]*?)(?=^- \[[ x]\] \*\*T\d+\*\*|^### |(?![\s\S]))/gm;
+            let bm;
+            while ((bm = allBlocksRe.exec(planText)) !== null) {
+              const blockDesc = norm(bm[1]);
+              const blockSig = sig(blockDesc);
+              if (
+                blockDesc === targetDesc ||
+                targetDesc.startsWith(blockDesc) ||
+                blockDesc.startsWith(targetDesc.slice(0, 25)) ||
+                (targetSig && blockSig === targetSig)
+              ) {
+                task_detail_body = bm[2].replace(/\n+$/, '');
+                break;
+              }
+            }
+          }
+        }
+        // Format C: integration tasks define their body inline in PLAN.md (not in mini-plans).
+        if (!task_detail_body) {
+          let topPlanText = '';
+          try {
+            topPlanText = fs.readFileSync(path.join(root, 'PLAN.md'), 'utf8');
+          } catch (_) { /* PLAN.md absent */ }
+          if (topPlanText) {
+            const blockRe = new RegExp(
+              `^- \\[[ x]\\] \\*\\*${t.id}\\*\\*[^\\n]*\\n([\\s\\S]*?)(?=^- \\[[ x]\\] \\*\\*T\\d+\\*\\*|^### |(?![\\s\\S]))`,
+              'm'
+            );
+            const m = topPlanText.match(blockRe);
+            if (m) task_detail_body = m[1].replace(/\n+$/, '');
           }
         }
       }
