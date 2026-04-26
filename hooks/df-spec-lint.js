@@ -247,6 +247,19 @@ function validateSpec(content, { mode = 'interactive', specsDir = null, filename
     seenIds.set(id, true);
   }
 
+  // ── (e) WHEN/THEN/SHALL phrasing check ──────────────────────────────
+  // Only applies when a filename is provided (skip for content-only validation).
+  if (filename !== null) {
+    const { diagnostics, mode: phrasingMode } = checkAcPhrasing(content, filename);
+    for (const { message } of diagnostics) {
+      if (phrasingMode === 'strict') {
+        hard.push(message);
+      } else {
+        advisory.push(`warning: ${message}`);
+      }
+    }
+  }
+
   // ── Advisory checks ──────────────────────────────────────────────────
 
   // (adv-a) Line count > 200
@@ -346,6 +359,63 @@ function extractSection(content, sectionName) {
   return capturing ? captured.join('\n') : null;
 }
 
+/**
+ * Check AC phrasing in a spec's Acceptance Criteria section.
+ *
+ * Each AC line whose description (the text after the `(REQ-N)` delimiter)
+ * does NOT match `/^WHEN\s+.+,?\s*THEN\s+.+\s+SHALL\s+/i` is flagged.
+ *
+ * Gating rules (by basename):
+ *   - Files starting with `done-`    → skip entirely (backward compat)
+ *   - Files starting with `.debate-` → skip entirely (exempt per REQ-5)
+ *
+ * @param {string} content   - Raw spec file content.
+ * @param {string} filename  - Basename of the file (e.g. "doing-my-spec.md").
+ * @returns {{ diagnostics: Array<{line: string, message: string}>, mode: string }}
+ *   `diagnostics` — array of offending AC lines with messages.
+ *   `mode`        — the resolved lint mode (`"advisory"` | `"strict"`).
+ */
+function checkAcPhrasing(content, filename) {
+  const base = path.basename(filename || '');
+  const mode = (process.env.DEEPFLOW_SPEC_LINT_MODE || 'advisory').toLowerCase();
+
+  // Files exempt from phrasing check
+  if (base.startsWith('done-') || base.startsWith('.debate-')) {
+    return { diagnostics: [], mode };
+  }
+
+  const acSection = extractSection(content, 'Acceptance Criteria');
+  if (acSection === null) {
+    return { diagnostics: [], mode };
+  }
+
+  const WHEN_THEN_SHALL = /^WHEN\s+.+,?\s*THEN\s+.+\s+SHALL\s+/i;
+  // Pattern to locate the (REQ-N) delimiter — supports (REQ-1), (REQ-1,REQ-2), etc.
+  const REQ_DELIMITER = /\(REQ-\d+[^)]*\)\s*/i;
+
+  const diagnostics = [];
+  for (const line of acSection.split('\n')) {
+    // Only inspect checkbox AC lines
+    if (!/^\s*- \[ \]/.test(line)) continue;
+
+    const delimMatch = REQ_DELIMITER.exec(line);
+    if (delimMatch === null) continue; // no (REQ-N) delimiter — skip phrasing check
+
+    // Description is everything after the (REQ-N) delimiter
+    const description = line.slice(delimMatch.index + delimMatch[0].length).trim();
+    if (description.length === 0) continue;
+
+    if (!WHEN_THEN_SHALL.test(description)) {
+      diagnostics.push({
+        line: line.trim(),
+        message: `AC phrasing violation in "${filename}": AC line does not follow WHEN … THEN … SHALL … format: "${line.trim()}"`,
+      });
+    }
+  }
+
+  return { diagnostics, mode };
+}
+
 // ── Spec file pattern (Write/Edit hook trigger) ──────────────────────────────
 const SPEC_FILE_RE = /(?:^|\/)specs\/[^/]*\.md$/;
 
@@ -412,4 +482,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { validateSpec, extractSection, computeLayer, parseFrontmatter };
+module.exports = { validateSpec, extractSection, computeLayer, parseFrontmatter, checkAcPhrasing };
