@@ -391,6 +391,11 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
    rm -f ".deepflow/plans/done-${NAME}.md" ".deepflow/plans/doing-${NAME}.md"
    ```
    Idempotent: missing files are silent no-ops.
+6c. **Invalidate spec map directory:** Remove `.deepflow/maps/${NAME}/` so stale sketch/impact/findings artifacts from this spec don't persist after completion:
+   ```sh
+   rm -rf ".deepflow/maps/${NAME}/"
+   ```
+   Idempotent: missing directory is a silent no-op. This is the canonical doing→done invalidation hook for REQ-7.
 7. **Extract decisions (additive):** Read done spec, extract `[APPROACH]`/`[ASSUMPTION]`/`[PROVISIONAL]`/`[FUTURE]`/`[UPDATE]` decisions, append to `.deepflow/decisions.md` under `### {date} — {spec}` header. For each extracted decision line, guard against duplicates with a grep check before appending — never read the full file first:
    ```sh
    grep -Fxq -- "- [TAG] {decision_text}" .deepflow/decisions.md 2>/dev/null || \
