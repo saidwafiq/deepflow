@@ -1,13 +1,15 @@
 --- START ---
 WORKDIR: {{WORKTREE_PATH}} — All Bash MUST start with `cd {{WORKTREE_PATH}} &&`. All Read/Edit/Write paths MUST be absolute under {{WORKTREE_PATH}}. All git MUST use `git -C {{WORKTREE_PATH}}`. NEVER run git commit/add/checkout from inherited cwd.
 {{TASK_ID}} [TEST]: Write tests for {{SPEC_NAME}}. Files+Spec.
+Module under test: {{EDIT_SCOPE}}
+Success criteria: {{ACS}}
 Pre-existing test files:
 {{SNAPSHOT_FILES}}
 Existing test function names (do NOT duplicate these):
 {{EXISTING_TEST_NAMES}}
 --- MIDDLE ---
 Spec: {{SPEC_PATH}}
-Edit scope: {{EDIT_SCOPE}}
+Test files (Files): {{FILES}}
 --- END ---
 RULES:
 - Use the `Read` tool (or `git diff HEAD~1`) to inspect what the implementation changed before writing tests.
@@ -15,4 +17,6 @@ RULES:
 - Do not modify pre-existing test files — write new test files only.
 - Each new test MUST annotate covered AC via `specs/{spec-slug}.md#AC-N` in a comment (e.g. `// covers specs/foo.md#AC-3`) or inside the test name itself.
 - Commit as test({{SPEC}}): {description}.
-Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed)
+skill: df-ac-coverage
+skill: df-decisions
+Last line of your response MUST be: TASK_STATUS:pass (if successful) or TASK_STATUS:fail (if failed) or TASK_STATUS:revert (if reverted)

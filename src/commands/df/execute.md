@@ -95,13 +95,13 @@ SNAPSHOT_COUNT=$(wc -l < .deepflow/auto-snapshot-{spec}.txt | tr -d ' ')
 If `SNAPSHOT_COUNT` is `0` for a given spec (zero test files found), MUST spawn a bootstrap agent for **that spec** before any implementation task from that spec runs. Other specs with non-empty snapshots proceed normally.
 
 **Bootstrap flow (per empty-snapshot spec):**
-1. Spawn `Agent(model="{default_model}", ...)` with Bootstrap prompt (§6), `Working directory: ${SPEC_WORKTREES[spec].path}`. End turn, wait for notification.
+1. Spawn `Agent(subagent_type: "df-implement", ...)` with Bootstrap prompt (§6), `Working directory: ${SPEC_WORKTREES[spec].path}`. <!-- df-delegation-contract:skip — bootstrap is an operational (non-task) spawn; no contract entry for df-bootstrap --> End turn, wait for notification.
 2. **On success (TASK_STATUS:pass):** Re-snapshot immediately for that spec:
    ```bash
    git -C ${SPEC_WORKTREES[spec].path} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' > .deepflow/auto-snapshot-{spec}.txt
    ```
    All subsequent tasks for that spec use this updated snapshot as their ratchet baseline. Proceed to wave 1.
-3. **On failure (TASK_STATUS:fail) with default model:** Retry ONCE with `Agent(model="opus", ...)` using the same Bootstrap prompt.
+3. **On failure (TASK_STATUS:fail) with default model:** Retry ONCE with `Agent(subagent_type: "df-implement", model: "opus", ...)` using the same Bootstrap prompt. <!-- df-delegation-contract:skip -->
    - Opus success → re-snapshot (same command above) → proceed to wave 1.
    - Opus failure → halt with message: `"Bootstrap failed with both default and Opus — manual intervention required"`. Do not proceed.
 
@@ -204,7 +204,7 @@ See `node "${HOME}/.claude/bin/ratchet.js" --help` for exit codes and scope rule
 
 - **Exit 0 (PASS):** commit stands. Run §5.5.1 AC coverage → §5.5.2 decision extraction.
 - **Exit 1 (FAIL):** script already reverted HEAD. `TaskUpdate(status: 'pending')`. Recompute remaining waves with `--recalc --failed T{N}`.
-- **Exit 2 (SALVAGEABLE):** spawn `Agent(model='sonnet')` fix, re-run ratchet; still non-zero → revert both commits, set pending.
+- **Exit 2 (SALVAGEABLE):** spawn `Agent(subagent_type: "df-implement")` fix prompt (same task context, append failure summary) <!-- df-delegation-contract:skip — salvage is an operational re-try, not a new task spawn -->, re-run ratchet; still non-zero → revert both commits, set pending.
 
 Pre-existing test updates require a dedicated PLAN.md task — never inline.
 
@@ -307,10 +307,14 @@ Git operations that produce large output (diff, stash, cherry-pick conflict outp
 ```
 Spawn Agent(subagent_type: "df-haiku-ops", run_in_background=false):
   Working directory: ${SPEC_WORKTREES[task.spec].path}
-  Run: {git command}
-  Return exactly ONE line: "{operation}: {N lines changed / N files / outcome}"
-  Do NOT output the raw diff or full command output.
-  Last line: TASK_STATUS:pass or TASK_STATUS:fail
+  Operation: {git command}                      ← exact-shell-command (allowed-input)
+  Exit code check: capture exit code + stdout/stderr of the command (exit-code-check)
+  Output format (required-output-schema — DELEGATION.md#df-haiku-ops):
+    exit: {integer exit code, 0=success}
+    stdout: {one-line summary of command output, e.g. "cherry-pick: applied {sha} cleanly"}
+    stderr: {captured stderr or ""}
+    Last line: TASK_STATUS:pass or TASK_STATUS:fail
+  Do NOT output the raw diff or full command output — summarize stdout to one line.
 ```
 
 **Examples by operation:**
@@ -402,6 +406,18 @@ Agent(subagent_type: "{subagent_type}", run_in_background=true):
 
 Never use bare `Agent(model="sonnet")` or `Agent(model="opus")` for task agents — route through `subagent_type` instead. Tool restrictions are enforced by the sub-agent definition, not by the prompt.
 
+**Required output schema per subagent_type** (DELEGATION.md contract — orchestrator reads notification for these):
+
+| `subagent_type`  | Required output fields (all)                                                              |
+|------------------|-------------------------------------------------------------------------------------------|
+| `df-implement`   | Optional `DECISIONS:` line; `AC_COVERAGE:` … `AC_COVERAGE_END` block; final `TASK_STATUS:pass\|fail\|revert` |
+| `df-test`        | Optional `DECISIONS:` line; `AC_COVERAGE:` … `AC_COVERAGE_END` block; final `TASK_STATUS:pass\|fail\|revert` |
+| `df-integration` | `AC_COVERAGE:` … `AC_COVERAGE_END` block; final `TASK_STATUS:pass\|fail`                  |
+| `df-spike`       | Result file at `.deepflow/experiments/…`; `PASSED/FAILED/INCONCLUSIVE` conclusion; final `TASK_STATUS:pass\|fail` |
+| `df-optimize`    | `before {val} → after {val} ({pct}%)` metric line; final `TASK_STATUS:pass\|fail`         |
+
+Ratchet post-pass checks (§5.5.1, §5.5.2) consume `AC_COVERAGE:` and `DECISIONS:` from the agent notification output.
+
 **Template files** (render with `node "${HOME}/.claude/bin/prompt-compose.js" --template <name> --context <json-or-stdin>`):
 
 > **EVERY template requires `WORKTREE_PATH`** in addition to its template-specific tokens. Set it from `${SPEC_WORKTREES[task.spec].path}` — absolute path preferred. The templates use it to render the WORKDIR rules block that enforces `cd <path>`, absolute Read/Edit/Write paths, and `git -C <path>` for every sub-agent operation. `prompt-compose.js` will exit 1 if `WORKTREE_PATH` is missing from the context JSON.
@@ -411,7 +427,7 @@ Never use bare `Agent(model="sonnet")` or `Agent(model="opus")` for task agents 
 | Standard Task | `templates/agent-prompts/standard-task.md` | `WORKTREE_PATH`, `TASK_ID`, `DESCRIPTION`, `FILES`, `SPEC`, `ACS`, `TASK_BODY` (+ pre-rendered conditional blocks) |
 | Integration | `templates/agent-prompts/integration.md` | `WORKTREE_PATH`, `TASK_ID`, `SPEC_A`, `SPEC_B`, `INTEGRATION_ACS`, `SPECS_INVOLVED`, `INTERFACE_MAP`, `CONTRACT_RISKS`, `AC_COVERAGE_INSTRUCTIONS` |
 | Bootstrap | `templates/agent-prompts/bootstrap.md` | `WORKTREE_PATH`, `SPEC` |
-| Wave Test | `templates/agent-prompts/wave-test.md` | `WORKTREE_PATH`, `TASK_ID`, `SPEC_NAME`, `SNAPSHOT_FILES`, `EXISTING_TEST_NAMES`, `SPEC_PATH`, `EDIT_SCOPE`, `SPEC` |
+| Wave Test | `templates/agent-prompts/wave-test.md` | `WORKTREE_PATH`, `TASK_ID`, `SPEC_NAME`, `SNAPSHOT_FILES`, `EXISTING_TEST_NAMES`, `SPEC_PATH`, `EDIT_SCOPE`, `SPEC`, `ACS`, `FILES` |
 | Spike | `templates/agent-prompts/spike.md` | `WORKTREE_PATH`, `TASK_ID`, `HYPOTHESIS`, `SPEC`, `REVERTED_WARNINGS`, `DESC` |
 | Optimize Task | `templates/agent-prompts/optimize.md` | `WORKTREE_PATH` + (see file) |
 | Optimize Probe | `templates/agent-prompts/optimize-probe.md` | `WORKTREE_PATH` + (see file) |
