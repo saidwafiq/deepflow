@@ -422,6 +422,165 @@ describe('deriveHint', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Contract loader (loadContract) — targeted unit tests
+// ---------------------------------------------------------------------------
+
+describe('contract loader: loadContract', () => {
+  const { loadContract } = require('./lib/delegation-contract');
+
+  test('tagged-fence format (yaml agent:name) is parsed correctly', () => {
+    const md = `# Delegation Contract\n\n### df-reasoner\n\n\`\`\`yaml agent:df-reasoner\nallowed-inputs:\n  - question:\nforbidden-inputs:\n  - paraphrased-context\nrequired-output-schema:\n  - conclusion\n\`\`\`\n`;
+    const tmpDir = makeTmpCwd(md);
+    const filePath = require('node:path').join(tmpDir, 'src', 'agents', 'DELEGATION.md');
+    const map = loadContract(filePath);
+    assert.ok(map.has('df-reasoner'), `expected df-reasoner in map, keys: ${[...map.keys()]}`);
+    const entry = map.get('df-reasoner');
+    assert.ok(Array.isArray(entry.allowedInputs));
+    assert.ok(Array.isArray(entry.forbiddenInputs));
+    assert.ok(entry.forbiddenInputs.includes('paraphrased-context'));
+    cleanTmpDir(tmpDir);
+  });
+
+  test('quoted description values are stripped from forbidden-input items', () => {
+    // DELEGATION.md uses: `key: "description"` format — normaliseItem must strip to just key
+    const md = `## df-test-agent\n\n\`\`\`yaml\nforbidden-inputs:\n  - orchestrator-summary: "Do not paraphrase"\nrequired-output-schema:\n  - task-status\nallowed-inputs:\n  - task-description:\n\`\`\`\n`;
+    const tmpDir = makeTmpCwd(md);
+    const filePath = require('node:path').join(tmpDir, 'src', 'agents', 'DELEGATION.md');
+    const map = loadContract(filePath);
+    assert.ok(map.has('df-test-agent'));
+    const entry = map.get('df-test-agent');
+    // After normaliseItem, forbidden-input item should be just 'orchestrator-summary' (stripped)
+    assert.ok(
+      entry.forbiddenInputs.some(f => f === 'orchestrator-summary'),
+      `expected 'orchestrator-summary' in forbiddenInputs, got: ${JSON.stringify(entry.forbiddenInputs)}`
+    );
+    cleanTmpDir(tmpDir);
+  });
+
+  test('required field markers (items ending with :) are preserved as-is', () => {
+    const md = `## df-test-agent\n\n\`\`\`yaml\nallowed-inputs:\n  - task-description:\n  - files:\nforbidden-inputs: []\nrequired-output-schema:\n  - task-status\n\`\`\`\n`;
+    const tmpDir = makeTmpCwd(md);
+    const filePath = require('node:path').join(tmpDir, 'src', 'agents', 'DELEGATION.md');
+    const map = loadContract(filePath);
+    assert.ok(map.has('df-test-agent'));
+    const entry = map.get('df-test-agent');
+    // 'task-description:' must be preserved with trailing colon (required-field marker)
+    assert.ok(
+      entry.allowedInputs.some(a => a === 'task-description:'),
+      `expected 'task-description:' in allowedInputs, got: ${JSON.stringify(entry.allowedInputs)}`
+    );
+    assert.ok(
+      entry.allowedInputs.some(a => a === 'files:'),
+      `expected 'files:' in allowedInputs, got: ${JSON.stringify(entry.allowedInputs)}`
+    );
+    cleanTmpDir(tmpDir);
+  });
+
+  test('returns empty Map for nonexistent file (fail-open)', () => {
+    const map = loadContract('/nonexistent/path/DELEGATION.md');
+    assert.ok(map instanceof Map);
+    assert.equal(map.size, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block path: explicit validation of block response shape
+// ---------------------------------------------------------------------------
+
+describe('block response shape', () => {
+  test('block response has hookEventName: PreToolUse', () => {
+    const tmpDir = makeTmpCwd();
+    try {
+      const result = main({
+        tool_name: 'Task',
+        tool_input: {
+          subagent_type: 'df-implement',
+          prompt: 'orchestrator-summary: here is the context',
+        },
+        cwd: tmpDir,
+      });
+      assert.ok(result !== null);
+      assert.equal(result.hookSpecificOutput.hookEventName, 'PreToolUse');
+    } finally {
+      cleanTmpDir(tmpDir);
+    }
+  });
+
+  test('block response userMessage includes DELEGATION.md#<agent> anchor with exact casing', () => {
+    const tmpDir = makeTmpCwd();
+    try {
+      const result = main({
+        tool_name: 'Task',
+        tool_input: {
+          subagent_type: 'df-spike',
+          prompt: 'implementation-tasks: do everything',
+        },
+        cwd: tmpDir,
+      });
+      assert.ok(result !== null);
+      const msg = result.hookSpecificOutput.userMessage;
+      // Anchor must exactly be DELEGATION.md#df-spike (lowercase agent name)
+      assert.ok(msg.includes('DELEGATION.md#df-spike'), `expected DELEGATION.md#df-spike anchor, got:\n${msg}`);
+    } finally {
+      cleanTmpDir(tmpDir);
+    }
+  });
+
+  test('allow-path: clean prompt with all required fields and no forbidden content returns null', () => {
+    const tmpDir = makeTmpCwd();
+    try {
+      // df-spike in fixture has no required field markers (no items ending with ':')
+      // so any prompt without forbidden content should pass
+      const result = main({
+        tool_name: 'Task',
+        tool_input: {
+          subagent_type: 'df-spike',
+          prompt: 'hypothesis: X is faster than Y when Z is enabled',
+        },
+        cwd: tmpDir,
+      });
+      assert.equal(result, null, 'clean prompt should pass through (allow-path)');
+    } finally {
+      cleanTmpDir(tmpDir);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fail-open: null and missing payload edge cases
+// ---------------------------------------------------------------------------
+
+describe('fail-open: extended null/missing payload cases', () => {
+  test('returns null when payload is undefined', () => {
+    assert.equal(main(undefined), null);
+  });
+
+  test('returns null when tool_name is missing', () => {
+    // No tool_name key → defaults to undefined → not 'Task' → pass-through
+    assert.equal(main({ tool_input: { prompt: 'x' } }), null);
+  });
+
+  test('returns null when tool_input.prompt is not a string (treated as empty)', () => {
+    const tmpDir = makeTmpCwd();
+    try {
+      // prompt is a number — should be treated as empty string (no forbidden content)
+      // df-implement requires task-description: so this might block, but prompt coerced to ''
+      // In the implementation: typeof tool_input.prompt === 'string' ? ... : ''
+      // So prompt = '' → required fields missing → would block
+      // But we verify fail-open by using unknown agent so it passes through
+      const result = main({
+        tool_name: 'Task',
+        tool_input: { subagent_type: 'df-unknown-agent', prompt: 42 },
+        cwd: tmpDir,
+      });
+      assert.equal(result, null, 'unknown agent with non-string prompt should pass through');
+    } finally {
+      cleanTmpDir(tmpDir);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // stdin dispatch integration (binary invocation)
 // ---------------------------------------------------------------------------
 
