@@ -115,7 +115,7 @@ PLAN_TASK_FILES=!`ls .deepflow/plans/doing-*.md 2>/dev/null | tr '\n' ' ' || ech
 ```
 When `PLAN_TASK_FILES` is not `NOT_FOUND`, each file `.deepflow/plans/doing-{specName}.md` contains the full task detail (Files, Steps, ACs, Impact) for all tasks in that spec. Load a task's detail on demand when building its agent prompt (§6). PLAN.md is a slim index — Files and Impact live only in mini-plans. `PLAN_TASK_FILES` contains filenames only — do NOT `cat` or read mini-plan files upfront; the body lives in `WAVE_JSON[task].task_detail_body` and is injected per-agent at spawn time.
 
-**Upstream artifact loaders** (shell injection — load per spec after DOING_SPECS is resolved; proceed normally when absent):
+**Upstream artifact loaders** (shell injection — load per spec after DOING_SPECS is resolved; `{spec}` iterates over each value in `DOING_SPECS`; proceed normally when absent):
 - `` !`cat .deepflow/maps/{spec}/sketch.md 2>/dev/null || echo 'NOT_FOUND'` `` (discover prior: modules, entry_points, related_specs)
 - `` !`cat .deepflow/maps/{spec}/findings.md 2>/dev/null || echo 'NOT_FOUND'` `` (prior task findings: files_read, hypotheses_discarded, confirmed; injected into each task agent prompt so subsequent agents skip re-discovery)
 

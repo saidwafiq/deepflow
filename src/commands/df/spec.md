@@ -32,7 +32,7 @@ Skill: `gap-discovery` — Proactive requirement gap identification
 Check for `specs/.debate-{name}.md` first — if exists, read it and pass Synthesis section to reasoner in step 3.
 
 **Upstream artifact loader** (shell injection — load before spawning explore agents; proceed normally when absent):
-- `` !`cat .deepflow/maps/{spec}/sketch.md 2>/dev/null || echo 'NOT_FOUND'` `` (discover prior: modules, entry_points, related_specs; pass to reasoner in step 3 when present)
+- `` !`cat .deepflow/maps/{name}/sketch.md 2>/dev/null || echo 'NOT_FOUND'` `` (discover prior: modules, entry_points, related_specs; pass to reasoner in step 3 when present; `{name}` is the `<name>` argument from the command invocation `/df:spec <name>`)
 
 Follow `templates/explore-agent.md` for spawn rules, prompt structure, scope restrictions. Find: related implementations, code patterns/conventions, integration points, existing TODOs.
 
