@@ -97,10 +97,10 @@ Nothing found → `⚠ No build/test commands detected. L0/L4 skipped. Set quali
 ### 2. VERIFY EACH SPEC
 
 **L0: Build** — Run build command. Exit 0 → pass. Non-zero → FAIL with last 30 lines, add fix task, skip L1-L4.
-<!-- L0 existence predicate: shared via require('hooks/lib/artifact-predicates.js').checkBuildPasses (REQ-8, AC-9) -->
+Existence predicate: `require('hooks/lib/artifact-predicates.js').checkBuildPasses` (REQ-8, AC-9 — single source shared with `hooks/df-artifact-validate.js`).
 
 **L1: Files exist** — Compare `git diff main...HEAD --name-only` in worktree against PLAN.md `Files:` entries. All planned files in diff → pass. Missing → FAIL with list.
-<!-- L1 scope-coverage predicate: shared via require('hooks/lib/artifact-predicates.js').checkScopeCoverage (REQ-8, AC-9) -->
+Scope-coverage predicate: `require('hooks/lib/artifact-predicates.js').checkScopeCoverage` (REQ-8, AC-9 — single source shared with `hooks/df-artifact-validate.js`).
 
 **L2: Coverage** — Detect coverage tool (first match wins):
 
