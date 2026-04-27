@@ -788,7 +788,7 @@ describe('formatWavesJson — edge cases and field completeness', () => {
     const parsed = JSON.parse(formatWavesJson(waves));
     const keys = Object.keys(parsed[0]).sort();
     assert.deepEqual(keys, [
-      'acceptance_criteria', 'blockedBy', 'description', 'domain_model',
+      'acceptance_criteria', 'artifacts', 'blockedBy', 'description', 'domain_model',
       'effort', 'files', 'id', 'isIntegration', 'isOptimize', 'isSpike',
       'model', 'spec', 'tag', 'task_detail_body', 'wave',
     ]);
@@ -796,6 +796,8 @@ describe('formatWavesJson — edge cases and field completeness', () => {
     assert.deepEqual(parsed[0].acceptance_criteria, []);
     assert.equal(parsed[0].domain_model, '');
     assert.equal(parsed[0].task_detail_body, '');
+    // artifacts defaults to df-implement subset for tasks with null tag
+    assert.deepEqual(parsed[0].artifacts, ['CONVENTIONS.md', 'TESTING.md']);
   });
 
   test('empty string description is coerced to null', () => {

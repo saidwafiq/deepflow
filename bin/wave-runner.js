@@ -24,6 +24,42 @@ const { extractSpecACs } = require('../hooks/ac-coverage');
 const { extractSection } = require('../hooks/df-spec-lint');
 
 // ---------------------------------------------------------------------------
+// Agent → artifact mapping (REQ-4 canonical table)
+// Kept in sync with hooks/df-codebase-inject.js AGENT_ARTIFACT_MAP.
+// Duplicated here so wave-runner has no runtime dependency on the hook module.
+// ---------------------------------------------------------------------------
+
+/**
+ * Maps subagent_type → ordered list of artifact filenames that agent needs.
+ * Keys match the `subagent_type` value passed to Task(subagent_type="…").
+ * Unknown types receive an empty array (backward compatible).
+ */
+const AGENT_ARTIFACT_MAP = {
+  'df-implement':   ['CONVENTIONS.md', 'TESTING.md'],
+  'df-test':        ['TESTING.md', 'CONVENTIONS.md'],
+  'df-integration': ['CONVENTIONS.md', 'TESTING.md', 'ARCHITECTURE.md'],
+  'df-spike':       ['STACK.md', 'ARCHITECTURE.md', 'INTEGRATIONS.md'],
+  'df-optimize':    ['ARCHITECTURE.md', 'CONVENTIONS.md'],
+  'df-haiku-ops':   [],
+};
+
+/**
+ * Derive the subagent_type from a task's boolean flags.
+ * Mirrors the routing table in src/commands/df/execute.md §6.
+ *
+ * @param {object} task - parsed task object with isIntegration, isSpike, isOptimize, isTest flags
+ * @returns {string} subagent_type string
+ */
+function deriveSubagentType(task) {
+  const tag = (task.tag || '').toUpperCase();
+  if (tag === 'INTEGRATION') return 'df-integration';
+  if (tag === 'SPIKE')       return 'df-spike';
+  if (tag === 'OPTIMIZE')    return 'df-optimize';
+  if (tag === 'TEST')        return 'df-test';
+  return 'df-implement';
+}
+
+// ---------------------------------------------------------------------------
 // CLI arg parsing
 // ---------------------------------------------------------------------------
 
@@ -377,6 +413,9 @@ function formatWavesJson(waves, cwd) {
         }
       }
 
+      const subagentType = deriveSubagentType(t);
+      const artifacts = AGENT_ARTIFACT_MAP[subagentType] || [];
+
       result.push({
         id: t.id,
         description: t.description || null,
@@ -392,6 +431,7 @@ function formatWavesJson(waves, cwd) {
         acceptance_criteria,
         domain_model,
         task_detail_body,
+        artifacts,
         wave: waveNum,
       });
     }
