@@ -408,28 +408,29 @@ Spawn `Task(subagent_type="reasoner", model="opus")` passing ONLY:
 
 **NEVER pass to the reasoner:** raw source code, inlined file contents, or any implementation file text. The reasoner works from paths and summaries only.
 
+Inject `{spec_content}` by reading the spec file verbatim before spawning — do NOT use a Read tool inside the reasoner. Pass `{agent_a/b/c_summary}` as the verbatim output contract blocks returned by §3 agents — do NOT paraphrase or summarize inline. Pass `{experiment_results}` as paths + verbatim Conclusion excerpts only.
+
 The reasoner prompt:
 
 ```
 You are the plan reasoner. Analyze this spec and produce a prioritized task plan.
 
-## Spec content
-<!-- {spec_content} — injected by orchestrator before spawning; do NOT use Read tool on the spec -->
+## Spec content (verbatim)
 {spec_content}
 
-## Agent summaries (from §3 parallel agents)
+## Agent summaries (from §3 parallel agents — verbatim output contract blocks)
 
 ### Code Style & Conventions (Agent A)
-{agent_a_summary — verbatim output contract block}
+{agent_a_summary}
 
 ### Blast Radius (Agent B)
-{agent_b_summary — verbatim output contract block}
+{agent_b_summary}
 
 ### Dead Code & TODOs (Agent C)
-{agent_c_summary — verbatim output contract block}
+{agent_c_summary}
 
-## Experiment results (paths + conclusions)
-{for each experiment: path and Conclusion section excerpt only}
+## Experiment results (paths + verbatim Conclusion excerpts)
+{experiment_results}
 
 ## Your job
 
@@ -489,9 +490,9 @@ You are the plan prioritizer. The mechanical consolidation (global T-numbering, 
 
 {paste consolidator stdout here}
 
-## Spec files
+## Spec files (verbatim content — do NOT paraphrase)
 
-{for each plannable spec: spec filename and its Requirements + Acceptance Criteria sections}
+{for each plannable spec: verbatim content of the spec file (read by orchestrator before spawning; reasoner does NOT read files)}
 
 ## Integration Analysis (from §4.8)
 

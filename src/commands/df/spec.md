@@ -49,14 +49,32 @@ Use `gap-discovery` skill. Gaps determine spec layer — they do NOT block spec 
 
 ### 3. SYNTHESIZE FINDINGS
 
-Spawn reasoner agent (`subagent_type: "reasoner"`, `model: "opus"`). The reasoner:
-- Analyzes codebase context from Explore agents
-- Identifies constraints from existing architecture
-- Suggests requirements based on patterns found
-- Flags conflicts with existing code
-- Verifies every REQ-N has a corresponding AC; flags uncovered requirements
-- Flags vague/untestable requirements (e.g., "should be fast" without a metric)
-- If Explore agents found type definitions or interfaces relevant to this spec, include a ## Domain Model section with Key Types (signatures only) and Ubiquitous Language (domain terms). Omit if no relevant types found.
+Spawn reasoner agent (`subagent_type: "reasoner"`, `model: "opus"`). Pass Explore agent outputs **verbatim** — do NOT paraphrase or summarize inline. The reasoner receives:
+
+```
+## Analysis request: Synthesize codebase findings into a specification
+
+## Explore agent outputs (verbatim — do NOT read any files; work from these outputs only)
+
+{verbatim outputs from all Explore agents, concatenated in order}
+
+## Debate context (if specs/.debate-{name}.md exists)
+
+{verbatim Synthesis section from the debate file — or "(none)" if no debate file}
+
+## Synthesis task
+
+1. Identify constraints from existing architecture
+2. Suggest requirements based on patterns found
+3. Flag conflicts with existing code
+4. Verify every REQ-N has a corresponding AC; flag uncovered requirements
+5. Flag vague/untestable requirements (e.g., "should be fast" without a metric)
+6. If Explore agents found type definitions or interfaces relevant to this spec, include a ## Domain Model section with Key Types (signatures only) and Ubiquitous Language (domain terms). Omit if no relevant types found.
+
+Return ONLY the structured findings. No preamble.
+```
+
+The orchestrator stores the reasoner output verbatim and uses it to generate the spec in §4.
 
 ### 4. GENERATE SPEC
 
