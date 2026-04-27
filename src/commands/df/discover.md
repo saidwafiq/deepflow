@@ -52,6 +52,7 @@ Agent(subagent_type="Explore", model="haiku", prompt="Read and summarize: {targe
 Agent(subagent_type="Explore", model="haiku", prompt="Use browse-fetch skill to fetch: {url}. Summarize contents. Rules: factual observations only. No recommendations. Under 4000 tokens. Bullet points.")
 ```
 
+<!-- delegation-contract: Explore is not registered in DELEGATION.md — hook passes through (fail-open for unknown agents). Verbatim relay below is the conformance mechanism, not hook enforcement. -->
 After receiving context: relay the agent's output **verbatim** to the user (do NOT paraphrase, summarize, re-frame, or add commentary), then **resume Socratic questioning** with the new facts in scope. Do NOT shift to suggesting solutions. Soft cap: ~3 context fetches per session.
 
 ## Write sketch.md

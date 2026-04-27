@@ -95,13 +95,38 @@ Keep response under 400 words.
 
 ### 4. SYNTHESIZE
 
-After all 4 return, spawn 1 synthesizer agent. Pass context summary + all 4 responses. Synthesizer produces (under 500 words):
-1. **Consensus** — Points where perspectives agree
+After all 4 return, spawn 1 synthesizer agent (`subagent_type="reasoner"`, `model="opus"`) with the following prompt — pass all prior outputs verbatim, do NOT paraphrase or compress:
+
+```
+## Task: Synthesize Perspectives
+
+Merge the following perspectives into a structured synthesis (under 500 words total):
+1. **Consensus** — Points where all perspectives agree
 2. **Tensions** — Unresolved disagreements and genuine trade-offs
 3. **Open Decisions** — Questions needing human judgment
 4. **Recommendation** — Balanced recommendation considering all perspectives
 
-Instruction: "Be specific. Name the tensions, don't smooth them over."
+Be specific. Name the tensions, don't smooth them over.
+
+## Problem Context
+{summary}
+
+## User Advocate
+{user_advocate_output}
+
+## Tech Skeptic
+{tech_skeptic_output}
+
+## Systems Thinker
+{systems_thinker_output}
+
+## LLM Efficiency
+{llm_efficiency_output}
+
+Return ONLY the synthesis text. No preamble.
+```
+
+Store response verbatim as `{synthesis}`. The orchestrator never edits or compresses perspective outputs before passing them.
 
 ### 5. WRITE DEBATE FILE
 
