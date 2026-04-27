@@ -192,25 +192,25 @@ describe('AC-4: plan-template.md declares optional slice fields', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC-5: execute.md appends findings blocks per completed task', () => {
-  it('execute.md references findings.md', { todo: 'Implemented by T6 (not yet merged)' }, () => {
+  it('execute.md references findings.md', () => {
     // specs/artifact-chain.md#AC-5
     const EXECUTE = load('src/commands/df/execute.md');
     assert.ok(EXECUTE.includes('findings.md'), 'execute.md must reference findings.md artifact');
   });
 
-  it('execute.md includes files_read: key in findings block', { todo: 'Implemented by T6 (not yet merged)' }, () => {
+  it('execute.md includes files_read: key in findings block', () => {
     // specs/artifact-chain.md#AC-5
     const EXECUTE = load('src/commands/df/execute.md');
     assert.ok(EXECUTE.includes('files_read:'), 'execute.md findings block must include files_read: key');
   });
 
-  it('execute.md includes hypotheses_discarded: key in findings block', { todo: 'Implemented by T6 (not yet merged)' }, () => {
+  it('execute.md includes hypotheses_discarded: key in findings block', () => {
     // specs/artifact-chain.md#AC-5
     const EXECUTE = load('src/commands/df/execute.md');
     assert.ok(EXECUTE.includes('hypotheses_discarded:'), 'execute.md findings block must include hypotheses_discarded: key');
   });
 
-  it('execute.md includes confirmed: key in findings block', { todo: 'Implemented by T6 (not yet merged)' }, () => {
+  it('execute.md includes confirmed: key in findings block', () => {
     // specs/artifact-chain.md#AC-5
     const EXECUTE = load('src/commands/df/execute.md');
     assert.ok(EXECUTE.includes('confirmed:'), 'execute.md findings block must include confirmed: key');

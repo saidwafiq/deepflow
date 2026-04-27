@@ -206,7 +206,7 @@ node "${HOME}/.claude/bin/ratchet.js" --worktree ${SPEC_WORKTREES[task.spec].pat
 
 See `node "${HOME}/.claude/bin/ratchet.js" --help` for exit codes and scope rules.
 
-- **Exit 0 (PASS):** commit stands. Run §5.5.1 AC coverage → §5.5.2 decision extraction.
+- **Exit 0 (PASS):** commit stands. Run §5.5.1 AC coverage → §5.5.2 decision extraction → §5.5.3 findings append.
 - **Exit 1 (FAIL):** script already reverted HEAD. `TaskUpdate(status: 'pending')`. Recompute remaining waves with `--recalc --failed T{N}`.
 - **Exit 2 (SALVAGEABLE):** spawn `Agent(subagent_type: "df-implement")` fix prompt (same task context, append failure summary) <!-- df-delegation-contract:skip — salvage is an operational re-try, not a new task spawn -->, re-run ratchet; still non-zero → revert both commits, set pending.
 
@@ -242,6 +242,33 @@ Parse the agent's response for `DECISIONS:` line. If present:
 If no `DECISIONS:` line in agent output and the task effort is not `low` → emit SALVAGEABLE (non-trivial tasks without a decision line may indicate the agent skipped documenting architectural choices). For tasks with effort `low`, skip silently (mechanical tasks don't produce decisions).
 
 **This runs on every ratchet pass, not just at verify time.** Decisions are captured incrementally as tasks complete, so they're never lost even if verify fails or merge is manual.
+
+#### 5.5.3. FINDINGS APPEND (on ratchet pass)
+
+After each ratchet PASS, the orchestrator parses the agent's output for a `FINDINGS:` block and appends it to `.deepflow/maps/{spec}/findings.md`. This lets subsequent task agents skip re-discovery of files and hypotheses already explored.
+
+**Agent output format** (task agents MUST emit this block before their `TASK_STATUS:` line):
+```yaml
+FINDINGS:
+  files_read:
+    - path/to/file.ts
+  hypotheses_discarded:
+    - "Hypothesis text that was proven false"
+  confirmed:
+    - "Fact confirmed as true during implementation"
+```
+
+**Orchestrator append step** (after extracting from agent output):
+```bash
+mkdir -p .deepflow/maps/{spec}
+printf '# T%s findings\n' "{task_id}" >> .deepflow/maps/{spec}/findings.md
+printf '%s\n\n' "{findings_block}" >> .deepflow/maps/{spec}/findings.md
+```
+
+- If the agent emits no `FINDINGS:` block, skip silently (non-fatal; do not emit SALVAGEABLE for missing findings).
+- If `.deepflow/maps/{spec}/` does not exist, create it with `mkdir -p` before writing.
+- Findings are appended (never overwritten) so each task's discoveries accumulate across waves.
+- The `findings.md` content is already loaded per spec via shell injection in §2 and injected into each subsequent task agent prompt, so later agents start with accumulated knowledge from prior tasks.
 
 **Edit scope validation:** ratchet `scope` stage runs `git diff --name-only main...HEAD` vs task `Files:` list. Violation → SALVAGEABLE (commit stands, human decides).
 **Impact completeness:** diff vs Impact callers/duplicates. Gap → advisory warning (no revert).
@@ -443,6 +470,11 @@ Conditional blocks (`REVERTED_BLOCK`, `SPIKE_BLOCK`, `DOMAIN_MODEL_BLOCK`, `EXIS
 printf '%s' "$ctx" | node "${HOME}/.claude/bin/prompt-compose.js" --template standard-task --context -
 ```
 This pattern avoids intermediate file writes and reduces I/O overhead.
+
+**Findings injection (per task):** When `findings.md` is not `NOT_FOUND` (loaded in §2), inject its content into the agent prompt as a `PRIOR_FINDINGS:` block so the agent skips re-discovering files and hypotheses already explored by prior tasks.
+
+**Findings emission requirement:** Every standard task agent MUST emit a `FINDINGS:` block before its `TASK_STATUS:` line. The block is parsed by the orchestrator in §5.5.3 and appended to `.deepflow/maps/{spec}/findings.md`. Agents that do not emit findings have their output logged without error (non-fatal).
+
 ### 8. COMPLETE SPECS
 
 All tasks done for `doing-*` spec:
