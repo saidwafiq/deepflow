@@ -55,6 +55,7 @@ Templates (templates/)          Scaffolds for specs, plans, experiments, config
 - **LSP-first impact analysis**: `/df:plan` uses `findReferences`/`incomingCalls` over grep for precise caller detection.
 - **Spike-first planning**: Risky work gets small proof-of-concept tasks before full implementation.
 - **Onion-layer specs**: Specs have a computed layer (L0–L3) based on which sections exist. L0 specs (just an objective) immediately generate spikes. Spikes discover constraints, deepening the spec to L2+ which unlocks implementation tasks. Less upfront guessing, more learning-by-doing.
+- **Delegation Contract**: `DELEGATION.md` (root) declares per-subagent allowedInputs/forbiddenInputs/requiredOutputSchema; `hooks/df-delegation-contract.js` (PreToolUse) enforces it on every Task spawn. See AC-9 router/interpreter distinction.
 
 ## Conventions
 
