@@ -69,13 +69,33 @@ function findDelegationMd(cwd) {
 // ---------------------------------------------------------------------------
 
 /**
- * Regex that matches one agent section: a level-2 heading followed by a
- * ```yaml fenced block. Spike-validated pattern.
+ * Format A: level-2 heading + plain ```yaml fence.
+ *   ## AgentName
+ *   ```yaml
+ *   ...
+ *   ```
+ *
+ * Spike-validated pattern.
  */
-const AGENT_BLOCK_RE = /^##\s+([^\n]+)\n+```yaml\n([\s\S]+?)```/gm;
+const AGENT_BLOCK_RE_H2 = /^##\s+([^\n]+)\n+```yaml\n([\s\S]+?)```/gm;
+
+/**
+ * Format B: any heading level + tagged ```yaml agent:name fence.
+ *   ### df-implement
+ *   ```yaml agent:df-implement
+ *   ...
+ *   ```
+ *
+ * Used in the canonical src/agents/DELEGATION.md (committed at 2a17802).
+ * The agent name is taken from the fence tag, not the heading, for precision.
+ */
+const AGENT_BLOCK_RE_TAGGED = /```yaml agent:([A-Za-z0-9_-]+)\n([\s\S]+?)```/gm;
 
 /**
  * Extract all agent contract blocks from a DELEGATION.md string.
+ *
+ * Supports two formats (see regexes above). Tagged-fence format takes
+ * precedence when both would match the same block (deduplicated by agent name).
  *
  * @param {string} markdown
  * @returns {Array<{agent: string, raw: string}>}
@@ -83,14 +103,29 @@ const AGENT_BLOCK_RE = /^##\s+([^\n]+)\n+```yaml\n([\s\S]+?)```/gm;
 function extractBlocks(markdown) {
   if (!markdown || typeof markdown !== 'string') return [];
   const blocks = [];
+  const seen = new Set();
+
+  // Format B first: tagged ```yaml agent:name fences (canonical DELEGATION.md format).
+  AGENT_BLOCK_RE_TAGGED.lastIndex = 0;
   let m;
-  AGENT_BLOCK_RE.lastIndex = 0; // reset stateful regex
-  while ((m = AGENT_BLOCK_RE.exec(markdown)) !== null) {
-    blocks.push({
-      agent: m[1].trim(),
-      raw: m[2],
-    });
+  while ((m = AGENT_BLOCK_RE_TAGGED.exec(markdown)) !== null) {
+    const agent = m[1].trim();
+    if (!seen.has(agent)) {
+      seen.add(agent);
+      blocks.push({ agent, raw: m[2] });
+    }
   }
+
+  // Format A fallback: level-2 heading + plain yaml fence.
+  AGENT_BLOCK_RE_H2.lastIndex = 0;
+  while ((m = AGENT_BLOCK_RE_H2.exec(markdown)) !== null) {
+    const agent = m[1].trim();
+    if (!seen.has(agent)) {
+      seen.add(agent);
+      blocks.push({ agent, raw: m[2] });
+    }
+  }
+
   return blocks;
 }
 
@@ -185,10 +220,26 @@ function loadContract(filePath) {
         if (v && typeof v === 'string') return [v];
         return [];
       };
+      // Normalise item strings: DELEGATION.md uses `key: "description"` format.
+      // Extract just the key portion so patterns stay short and matchable.
+      // e.g. `orchestrator-summary: "Do not pass..."` → `orchestrator-summary`
+      // Plain items (no inline value) and items ending with `:` are kept as-is.
+      const normaliseItem = (item) => {
+        if (typeof item !== 'string') return item;
+        // Strip trailing quoted description: `key: "..."` → `key`
+        const m = item.match(/^([A-Za-z0-9_-]+)\s*:\s*"[^"]*"\s*$/);
+        if (m) return m[1];
+        // Also strip trailing unquoted description: `key: scalar desc` → `key:`
+        // Only when it does NOT already end with `:` (required-field marker).
+        // We keep the trailing `:` if it was explicitly present (required marker).
+        const m2 = item.match(/^([A-Za-z0-9_-]+:)\s*.+$/);
+        if (m2 && !item.endsWith(':')) return m2[1];
+        return item;
+      };
       contractMap.set(agent, {
-        allowedInputs: toArray(parsed['allowed-inputs']),
-        forbiddenInputs: toArray(parsed['forbidden-inputs']),
-        requiredOutputSchema: toArray(parsed['required-output-schema']),
+        allowedInputs: toArray(parsed['allowed-inputs']).map(normaliseItem),
+        forbiddenInputs: toArray(parsed['forbidden-inputs']).map(normaliseItem),
+        requiredOutputSchema: toArray(parsed['required-output-schema']).map(normaliseItem),
       });
     }
   } catch (_) {
