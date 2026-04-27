@@ -313,6 +313,42 @@ Run to gather test info:
 find . -name '*.test.js' -not -path './node_modules/*' -not -path './.deepflow/worktrees/*' | sort
 ```
 
+Run to gather parallel-safety data for the `## Parallel Safety` section:
+```bash
+# Detect hardcoded ports in test files
+grep -rn 'localhost:[0-9]\+\|port[[:space:]]*:[[:space:]]*[0-9]\+\|PORT[[:space:]]*=[[:space:]]*[0-9]\+' \
+  --include='*.test.js' --include='*.test.ts' --include='*.spec.js' --include='*.spec.ts' \
+  . 2>/dev/null | grep -v node_modules | grep -v .deepflow/worktrees | head -30
+```
+
+```bash
+# Detect shared DB references in test files
+grep -rn 'createDatabase\|knex(\|sequelize\|mongoose\|sqlite\|\.db\b\|beforeAll.*db\|afterAll.*db' \
+  --include='*.test.js' --include='*.test.ts' --include='*.spec.js' --include='*.spec.ts' \
+  . 2>/dev/null | grep -v node_modules | grep -v .deepflow/worktrees | head -30
+```
+
+```bash
+# Detect process.env mutations in test files (env var races)
+grep -rn 'process\.env\.' \
+  --include='*.test.js' --include='*.test.ts' --include='*.spec.js' --include='*.spec.ts' \
+  . 2>/dev/null | grep -v node_modules | grep -v .deepflow/worktrees | head -30
+```
+
+```bash
+# Detect shared filesystem paths in test setup/teardown
+grep -rn "tmp\|__fixtures__\|writeFileSync\|mkdirSync\|rmSync\|unlink\|fs\." \
+  --include='*.test.js' --include='*.test.ts' --include='*.spec.js' --include='*.spec.ts' \
+  . 2>/dev/null | grep -v node_modules | grep -v .deepflow/worktrees | head -30
+```
+
+```bash
+# Detect fixture ownership — beforeEach/afterEach vs beforeAll/afterAll patterns
+grep -rn 'beforeAll\|afterAll\|beforeEach\|afterEach' \
+  --include='*.test.js' --include='*.test.ts' --include='*.spec.js' --include='*.spec.ts' \
+  . 2>/dev/null | grep -v node_modules | grep -v .deepflow/worktrees | head -40
+```
+
 ```markdown
 ---
 sources:
@@ -343,7 +379,15 @@ Pre-existing test files are snapshotted in `.deepflow/auto-snapshot.txt` before 
 
 ## Parallel Safety
 
-This section governs when `[P]` (parallel) markers are legal in PLAN.md task waves. `df:plan` reads this section to decide parallelism.
+This section governs when `[P]` (parallel) markers are legal in PLAN.md task waves. `df:plan` reads this section to decide parallelism. Each subsection is populated by the map agent scanning test files at generation time. `df:plan` MUST treat any non-empty entry under a "BLOCKED" row as a veto on `[P]` for the affected task pair.
+
+### Per-Suite Resource Ownership
+
+Map each test suite to the resources it owns. This table is the primary input for `df:plan`'s `[P]` gate.
+
+| Test Suite (file) | DB / Tables | Port | Env Vars Mutated | Fixture Files/Dirs | Cleanup Scope |
+|-------------------|-------------|------|------------------|--------------------|---------------|
+{For each *.test.js found: one row. Populate each column from grep results above, or write "none" if not detected. Cleanup Scope = "per-test" if beforeEach/afterEach present, "per-suite" if only beforeAll/afterAll, "none" if absent.}
 
 ### Database Isolation
 
@@ -356,25 +400,45 @@ This section governs when `[P]` (parallel) markers are legal in PLAN.md task wav
 ### Port Namespacing
 
 - **Rule:** Tests that start a server must use a unique port or a random available port. Tests sharing a fixed port cannot run in parallel.
-- **Fixed ports detected:** {grep for hardcoded port numbers like 3000, 8080 in test files, or "none detected"}
+- **Fixed ports detected:** {list of `file:line port=NNNN` entries from grep above, or "none detected"}
 - **`[P]` legal when:** No two parallel tasks bind the same port.
 - **`[P]` BLOCKED when:** Two tasks bind the same hardcoded port.
+
+### Environment Variables
+
+- **Rule:** Tests that mutate `process.env` keys without restoring them after each test contaminate sibling suites running in the same process. Tests in separate worker processes are isolated by OS-level fork, but shared-process runners (e.g., Jest `--runInBand`) are not.
+- **Env vars mutated:** {list of `FILE: process.env.KEY = ...` entries from grep above, or "none detected"}
+- **Restore pattern detected:** {`afterEach(() => { delete process.env.KEY })` or equivalent, or "not detected"}
+- **`[P]` legal when:** Each suite either runs in an isolated worker process OR restores all mutated env vars in afterEach.
+- **`[P]` BLOCKED when:** Two tasks mutate the same env key in a shared-process runner without per-test restore.
+
+### Filesystem Races
+
+- **Rule:** Tests that write to shared temp paths (e.g., `/tmp/fixture`, `__fixtures__/output`) without unique-per-test filenames race when run in parallel.
+- **Shared paths detected:** {list of `FILE: fs.writeFileSync('path', ...)` entries where path is a static string, or "none detected"}
+- **Uniqueness mechanism:** {detected e.g., `path.join(tmpdir(), uuid())`, `os.tmpdir() + testId`, or "none detected"}
+- **`[P]` legal when:** Each suite writes to a unique path (per-test tmp prefix or test-name-scoped dir).
+- **`[P]` BLOCKED when:** Two tasks write to the same static filesystem path without locking.
 
 ### Shared Fixture Cleanup
 
 - **Rule:** Shared fixture state (files, env vars, global singletons) must be cleaned up per-test (beforeEach/afterEach). Table-level cleanup (truncate/drop) is acceptable between suites but not within a parallel wave.
-- **Shared fixtures detected:** {list any shared file paths or global state patterns found in test setup, or "none detected"}
+- **Suites with per-test cleanup (safe):** {list of test files that use beforeEach/afterEach for all shared state, or "none detected"}
+- **Suites with per-suite cleanup only (risky):** {list of test files using only beforeAll/afterAll for shared state, or "none detected"}
 - **`[P]` legal when:** Each task's tests perform full fixture cleanup via beforeEach/afterEach.
 - **`[P]` BLOCKED when:** A task relies on leftover state from a previous task's test run.
 
 ### Summary Gate
 
-`df:plan` MUST refuse `[P]` for a task pair when ANY of the following are true:
-1. Both tasks touch a resource listed under "Declared shared resources" (DB)
-2. Both tasks bind a port listed under "Fixed ports detected"
-3. Either task's test setup depends on leftover fixture state from the other
+`df:plan` MUST check this checklist before emitting `[P]` for any task pair (Task A, Task B):
 
-If none of the above apply, `[P]` is legal for that pair.
+- [ ] **DB**: Neither A nor B shares a DB table with the other unless both have per-test isolation (transaction rollback or in-memory DB)
+- [ ] **Port**: A and B do not bind the same hardcoded port number
+- [ ] **Env**: A and B do not mutate the same `process.env` key in a shared-process runner without per-test restore
+- [ ] **FS**: A and B do not write to the same static filesystem path without unique-per-test scoping
+- [ ] **Fixture**: A's test setup does not depend on state left by B's teardown (or vice versa) — i.e., both suites use `beforeEach`/`afterEach` for all shared state, not `beforeAll`/`afterAll` only
+
+`[P]` is legal for the task pair only when ALL five boxes above can be checked. If ANY box cannot be checked, `[P]` MUST be omitted for that pair.
 ```
 
 #### 5.6 INTEGRATIONS.md
