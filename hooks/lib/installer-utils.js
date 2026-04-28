@@ -45,7 +45,7 @@ function scanHookEvents(hooksSourceDir, filterOwner) {
 
   if (!fs.existsSync(hooksSourceDir)) return { eventMap, untagged };
 
-  for (const file of fs.readdirSync(hooksSourceDir)) {
+  for (const file of fs.readdirSync(hooksSourceDir).sort()) {
     if (!file.endsWith('.js') || file.endsWith('.test.js')) continue;
 
     const content = fs.readFileSync(path.join(hooksSourceDir, file), 'utf8');

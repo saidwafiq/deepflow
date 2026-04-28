@@ -429,6 +429,7 @@ async function configureHooks(claudeDir) {
     }
     log(`${event} hook configured`);
   }
+  if (eventMap.has('PreToolUse')) log('PreToolUse on Task: ' + eventMap.get('PreToolUse').join(' → ') + ' (order enforced)');
 
   // Log untagged files (copied but not wired)
   for (const file of untagged) {
