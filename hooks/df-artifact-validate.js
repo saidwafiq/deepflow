@@ -167,20 +167,27 @@ function extractImpactRefs(content, impactPath) {
  *   - Task IDs (from blocker references: "Blocked by: T{n}")
  *   - File path references (from "Files:" entries)
  *   - Edge ID references (from "Impact edges:" entries)
+ *   - File path references from "Slice:" entries (tagged impactDependent: true — REQ-7)
+ *
+ * Refs with `impactDependent: true` originate from Slice: and Impact edges: patterns.
+ * When impact.md is absent, callers should emit status:"skipped" for these refs instead
+ * of performing an existence check (REQ-7: skip-on-missing-artifact).
  *
  * @param {string} content - Raw PLAN.md content
  * @param {string} planPath - Absolute path (for task ID extraction)
- * @returns {Array<{kind: string, ref: string}>}
+ * @returns {Array<{kind: string, ref: string, impactDependent?: boolean}>}
  */
 function extractPlanRefs(content, planPath) {
   const refs = [];
   const seen = new Set();
 
-  function addRef(kind, ref) {
+  function addRef(kind, ref, impactDependent) {
     const norm = kind === 'task_id' ? ref.trim() : normalizeFilePath(ref.trim());
     if (!norm || seen.has(`${kind}:${norm}`)) return;
     seen.add(`${kind}:${norm}`);
-    refs.push({ kind, ref: norm });
+    const entry = { kind, ref: norm };
+    if (impactDependent) entry.impactDependent = true;
+    refs.push(entry);
   }
 
   // Extract blocker references: "Blocked by: T1, T2"
@@ -202,7 +209,7 @@ function extractPlanRefs(content, planPath) {
     }
   }
 
-  // Extract "Impact edges:" references
+  // Extract "Impact edges:" references — impact-dependent (REQ-7)
   const edgesPattern = /^\s*-?\s*Impact\s+edges?:\s*(.+)$/gim;
   while ((m = edgesPattern.exec(content)) !== null) {
     const items = m[1]
@@ -210,11 +217,11 @@ function extractPlanRefs(content, planPath) {
       .map((s) => s.replace(/`/g, '').trim())
       .filter((s) => s && (s.includes('/') || /\.\w{1,8}$/.test(s)));
     for (const item of items) {
-      addRef('edge_id', item);
+      addRef('edge_id', item, /* impactDependent= */ true);
     }
   }
 
-  // Extract Slice: entries
+  // Extract Slice: entries — impact-dependent (REQ-7)
   const slicePattern = /^\s*-?\s*Slice:\s*(.+)$/gim;
   while ((m = slicePattern.exec(content)) !== null) {
     const items = m[1]
@@ -222,7 +229,7 @@ function extractPlanRefs(content, planPath) {
       .map((s) => s.replace(/`/g, '').trim())
       .filter((s) => s && /\.\w{1,8}$/.test(s));
     for (const item of items) {
-      addRef('file_path', item);
+      addRef('file_path', item, /* impactDependent= */ true);
     }
   }
 
@@ -1127,9 +1134,12 @@ function checkDrift(artifacts, config) {
  * @param {string} repoRoot      - Absolute path to repository root
  * @param {Set<string>} taskIds  - Known task IDs from PLAN.md (for task_id resolution)
  * @param {boolean} isSkipped    - When true, artifact is missing → emit skipped rows
+ * @param {object} [opts]        - Options
+ * @param {boolean} [opts.impactExists=true] - When false, impact-dependent refs in PLAN.md
+ *   (Slice: and Impact edges: entries) emit status:"skipped" instead of hard-failing (REQ-7).
  * @returns {Array<{artifact, kind, ref, status, evidence}>}
  */
-function checkArtifactExistence(artifactName, artifactPath, repoRoot, taskIds, isSkipped) {
+function checkArtifactExistence(artifactName, artifactPath, repoRoot, taskIds, isSkipped, opts) {
   if (isSkipped) {
     return [{
       artifact: artifactName,
@@ -1139,6 +1149,8 @@ function checkArtifactExistence(artifactName, artifactPath, repoRoot, taskIds, i
       evidence: `Artifact ${artifactName} does not exist yet — upstream stage has not run`,
     }];
   }
+
+  const impactExists = (opts && opts.impactExists !== undefined) ? opts.impactExists : true;
 
   const content = fs.readFileSync(artifactPath, 'utf8');
   const rows = [];
@@ -1162,11 +1174,25 @@ function checkArtifactExistence(artifactName, artifactPath, repoRoot, taskIds, i
     refs = extractSpecRefs(content);
   }
 
-  for (const { kind, ref } of refs) {
+  for (const { kind, ref, impactDependent } of refs) {
     if (!ref) continue;
 
     let status;
     let evidence;
+
+    // REQ-7: Skip impact-dependent refs (Slice: / Impact edges:) when impact.md is absent.
+    // These refs only make sense in the context of impact.md; without it they cannot be
+    // validated and must not hard-fail.
+    if (impactDependent && !impactExists) {
+      rows.push({
+        artifact: artifactName,
+        kind,
+        ref,
+        status: 'skipped',
+        evidence: `impact.md not found — skipping impact-dependent ref "${ref}"`,
+      });
+      continue;
+    }
 
     if (kind === 'task_id') {
       // Validate task ID against known task IDs from PLAN.md.
@@ -1383,7 +1409,7 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
     )
   );
 
-  // 4. PLAN.md
+  // 4. PLAN.md — pass impactExists so Slice:/Impact edges: refs skip when impact.md absent (REQ-7)
   const planIsSkipped = !planPath;
   allChecks.push(
     ...checkArtifactExistence(
@@ -1391,7 +1417,8 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
       planPath || path.join(repoRoot, 'PLAN.md'),
       repoRoot,
       taskIds,
-      planIsSkipped
+      planIsSkipped,
+      { impactExists }
     )
   );
 
