@@ -43,6 +43,7 @@ const {
   checkBlockerResolves,
   extractBlockerRefs,
   extractEdgeIds,
+  extractPlanSlices,
   normalizeFilePath,
 } = require('./lib/artifact-predicates');
 
@@ -363,6 +364,614 @@ function extractSpecRefs(content) {
   return refs;
 }
 
+// ── Cross-consistency helpers ─────────────────────────────────────────────────
+
+/**
+ * Extract module/file entries listed under `modules:`, `touched_modules:`,
+ * or `likely_files:` sections in a sketch.md file.
+ *
+ * @param {string} content - Raw sketch.md content
+ * @returns {string[]} Normalized file/module paths
+ */
+function extractSketchModules(content) {
+  const modules = new Set();
+  const lines = content.split('\n');
+
+  let inModulesSection = false;
+
+  for (const line of lines) {
+    // Detect YAML-block headings: "modules:", "touched_modules:", "likely_files:"
+    const sectionMatch = line.match(/^(modules|touched_modules|likely_files|entry_points)\s*:/i);
+    if (sectionMatch) {
+      inModulesSection = true;
+      // Check for inline value: "modules: foo.js, bar.js"
+      const inlineVal = line.replace(/^[^:]+:\s*/, '').trim();
+      if (inlineVal) {
+        for (const item of inlineVal.split(/[,\s]+/).map((s) => s.replace(/`/g, '').trim())) {
+          if (item && (/\.\w{1,8}$/.test(item) || item.includes('/'))) {
+            modules.add(normalizeFilePath(item));
+          }
+        }
+      }
+      continue;
+    }
+
+    // If inside a section, collect list items
+    if (inModulesSection) {
+      const listMatch = line.match(/^\s{0,6}-\s+`?([^\s`#]+)`?\s*(?:#.*)?$/);
+      if (listMatch) {
+        const candidate = listMatch[1].trim();
+        if (/\.\w{1,8}$/.test(candidate) || candidate.includes('/')) {
+          modules.add(normalizeFilePath(candidate));
+        }
+      } else if (line.trim() === '' || /^\S/.test(line)) {
+        // Blank line or new top-level key ends the section
+        inModulesSection = false;
+      }
+    }
+  }
+
+  return [...modules];
+}
+
+/**
+ * Extract per-task `Slice:` entries from PLAN.md content.
+ * Returns an array of { taskId, slices[] } objects.
+ *
+ * @param {string} content - Raw PLAN.md content
+ * @returns {Array<{taskId: string, slices: string[]}>}
+ */
+function extractTaskSlices(content) {
+  if (!content) return [];
+
+  const results = [];
+  const lines = content.split('\n');
+  let currentTaskId = null;
+  let currentSlices = [];
+
+  function flushTask() {
+    if (currentTaskId && currentSlices.length > 0) {
+      results.push({ taskId: currentTaskId, slices: [...currentSlices] });
+    }
+  }
+
+  for (const line of lines) {
+    // Detect task header: - [ ] **T25**: ...
+    const taskMatch = line.match(/^\s*[-*]\s+\[.\]\s+\*\*T(\d+)\*\*/);
+    if (taskMatch) {
+      flushTask();
+      currentTaskId = `T${taskMatch[1]}`;
+      currentSlices = [];
+    }
+
+    // Detect "Slice: ..." or "  - Slice: ..."
+    const sliceMatch = line.match(/^\s*-?\s+Slice:\s*(.+)$/i);
+    if (sliceMatch && currentTaskId) {
+      const items = sliceMatch[1]
+        .split(/[,\s]+/)
+        .map((s) => s.replace(/`/g, '').trim())
+        .filter((s) => s && (/\.\w{1,8}$/.test(s) || s.includes('/')));
+      for (const item of items) {
+        currentSlices.push(normalizeFilePath(item));
+      }
+    }
+  }
+
+  flushTask();
+  return results;
+}
+
+/**
+ * Extract per-task `Impact edges:` entries from PLAN.md content.
+ * Returns an array of { taskId, edgeIds[] } objects.
+ *
+ * @param {string} content - Raw PLAN.md content
+ * @returns {Array<{taskId: string, edgeIds: string[]}>}
+ */
+function extractTaskImpactEdges(content) {
+  if (!content) return [];
+
+  const results = [];
+  const lines = content.split('\n');
+  let currentTaskId = null;
+  let currentEdgeIds = [];
+
+  function flushTask() {
+    if (currentTaskId && currentEdgeIds.length > 0) {
+      results.push({ taskId: currentTaskId, edgeIds: [...currentEdgeIds] });
+    }
+  }
+
+  for (const line of lines) {
+    const taskMatch = line.match(/^\s*[-*]\s+\[.\]\s+\*\*T(\d+)\*\*/);
+    if (taskMatch) {
+      flushTask();
+      currentTaskId = `T${taskMatch[1]}`;
+      currentEdgeIds = [];
+    }
+
+    // Detect "Impact edges: ..." or "  - Impact edges: ..."
+    const edgesMatch = line.match(/^\s*-?\s+Impact\s+edges?:\s*(.+)$/i);
+    if (edgesMatch && currentTaskId) {
+      const items = edgesMatch[1]
+        .split(/[,\s]+/)
+        .map((s) => s.replace(/`/g, '').trim())
+        .filter((s) => s && (/\.\w{1,8}$/.test(s) || s.includes('/')));
+      for (const item of items) {
+        currentEdgeIds.push(normalizeFilePath(item));
+      }
+    }
+  }
+
+  flushTask();
+  return results;
+}
+
+/**
+ * Load artifact_validation config from .deepflow/config.yaml.
+ * Returns defaults when file is absent or keys are missing.
+ *
+ * @param {string} repoRoot
+ * @returns {{
+ *   enforcement: { existence: string, consistency: string, drift: string },
+ *   drift_thresholds: { jaccard_max: number, likely_files_min_pct: number, out_of_scope_max: number }
+ * }}
+ */
+function loadArtifactValidationConfig(repoRoot) {
+  const defaults = {
+    enforcement: {
+      existence: 'hard',
+      consistency: 'advisory',
+      drift: 'advisory',
+    },
+    drift_thresholds: {
+      jaccard_max: 0.4,
+      likely_files_min_pct: 50,
+      out_of_scope_max: 3,
+    },
+  };
+
+  const configPath = path.join(repoRoot, '.deepflow', 'config.yaml');
+  let content;
+  try {
+    content = fs.readFileSync(configPath, 'utf8');
+  } catch (_) {
+    return defaults;
+  }
+
+  // Minimal regex-based YAML parsing (no external dependency)
+  function extractYamlValue(text, keyPath) {
+    // keyPath like "artifact_validation.enforcement.consistency"
+    const keys = keyPath.split('.');
+    let pos = 0;
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      const re = new RegExp(`^(\\s*)${key}\\s*:(.*)$`, 'm');
+      const m = re.exec(text.slice(pos));
+      if (!m) return null;
+      pos += m.index + m[0].length;
+      if (i === keys.length - 1) {
+        // Last key — return inline value
+        const inlineVal = m[2].trim().replace(/^['"]|['"]$/g, '').replace(/#.*$/, '').trim();
+        return inlineVal || null;
+      }
+    }
+    return null;
+  }
+
+  const consistencyEnforcement = extractYamlValue(content, 'artifact_validation.enforcement.consistency');
+  const driftEnforcement = extractYamlValue(content, 'artifact_validation.enforcement.drift');
+  const existenceEnforcement = extractYamlValue(content, 'artifact_validation.enforcement.existence');
+
+  const jaccardMax = extractYamlValue(content, 'artifact_validation.drift_thresholds.jaccard_max');
+  const likelyFilesMinPct = extractYamlValue(content, 'artifact_validation.drift_thresholds.likely_files_min_pct');
+  const outOfScopeMax = extractYamlValue(content, 'artifact_validation.drift_thresholds.out_of_scope_max');
+
+  const cfg = JSON.parse(JSON.stringify(defaults)); // deep clone defaults
+
+  if (consistencyEnforcement && ['hard', 'advisory', 'off'].includes(consistencyEnforcement)) {
+    cfg.enforcement.consistency = consistencyEnforcement;
+  }
+  if (driftEnforcement && ['hard', 'advisory', 'off'].includes(driftEnforcement)) {
+    cfg.enforcement.drift = driftEnforcement;
+  }
+  if (existenceEnforcement && ['hard', 'advisory', 'off'].includes(existenceEnforcement)) {
+    cfg.enforcement.existence = existenceEnforcement;
+  }
+
+  if (jaccardMax !== null) {
+    const v = parseFloat(jaccardMax);
+    if (!Number.isNaN(v) && v >= 0 && v <= 1) cfg.drift_thresholds.jaccard_max = v;
+  }
+  if (likelyFilesMinPct !== null) {
+    const v = parseFloat(likelyFilesMinPct);
+    if (!Number.isNaN(v) && v >= 0 && v <= 100) cfg.drift_thresholds.likely_files_min_pct = v;
+  }
+  if (outOfScopeMax !== null) {
+    const v = parseFloat(outOfScopeMax);
+    if (!Number.isNaN(v) && v >= 0) cfg.drift_thresholds.out_of_scope_max = v;
+  }
+
+  return cfg;
+}
+
+/**
+ * Run REQ-2 cross-consistency checks across the artifact set.
+ *
+ * Checks (all emit advisory rows — enforcement level decides exit code):
+ *   (a) sketch.modules ⊆ impact.modules — every sketch module must appear in impact edges
+ *   (b) PLAN task Slice: ∈ impact edges — each Slice entry must appear in impact.md
+ *   (c) PLAN task `Impact edges:` present in impact.md — each listed edge must exist
+ *   (d) Blocker resolution — each `Blocked by: T{n}` must resolve to a known task ID
+ *   (e) findings.md files_read scoping — files_read entries should align with declared paths
+ *
+ * @param {object} artifacts  - Map of artifact name → { path, content, exists }
+ * @param {Set<string>} taskIds - Known task IDs from PLAN.md
+ * @returns {Array<{artifact, kind, ref, status: "advisory"|"skipped", evidence, taskId?, missingEdge?}>}
+ */
+function checkCrossConsistency(artifacts, taskIds) {
+  const rows = [];
+
+  const sketchArtifact = artifacts['sketch.md'];
+  const impactArtifact = artifacts['impact.md'];
+  const planArtifact = artifacts['PLAN.md'];
+  const findingsArtifact = artifacts['findings.md'];
+
+  // ── (a) sketch.modules ⊆ impact.modules ────────────────────────────────────
+  if (!sketchArtifact || !sketchArtifact.exists) {
+    rows.push({
+      artifact: 'sketch.md',
+      kind: 'consistency',
+      ref: 'sketch.modules ⊆ impact.modules',
+      status: 'skipped',
+      evidence: 'sketch.md not available — skipping sketch⊆impact check',
+    });
+  } else if (!impactArtifact || !impactArtifact.exists) {
+    rows.push({
+      artifact: 'impact.md',
+      kind: 'consistency',
+      ref: 'sketch.modules ⊆ impact.modules',
+      status: 'skipped',
+      evidence: 'impact.md not available — skipping sketch⊆impact check',
+    });
+  } else {
+    const sketchModules = extractSketchModules(sketchArtifact.content);
+    const impactEdges = extractEdgeIds(impactArtifact.path);
+    const impactEdgeSet = new Set(impactEdges.map((e) => normalizeFilePath(e)));
+
+    for (const mod of sketchModules) {
+      const norm = normalizeFilePath(mod);
+      // Match by exact path, basename, or path suffix
+      const inImpact =
+        impactEdgeSet.has(norm) ||
+        [...impactEdgeSet].some(
+          (e) =>
+            e.endsWith('/' + norm) ||
+            norm.endsWith('/' + e) ||
+            path.basename(e) === path.basename(norm)
+        );
+
+      if (inImpact) {
+        rows.push({
+          artifact: 'sketch.md',
+          kind: 'consistency',
+          ref: mod,
+          status: 'ok',
+          evidence: `sketch module "${mod}" present in impact.md edges`,
+        });
+      } else {
+        rows.push({
+          artifact: 'sketch.md',
+          kind: 'consistency',
+          ref: mod,
+          status: 'advisory',
+          evidence: `sketch module "${mod}" not found in impact.md edges — sketch⊆impact violation`,
+          missingEdge: mod,
+        });
+      }
+    }
+
+    if (sketchModules.length === 0) {
+      rows.push({
+        artifact: 'sketch.md',
+        kind: 'consistency',
+        ref: 'sketch.modules ⊆ impact.modules',
+        status: 'ok',
+        evidence: 'No modules listed in sketch.md — check vacuously passes',
+      });
+    }
+  }
+
+  // ── (b) PLAN Slice: ∈ impact edges ─────────────────────────────────────────
+  if (!planArtifact || !planArtifact.exists) {
+    rows.push({
+      artifact: 'PLAN.md',
+      kind: 'consistency',
+      ref: 'Slice ∈ impact edges',
+      status: 'skipped',
+      evidence: 'PLAN.md not available — skipping Slice∈impact check',
+    });
+  } else if (!impactArtifact || !impactArtifact.exists) {
+    rows.push({
+      artifact: 'PLAN.md',
+      kind: 'consistency',
+      ref: 'Slice ∈ impact edges',
+      status: 'skipped',
+      evidence: 'impact.md not available — skipping Slice∈impact check',
+    });
+  } else {
+    const taskSlices = extractTaskSlices(planArtifact.content);
+    const impactEdges = extractEdgeIds(impactArtifact.path);
+    const impactEdgeSet = new Set(impactEdges.map((e) => normalizeFilePath(e)));
+
+    if (taskSlices.length === 0) {
+      rows.push({
+        artifact: 'PLAN.md',
+        kind: 'consistency',
+        ref: 'Slice ∈ impact edges',
+        status: 'ok',
+        evidence: 'No Slice: entries found in PLAN.md — check vacuously passes',
+      });
+    }
+
+    for (const { taskId, slices } of taskSlices) {
+      for (const slice of slices) {
+        const norm = normalizeFilePath(slice);
+        const inImpact =
+          impactEdgeSet.has(norm) ||
+          [...impactEdgeSet].some(
+            (e) =>
+              e.endsWith('/' + norm) ||
+              norm.endsWith('/' + e) ||
+              path.basename(e) === path.basename(norm)
+          );
+
+        if (inImpact) {
+          rows.push({
+            artifact: 'PLAN.md',
+            kind: 'consistency',
+            ref: slice,
+            status: 'ok',
+            evidence: `${taskId} Slice "${slice}" present in impact.md edges`,
+            taskId,
+          });
+        } else {
+          rows.push({
+            artifact: 'PLAN.md',
+            kind: 'consistency',
+            ref: slice,
+            status: 'advisory',
+            evidence: `${taskId} Slice "${slice}" not found in impact.md edges — Slice∈impact violation`,
+            taskId,
+            missingEdge: slice,
+          });
+        }
+      }
+    }
+  }
+
+  // ── (c) Impact edges: entries present in impact.md ──────────────────────────
+  if (!planArtifact || !planArtifact.exists) {
+    rows.push({
+      artifact: 'PLAN.md',
+      kind: 'consistency',
+      ref: 'Impact edges present in impact.md',
+      status: 'skipped',
+      evidence: 'PLAN.md not available — skipping Impact edges presence check',
+    });
+  } else if (!impactArtifact || !impactArtifact.exists) {
+    rows.push({
+      artifact: 'PLAN.md',
+      kind: 'consistency',
+      ref: 'Impact edges present in impact.md',
+      status: 'skipped',
+      evidence: 'impact.md not available — skipping Impact edges presence check',
+    });
+  } else {
+    const taskImpactEdges = extractTaskImpactEdges(planArtifact.content);
+    const impactEdges = extractEdgeIds(impactArtifact.path);
+    const impactEdgeSet = new Set(impactEdges.map((e) => normalizeFilePath(e)));
+
+    if (taskImpactEdges.length === 0) {
+      rows.push({
+        artifact: 'PLAN.md',
+        kind: 'consistency',
+        ref: 'Impact edges present in impact.md',
+        status: 'ok',
+        evidence: 'No "Impact edges:" entries found in PLAN.md — check vacuously passes',
+      });
+    }
+
+    for (const { taskId, edgeIds } of taskImpactEdges) {
+      for (const edgeId of edgeIds) {
+        const norm = normalizeFilePath(edgeId);
+        const inImpact =
+          impactEdgeSet.has(norm) ||
+          [...impactEdgeSet].some(
+            (e) =>
+              e.endsWith('/' + norm) ||
+              norm.endsWith('/' + e) ||
+              path.basename(e) === path.basename(norm)
+          );
+
+        if (inImpact) {
+          rows.push({
+            artifact: 'PLAN.md',
+            kind: 'consistency',
+            ref: edgeId,
+            status: 'ok',
+            evidence: `${taskId} "Impact edges: ${edgeId}" present in impact.md`,
+            taskId,
+          });
+        } else {
+          rows.push({
+            artifact: 'PLAN.md',
+            kind: 'consistency',
+            ref: edgeId,
+            status: 'advisory',
+            evidence: `${taskId} "Impact edges: ${edgeId}" not found in impact.md — missing edge`,
+            taskId,
+            missingEdge: edgeId,
+          });
+        }
+      }
+    }
+  }
+
+  // ── (d) Blocker resolution — Blocked by: T{n} resolves ─────────────────────
+  if (!planArtifact || !planArtifact.exists) {
+    rows.push({
+      artifact: 'PLAN.md',
+      kind: 'consistency',
+      ref: 'Blocked by: resolution',
+      status: 'skipped',
+      evidence: 'PLAN.md not available — skipping blocker resolution check',
+    });
+  } else if (taskIds.size === 0) {
+    rows.push({
+      artifact: 'PLAN.md',
+      kind: 'consistency',
+      ref: 'Blocked by: resolution',
+      status: 'skipped',
+      evidence: 'No task IDs in PLAN.md — skipping blocker resolution check',
+    });
+  } else {
+    const blockerRefs = extractBlockerRefs(planArtifact.content);
+
+    if (blockerRefs.length === 0) {
+      rows.push({
+        artifact: 'PLAN.md',
+        kind: 'consistency',
+        ref: 'Blocked by: resolution',
+        status: 'ok',
+        evidence: 'No "Blocked by:" entries in PLAN.md — check vacuously passes',
+      });
+    }
+
+    for (const { taskId, blockerRef } of blockerRefs) {
+      const resolves = checkBlockerResolves(blockerRef, taskIds);
+      if (resolves) {
+        rows.push({
+          artifact: 'PLAN.md',
+          kind: 'consistency',
+          ref: blockerRef,
+          status: 'ok',
+          evidence: `${taskId} blocker ${blockerRef} resolves to a known task in PLAN.md`,
+          taskId,
+        });
+      } else {
+        rows.push({
+          artifact: 'PLAN.md',
+          kind: 'consistency',
+          ref: blockerRef,
+          status: 'advisory',
+          evidence: `${taskId} "Blocked by: ${blockerRef}" — dangling blocker: ${blockerRef} not defined in PLAN.md`,
+          taskId,
+        });
+      }
+    }
+  }
+
+  // ── (e) findings.md files_read scoped to declared paths ─────────────────────
+  if (!findingsArtifact || !findingsArtifact.exists) {
+    rows.push({
+      artifact: 'findings.md',
+      kind: 'consistency',
+      ref: 'files_read scoping',
+      status: 'skipped',
+      evidence: 'findings.md not available — skipping files_read scope check',
+    });
+  } else {
+    // Build the declared scope: impact edges ∪ PLAN Files entries
+    const declaredScope = new Set();
+
+    if (impactArtifact && impactArtifact.exists) {
+      for (const e of extractEdgeIds(impactArtifact.path)) {
+        declaredScope.add(normalizeFilePath(e));
+      }
+    }
+
+    if (planArtifact && planArtifact.exists) {
+      // Extract all Files: entries from PLAN
+      const filesPattern = /^\s*-?\s*Files?:\s*(.+)$/gim;
+      let m;
+      while ((m = filesPattern.exec(planArtifact.content)) !== null) {
+        const items = m[1]
+          .split(/[,\s]+/)
+          .map((s) => s.replace(/`/g, '').trim())
+          .filter((s) => s && /\.\w{1,8}$/.test(s));
+        for (const item of items) {
+          declaredScope.add(normalizeFilePath(item));
+        }
+      }
+    }
+
+    // Extract files_read from findings.md
+    const filesReadPattern = /^\s*-?\s*files_read:\s*(.+)$/gim;
+    let m;
+    let hasFilesRead = false;
+    while ((m = filesReadPattern.exec(findingsArtifact.content)) !== null) {
+      hasFilesRead = true;
+      const items = m[1]
+        .split(/[,\s]+/)
+        .map((s) => s.replace(/`/g, '').trim())
+        .filter((s) => s && (/\.\w{1,8}$/.test(s) || s.includes('/')));
+      for (const fileRead of items) {
+        const norm = normalizeFilePath(fileRead);
+        if (declaredScope.size === 0) {
+          // No declared scope available — cannot check scoping
+          rows.push({
+            artifact: 'findings.md',
+            kind: 'consistency',
+            ref: fileRead,
+            status: 'skipped',
+            evidence: `files_read "${fileRead}" — no declared scope (impact.md + PLAN.md) to validate against`,
+          });
+        } else {
+          const inScope =
+            declaredScope.has(norm) ||
+            [...declaredScope].some(
+              (s) =>
+                s.endsWith('/' + norm) ||
+                norm.endsWith('/' + s) ||
+                path.basename(s) === path.basename(norm)
+            );
+
+          if (inScope) {
+            rows.push({
+              artifact: 'findings.md',
+              kind: 'consistency',
+              ref: fileRead,
+              status: 'ok',
+              evidence: `findings files_read "${fileRead}" is within declared scope (impact + plan paths)`,
+            });
+          } else {
+            rows.push({
+              artifact: 'findings.md',
+              kind: 'consistency',
+              ref: fileRead,
+              status: 'advisory',
+              evidence: `findings files_read "${fileRead}" is outside declared scope (not in impact.md edges or PLAN Files:)`,
+            });
+          }
+        }
+      }
+    }
+
+    if (!hasFilesRead) {
+      rows.push({
+        artifact: 'findings.md',
+        kind: 'consistency',
+        ref: 'files_read scoping',
+        status: 'ok',
+        evidence: 'No files_read entries in findings.md — check vacuously passes',
+      });
+    }
+  }
+
+  return rows;
+}
+
 // ── Main validation logic ─────────────────────────────────────────────────────
 
 /**
@@ -418,7 +1027,9 @@ function checkArtifactExistence(artifactName, artifactPath, repoRoot, taskIds, i
     let evidence;
 
     if (kind === 'task_id') {
-      // Validate task ID against known task IDs from PLAN.md
+      // Validate task ID against known task IDs from PLAN.md.
+      // Dangling blockers are advisory (not hard-fail) per REQ-2(d) and AC-3.
+      // The cross-consistency check also covers this with per-task context.
       const resolves = taskIds.size > 0
         ? checkBlockerResolves(ref, taskIds)
         : false;
@@ -430,7 +1041,8 @@ function checkArtifactExistence(artifactName, artifactPath, repoRoot, taskIds, i
         status = 'skipped';
         evidence = `PLAN.md not available to validate task ID ${ref}`;
       } else {
-        status = 'missing';
+        // Advisory — not missing — per REQ-4 (consistency advisory by default) + AC-3
+        status = 'advisory';
         evidence = `Task ID ${ref} not defined in PLAN.md — dangling blocker reference`;
       }
     } else if (kind === 'file_path' || kind === 'edge_id') {
@@ -506,6 +1118,9 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
   const mapsDir = path.join(repoRoot, '.deepflow', 'maps', specName);
   const allChecks = [];
 
+  // ── Load config ───────────────────────────────────────────────────────────
+  const config = loadArtifactValidationConfig(repoRoot);
+
   // ── Locate PLAN.md ────────────────────────────────────────────────────────
   // Search order: {repoRoot}/PLAN.md, .deepflow/plans/doing-{spec}.md, .deepflow/plans/{spec}.md
   let planPath = null;
@@ -528,9 +1143,21 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
     taskIds = extractTaskIds(planPath);
   }
 
-  // ── Check each artifact ───────────────────────────────────────────────────
+  // ── Locate artifact paths ─────────────────────────────────────────────────
 
-  // 1. Spec file: specs/doing-{spec}.md
+  const sketchPath = path.join(mapsDir, 'sketch.md');
+  const sketchExists = fs.existsSync(sketchPath);
+
+  const impactPath = path.join(mapsDir, 'impact.md');
+  const impactExists = fs.existsSync(impactPath);
+
+  const findingsPath = path.join(mapsDir, 'findings.md');
+  const findingsExists = fs.existsSync(findingsPath);
+
+  const verifyResultPath = path.join(mapsDir, 'verify-result.json');
+  const verifyResultExists = fs.existsSync(verifyResultPath);
+
+  // Spec file: specs/doing-{spec}.md
   const specFileCandidates = [
     path.join(repoRoot, 'specs', `doing-${specName}.md`),
     path.join(repoRoot, 'specs', `${specName}.md`),
@@ -540,6 +1167,39 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
   for (const c of specFileCandidates) {
     if (fs.existsSync(c)) { specFilePath = c; break; }
   }
+
+  // ── Build artifacts map for cross-consistency checks ──────────────────────
+  // Read content for existing artifacts so we can pass to checkCrossConsistency
+  function safeReadFile(filePath) {
+    try { return fs.readFileSync(filePath, 'utf8'); } catch (_) { return ''; }
+  }
+
+  const artifactsMap = {
+    'sketch.md': {
+      path: sketchPath,
+      exists: sketchExists,
+      content: sketchExists ? safeReadFile(sketchPath) : '',
+    },
+    'impact.md': {
+      path: impactPath,
+      exists: impactExists,
+      content: impactExists ? safeReadFile(impactPath) : '',
+    },
+    'PLAN.md': {
+      path: planPath || path.join(repoRoot, 'PLAN.md'),
+      exists: !!planPath,
+      content: planPath ? safeReadFile(planPath) : '',
+    },
+    'findings.md': {
+      path: findingsPath,
+      exists: findingsExists,
+      content: findingsExists ? safeReadFile(findingsPath) : '',
+    },
+  };
+
+  // ── Check each artifact existence ─────────────────────────────────────────
+
+  // 1. Spec file: specs/doing-{spec}.md
   const specArtifactName = `specs/doing-${specName}.md`;
   const specIsSkipped = !specFilePath;
   allChecks.push(
@@ -553,8 +1213,6 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
   );
 
   // 2. sketch.md
-  const sketchPath = path.join(mapsDir, 'sketch.md');
-  const sketchExists = fs.existsSync(sketchPath);
   allChecks.push(
     ...checkArtifactExistence(
       'sketch.md',
@@ -566,8 +1224,6 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
   );
 
   // 3. impact.md
-  const impactPath = path.join(mapsDir, 'impact.md');
-  const impactExists = fs.existsSync(impactPath);
   allChecks.push(
     ...checkArtifactExistence(
       'impact.md',
@@ -591,8 +1247,6 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
   );
 
   // 5. findings.md
-  const findingsPath = path.join(mapsDir, 'findings.md');
-  const findingsExists = fs.existsSync(findingsPath);
   allChecks.push(
     ...checkArtifactExistence(
       'findings.md',
@@ -604,8 +1258,6 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
   );
 
   // 6. verify-result.json
-  const verifyResultPath = path.join(mapsDir, 'verify-result.json');
-  const verifyResultExists = fs.existsSync(verifyResultPath);
   allChecks.push(
     ...checkArtifactExistence(
       'verify-result.json',
@@ -616,9 +1268,26 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
     )
   );
 
+  // ── REQ-2: Cross-consistency checks ──────────────────────────────────────
+  if (config.enforcement.consistency !== 'off') {
+    const consistencyRows = checkCrossConsistency(artifactsMap, taskIds);
+    allChecks.push(...consistencyRows);
+  }
+
   // ── Classify failures ─────────────────────────────────────────────────────
   // Existence violations always hard-fail (REQ-4)
-  const hardFails = allChecks.filter((c) => c.status === 'missing');
+  const existenceHardFails = allChecks.filter((c) => c.status === 'missing');
+
+  // Consistency advisories: hard-fail in auto mode (REQ-4, AC-5)
+  const consistencyAdvisories = allChecks.filter(
+    (c) => c.kind === 'consistency' && c.status === 'advisory'
+  );
+  const consistencyHardFails =
+    mode === 'auto' && config.enforcement.consistency !== 'off'
+      ? consistencyAdvisories
+      : [];
+
+  const hardFails = [...existenceHardFails, ...consistencyHardFails];
 
   return {
     checks: allChecks,
@@ -652,10 +1321,14 @@ function writeResultsJson(specName, artifactName, checks, exitCode, repoRoot) {
     const resultPath = path.join(resultsDir, filename);
 
     // Map internal check rows to REQ-5 schema
+    // family: 'consistency' for cross-consistency rows, 'existence' for reference checks
     const schemaChecks = checks.map((c) => ({
-      family: 'existence',
+      family: c.kind === 'consistency' ? 'consistency' : 'existence',
       name: `${c.kind}:${c.ref}`,
-      status: c.status === 'ok' ? 'pass' : c.status === 'missing' ? 'fail' : c.status,
+      status: c.status === 'ok' ? 'pass'
+        : c.status === 'missing' ? 'fail'
+        : c.status === 'advisory' ? 'warn'
+        : c.status, // skipped → 'skipped'
       evidence: c.evidence,
     }));
 
@@ -774,19 +1447,45 @@ function runCli(args) {
     writeResultsJson(specName, artifactName, artifactChecks, exit_code, repoRoot);
   }
 
-  if (hardFails.length > 0) {
-    process.stderr.write('\n[df-artifact-validate] EXISTENCE VIOLATIONS (hard-fail):\n');
-    for (const row of hardFails) {
-      process.stderr.write(`  artifact=${row.artifact} kind=${row.kind} ref=${JSON.stringify(row.ref)}\n`);
+  // Emit advisory rows to stderr even when not hard-failing (REQ-2, REQ-4)
+  const advisories = checks.filter((c) => c.status === 'advisory');
+  if (advisories.length > 0) {
+    process.stderr.write('\n[df-artifact-validate] CONSISTENCY ADVISORIES:\n');
+    for (const row of advisories) {
+      const taskNote = row.taskId ? ` [task=${row.taskId}]` : '';
+      const edgeNote = row.missingEdge ? ` missing-edge=${JSON.stringify(row.missingEdge)}` : '';
+      process.stderr.write(`  artifact=${row.artifact} ref=${JSON.stringify(row.ref)}${taskNote}${edgeNote}\n`);
       process.stderr.write(`  evidence: ${row.evidence}\n`);
     }
-    process.stderr.write(`\n[df-artifact-validate] ${hardFails.length} existence violation(s) found — blocking\n`);
+    if (mode !== 'auto') {
+      process.stderr.write(`[df-artifact-validate] ${advisories.length} consistency advisory(s) — warning only (use --auto to escalate)\n`);
+    }
+  }
+
+  if (hardFails.length > 0) {
+    const existFails = hardFails.filter((c) => c.status === 'missing');
+    const consFails = hardFails.filter((c) => c.status === 'advisory');
+    if (existFails.length > 0) {
+      process.stderr.write('\n[df-artifact-validate] EXISTENCE VIOLATIONS (hard-fail):\n');
+      for (const row of existFails) {
+        process.stderr.write(`  artifact=${row.artifact} kind=${row.kind} ref=${JSON.stringify(row.ref)}\n`);
+        process.stderr.write(`  evidence: ${row.evidence}\n`);
+      }
+    }
+    if (consFails.length > 0) {
+      process.stderr.write('\n[df-artifact-validate] CONSISTENCY VIOLATIONS (auto-mode escalation):\n');
+      for (const row of consFails) {
+        process.stderr.write(`  artifact=${row.artifact} ref=${JSON.stringify(row.ref)}\n`);
+        process.stderr.write(`  evidence: ${row.evidence}\n`);
+      }
+    }
+    process.stderr.write(`\n[df-artifact-validate] ${hardFails.length} violation(s) found — blocking\n`);
     process.exit(1);
   }
 
   const skipped = checks.filter((c) => c.status === 'skipped').length;
   const passed = checks.filter((c) => c.status === 'ok').length;
-  process.stderr.write(`[df-artifact-validate] ${passed} ok, ${skipped} skipped, 0 violations\n`);
+  process.stderr.write(`[df-artifact-validate] ${passed} ok, ${skipped} skipped, ${advisories.length} advisory, 0 hard violations\n`);
   process.exit(0);
 }
 
@@ -826,8 +1525,17 @@ function hookHandler(payload) {
     writeResultsJson(specName, artifactName, artifactChecks, exit_code, repoRoot);
   }
 
+  // Emit advisory rows to stderr (non-hard in interactive mode)
+  const advisories = checks.filter((c) => c.status === 'advisory');
+  if (advisories.length > 0) {
+    process.stderr.write('\n[df-artifact-validate] CONSISTENCY ADVISORIES:\n');
+    for (const row of advisories) {
+      process.stderr.write(`  ${JSON.stringify(row)}\n`);
+    }
+  }
+
   if (hardFails.length > 0) {
-    process.stderr.write('\n[df-artifact-validate] EXISTENCE VIOLATIONS:\n');
+    process.stderr.write('\n[df-artifact-validate] VIOLATIONS (hard-fail):\n');
     for (const row of hardFails) {
       process.stderr.write(`  ${JSON.stringify(row)}\n`);
     }
@@ -840,12 +1548,17 @@ function hookHandler(payload) {
 module.exports = {
   validateArtifacts,
   checkArtifactExistence,
+  checkCrossConsistency,
   extractSketchRefs,
+  extractSketchModules,
   extractImpactRefs,
   extractPlanRefs,
   extractFindingsRefs,
   extractVerifyResultRefs,
   extractSpecRefs,
+  extractTaskSlices,
+  extractTaskImpactEdges,
+  loadArtifactValidationConfig,
   detectSpecName,
   isArtifactFile,
   writeResultsJson,
