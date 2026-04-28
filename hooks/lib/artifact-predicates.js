@@ -22,6 +22,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync, execFileSync } = require('child_process');
+const PATHS = require('./artifact-paths'); // eslint-disable-line no-unused-vars
 
 // ── Constants ────────────────────────────────────────────────────────────────
 

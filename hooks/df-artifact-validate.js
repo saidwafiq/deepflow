@@ -55,16 +55,17 @@ const {
   computeLikelyFilesCoveragePct,
   computeOutOfScopeCount,
 } = require('./lib/artifact-predicates');
+const PATHS = require('./lib/artifact-paths');
 
 // ── Artifact kinds ────────────────────────────────────────────────────────────
 
 /** The 5-artifact chain: artifact key → filename under .deepflow/maps/{spec}/ */
 const ARTIFACT_FILES = {
-  'sketch.md': 'sketch.md',
-  'impact.md': 'impact.md',
-  'PLAN.md': 'PLAN.md',
-  'findings.md': 'findings.md',
-  'verify-result.json': 'verify-result.json',
+  [PATHS.SKETCH]: PATHS.SKETCH,
+  [PATHS.IMPACT]: PATHS.IMPACT,
+  [PATHS.PLAN]: PATHS.PLAN,
+  [PATHS.FINDINGS]: PATHS.FINDINGS,
+  [PATHS.VERIFY_RESULT]: PATHS.VERIFY_RESULT,
 };
 
 // ── Reference extractors per artifact kind ────────────────────────────────────
@@ -628,27 +629,27 @@ function loadArtifactValidationConfig(repoRoot) {
 function checkCrossConsistency(artifacts, taskIds) {
   const rows = [];
 
-  const sketchArtifact = artifacts['sketch.md'];
-  const impactArtifact = artifacts['impact.md'];
-  const planArtifact = artifacts['PLAN.md'];
-  const findingsArtifact = artifacts['findings.md'];
+  const sketchArtifact = artifacts[PATHS.SKETCH];
+  const impactArtifact = artifacts[PATHS.IMPACT];
+  const planArtifact = artifacts[PATHS.PLAN];
+  const findingsArtifact = artifacts[PATHS.FINDINGS];
 
   // ── (a) sketch.modules ⊆ impact.modules ────────────────────────────────────
   if (!sketchArtifact || !sketchArtifact.exists) {
     rows.push({
-      artifact: 'sketch.md',
+      artifact: PATHS.SKETCH,
       kind: 'consistency',
       ref: 'sketch.modules ⊆ impact.modules',
       status: 'skipped',
-      evidence: 'sketch.md not available — skipping sketch⊆impact check',
+      evidence: `${PATHS.SKETCH} not available — skipping sketch⊆impact check`,
     });
   } else if (!impactArtifact || !impactArtifact.exists) {
     rows.push({
-      artifact: 'impact.md',
+      artifact: PATHS.IMPACT,
       kind: 'consistency',
       ref: 'sketch.modules ⊆ impact.modules',
       status: 'skipped',
-      evidence: 'impact.md not available — skipping sketch⊆impact check',
+      evidence: `${PATHS.IMPACT} not available — skipping sketch⊆impact check`,
     });
   } else {
     const sketchModules = extractSketchModules(sketchArtifact.content);
@@ -669,7 +670,7 @@ function checkCrossConsistency(artifacts, taskIds) {
 
       if (inImpact) {
         rows.push({
-          artifact: 'sketch.md',
+          artifact: PATHS.SKETCH,
           kind: 'consistency',
           ref: mod,
           status: 'ok',
@@ -677,7 +678,7 @@ function checkCrossConsistency(artifacts, taskIds) {
         });
       } else {
         rows.push({
-          artifact: 'sketch.md',
+          artifact: PATHS.SKETCH,
           kind: 'consistency',
           ref: mod,
           status: 'advisory',
@@ -689,7 +690,7 @@ function checkCrossConsistency(artifacts, taskIds) {
 
     if (sketchModules.length === 0) {
       rows.push({
-        artifact: 'sketch.md',
+        artifact: PATHS.SKETCH,
         kind: 'consistency',
         ref: 'sketch.modules ⊆ impact.modules',
         status: 'ok',
@@ -701,7 +702,7 @@ function checkCrossConsistency(artifacts, taskIds) {
   // ── (b) PLAN Slice: ∈ impact edges ─────────────────────────────────────────
   if (!planArtifact || !planArtifact.exists) {
     rows.push({
-      artifact: 'PLAN.md',
+      artifact: PATHS.PLAN,
       kind: 'consistency',
       ref: 'Slice ∈ impact edges',
       status: 'skipped',
@@ -709,7 +710,7 @@ function checkCrossConsistency(artifacts, taskIds) {
     });
   } else if (!impactArtifact || !impactArtifact.exists) {
     rows.push({
-      artifact: 'PLAN.md',
+      artifact: PATHS.PLAN,
       kind: 'consistency',
       ref: 'Slice ∈ impact edges',
       status: 'skipped',
@@ -722,7 +723,7 @@ function checkCrossConsistency(artifacts, taskIds) {
 
     if (taskSlices.length === 0) {
       rows.push({
-        artifact: 'PLAN.md',
+        artifact: PATHS.PLAN,
         kind: 'consistency',
         ref: 'Slice ∈ impact edges',
         status: 'ok',
@@ -744,7 +745,7 @@ function checkCrossConsistency(artifacts, taskIds) {
 
         if (inImpact) {
           rows.push({
-            artifact: 'PLAN.md',
+            artifact: PATHS.PLAN,
             kind: 'consistency',
             ref: slice,
             status: 'ok',
@@ -753,7 +754,7 @@ function checkCrossConsistency(artifacts, taskIds) {
           });
         } else {
           rows.push({
-            artifact: 'PLAN.md',
+            artifact: PATHS.PLAN,
             kind: 'consistency',
             ref: slice,
             status: 'advisory',
@@ -769,7 +770,7 @@ function checkCrossConsistency(artifacts, taskIds) {
   // ── (c) Impact edges: entries present in impact.md ──────────────────────────
   if (!planArtifact || !planArtifact.exists) {
     rows.push({
-      artifact: 'PLAN.md',
+      artifact: PATHS.PLAN,
       kind: 'consistency',
       ref: 'Impact edges present in impact.md',
       status: 'skipped',
@@ -777,7 +778,7 @@ function checkCrossConsistency(artifacts, taskIds) {
     });
   } else if (!impactArtifact || !impactArtifact.exists) {
     rows.push({
-      artifact: 'PLAN.md',
+      artifact: PATHS.PLAN,
       kind: 'consistency',
       ref: 'Impact edges present in impact.md',
       status: 'skipped',
@@ -790,7 +791,7 @@ function checkCrossConsistency(artifacts, taskIds) {
 
     if (taskImpactEdges.length === 0) {
       rows.push({
-        artifact: 'PLAN.md',
+        artifact: PATHS.PLAN,
         kind: 'consistency',
         ref: 'Impact edges present in impact.md',
         status: 'ok',
@@ -812,7 +813,7 @@ function checkCrossConsistency(artifacts, taskIds) {
 
         if (inImpact) {
           rows.push({
-            artifact: 'PLAN.md',
+            artifact: PATHS.PLAN,
             kind: 'consistency',
             ref: edgeId,
             status: 'ok',
@@ -821,7 +822,7 @@ function checkCrossConsistency(artifacts, taskIds) {
           });
         } else {
           rows.push({
-            artifact: 'PLAN.md',
+            artifact: PATHS.PLAN,
             kind: 'consistency',
             ref: edgeId,
             status: 'advisory',
@@ -837,7 +838,7 @@ function checkCrossConsistency(artifacts, taskIds) {
   // ── (d) Blocker resolution — Blocked by: T{n} resolves ─────────────────────
   if (!planArtifact || !planArtifact.exists) {
     rows.push({
-      artifact: 'PLAN.md',
+      artifact: PATHS.PLAN,
       kind: 'consistency',
       ref: 'Blocked by: resolution',
       status: 'skipped',
@@ -845,7 +846,7 @@ function checkCrossConsistency(artifacts, taskIds) {
     });
   } else if (taskIds.size === 0) {
     rows.push({
-      artifact: 'PLAN.md',
+      artifact: PATHS.PLAN,
       kind: 'consistency',
       ref: 'Blocked by: resolution',
       status: 'skipped',
@@ -856,7 +857,7 @@ function checkCrossConsistency(artifacts, taskIds) {
 
     if (blockerRefs.length === 0) {
       rows.push({
-        artifact: 'PLAN.md',
+        artifact: PATHS.PLAN,
         kind: 'consistency',
         ref: 'Blocked by: resolution',
         status: 'ok',
@@ -868,7 +869,7 @@ function checkCrossConsistency(artifacts, taskIds) {
       const resolves = checkBlockerResolves(blockerRef, taskIds);
       if (resolves) {
         rows.push({
-          artifact: 'PLAN.md',
+          artifact: PATHS.PLAN,
           kind: 'consistency',
           ref: blockerRef,
           status: 'ok',
@@ -877,7 +878,7 @@ function checkCrossConsistency(artifacts, taskIds) {
         });
       } else {
         rows.push({
-          artifact: 'PLAN.md',
+          artifact: PATHS.PLAN,
           kind: 'consistency',
           ref: blockerRef,
           status: 'advisory',
@@ -891,7 +892,7 @@ function checkCrossConsistency(artifacts, taskIds) {
   // ── (e) findings.md files_read scoped to declared paths ─────────────────────
   if (!findingsArtifact || !findingsArtifact.exists) {
     rows.push({
-      artifact: 'findings.md',
+      artifact: PATHS.FINDINGS,
       kind: 'consistency',
       ref: 'files_read scoping',
       status: 'skipped',
@@ -937,7 +938,7 @@ function checkCrossConsistency(artifacts, taskIds) {
         if (declaredScope.size === 0) {
           // No declared scope available — cannot check scoping
           rows.push({
-            artifact: 'findings.md',
+            artifact: PATHS.FINDINGS,
             kind: 'consistency',
             ref: fileRead,
             status: 'skipped',
@@ -955,7 +956,7 @@ function checkCrossConsistency(artifacts, taskIds) {
 
           if (inScope) {
             rows.push({
-              artifact: 'findings.md',
+              artifact: PATHS.FINDINGS,
               kind: 'consistency',
               ref: fileRead,
               status: 'ok',
@@ -963,7 +964,7 @@ function checkCrossConsistency(artifacts, taskIds) {
             });
           } else {
             rows.push({
-              artifact: 'findings.md',
+              artifact: PATHS.FINDINGS,
               kind: 'consistency',
               ref: fileRead,
               status: 'advisory',
@@ -976,7 +977,7 @@ function checkCrossConsistency(artifacts, taskIds) {
 
     if (!hasFilesRead) {
       rows.push({
-        artifact: 'findings.md',
+        artifact: PATHS.FINDINGS,
         kind: 'consistency',
         ref: 'files_read scoping',
         status: 'ok',
@@ -1012,16 +1013,16 @@ function checkDrift(artifacts, config) {
   const rows = [];
   const thresholds = config.drift_thresholds;
 
-  const sketchArtifact = artifacts['sketch.md'];
-  const impactArtifact = artifacts['impact.md'];
-  const planArtifact = artifacts['PLAN.md'];
+  const sketchArtifact = artifacts[PATHS.SKETCH];
+  const impactArtifact = artifacts[PATHS.IMPACT];
+  const planArtifact = artifacts[PATHS.PLAN];
 
   // Skip-on-missing: both PLAN.md and impact.md must exist for drift checks
   const planMissing = !planArtifact || !planArtifact.exists;
   const impactMissing = !impactArtifact || !impactArtifact.exists;
 
   if (planMissing || impactMissing) {
-    const missingArtifact = planMissing ? 'PLAN.md' : 'impact.md';
+    const missingArtifact = planMissing ? PATHS.PLAN : PATHS.IMPACT;
     rows.push({
       artifact: missingArtifact,
       kind: 'drift',
@@ -1076,7 +1077,7 @@ function checkDrift(artifacts, config) {
   // jaccard_below: advisory when > jaccard_max
   const jaccardBreaches = jaccardBelow > thresholds.jaccard_max;
   rows.push({
-    artifact: 'sketch.md',
+    artifact: PATHS.SKETCH,
     kind: 'drift',
     ref: 'drift.jaccard_below',
     status: jaccardBreaches ? 'advisory' : 'ok',
@@ -1091,7 +1092,7 @@ function checkDrift(artifacts, config) {
   // likely_files_coverage_pct: advisory when < likely_files_min_pct
   const coverageBreaches = likelyFilesCoveragePct < thresholds.likely_files_min_pct;
   rows.push({
-    artifact: 'sketch.md',
+    artifact: PATHS.SKETCH,
     kind: 'drift',
     ref: 'drift.likely_files_coverage_pct',
     status: coverageBreaches ? 'advisory' : 'ok',
@@ -1106,7 +1107,7 @@ function checkDrift(artifacts, config) {
   // out_of_scope_count: advisory when > out_of_scope_max
   const outOfScopeBreaches = outOfScopeCount > thresholds.out_of_scope_max;
   rows.push({
-    artifact: 'PLAN.md',
+    artifact: PATHS.PLAN,
     kind: 'drift',
     ref: 'drift.out_of_scope_count',
     status: outOfScopeBreaches ? 'advisory' : 'ok',
@@ -1159,15 +1160,15 @@ function checkArtifactExistence(artifactName, artifactPath, repoRoot, taskIds, i
   let refs = [];
   const base = path.basename(artifactName).toLowerCase();
 
-  if (base === 'sketch.md') {
+  if (base === PATHS.SKETCH.toLowerCase()) {
     refs = extractSketchRefs(content);
-  } else if (base === 'impact.md') {
+  } else if (base === PATHS.IMPACT.toLowerCase()) {
     refs = extractImpactRefs(content, artifactPath);
-  } else if (base === 'plan.md') {
+  } else if (base === PATHS.PLAN.toLowerCase()) {
     refs = extractPlanRefs(content, artifactPath);
-  } else if (base === 'findings.md') {
+  } else if (base === PATHS.FINDINGS.toLowerCase()) {
     refs = extractFindingsRefs(content);
-  } else if (base === 'verify-result.json') {
+  } else if (base === PATHS.VERIFY_RESULT.toLowerCase()) {
     refs = extractVerifyResultRefs(content);
   } else {
     // Spec file or other — extract generic refs
@@ -1300,7 +1301,7 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
   // Search order: {repoRoot}/PLAN.md, .deepflow/plans/doing-{spec}.md, .deepflow/plans/{spec}.md
   let planPath = null;
   const planCandidates = [
-    path.join(repoRoot, 'PLAN.md'),
+    path.join(repoRoot, PATHS.PLAN),
     path.join(repoRoot, '.deepflow', 'plans', `doing-${specName}.md`),
     path.join(repoRoot, '.deepflow', 'plans', `${specName}.md`),
     path.join(repoRoot, '.deepflow', 'plans', `done-${specName}.md`),
@@ -1320,16 +1321,16 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
 
   // ── Locate artifact paths ─────────────────────────────────────────────────
 
-  const sketchPath = path.join(mapsDir, 'sketch.md');
+  const sketchPath = path.join(mapsDir, PATHS.SKETCH);
   const sketchExists = fs.existsSync(sketchPath);
 
-  const impactPath = path.join(mapsDir, 'impact.md');
+  const impactPath = path.join(mapsDir, PATHS.IMPACT);
   const impactExists = fs.existsSync(impactPath);
 
-  const findingsPath = path.join(mapsDir, 'findings.md');
+  const findingsPath = path.join(mapsDir, PATHS.FINDINGS);
   const findingsExists = fs.existsSync(findingsPath);
 
-  const verifyResultPath = path.join(mapsDir, 'verify-result.json');
+  const verifyResultPath = path.join(mapsDir, PATHS.VERIFY_RESULT);
   const verifyResultExists = fs.existsSync(verifyResultPath);
 
   // Spec file: specs/doing-{spec}.md
@@ -1350,22 +1351,22 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
   }
 
   const artifactsMap = {
-    'sketch.md': {
+    [PATHS.SKETCH]: {
       path: sketchPath,
       exists: sketchExists,
       content: sketchExists ? safeReadFile(sketchPath) : '',
     },
-    'impact.md': {
+    [PATHS.IMPACT]: {
       path: impactPath,
       exists: impactExists,
       content: impactExists ? safeReadFile(impactPath) : '',
     },
-    'PLAN.md': {
-      path: planPath || path.join(repoRoot, 'PLAN.md'),
+    [PATHS.PLAN]: {
+      path: planPath || path.join(repoRoot, PATHS.PLAN),
       exists: !!planPath,
       content: planPath ? safeReadFile(planPath) : '',
     },
-    'findings.md': {
+    [PATHS.FINDINGS]: {
       path: findingsPath,
       exists: findingsExists,
       content: findingsExists ? safeReadFile(findingsPath) : '',
@@ -1390,7 +1391,7 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
   // 2. sketch.md
   allChecks.push(
     ...checkArtifactExistence(
-      'sketch.md',
+      PATHS.SKETCH,
       sketchPath,
       repoRoot,
       taskIds,
@@ -1401,7 +1402,7 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
   // 3. impact.md
   allChecks.push(
     ...checkArtifactExistence(
-      'impact.md',
+      PATHS.IMPACT,
       impactPath,
       repoRoot,
       taskIds,
@@ -1413,8 +1414,8 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
   const planIsSkipped = !planPath;
   allChecks.push(
     ...checkArtifactExistence(
-      'PLAN.md',
-      planPath || path.join(repoRoot, 'PLAN.md'),
+      PATHS.PLAN,
+      planPath || path.join(repoRoot, PATHS.PLAN),
       repoRoot,
       taskIds,
       planIsSkipped,
@@ -1425,7 +1426,7 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
   // 5. findings.md
   allChecks.push(
     ...checkArtifactExistence(
-      'findings.md',
+      PATHS.FINDINGS,
       findingsPath,
       repoRoot,
       taskIds,
@@ -1436,7 +1437,7 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
   // 6. verify-result.json
   allChecks.push(
     ...checkArtifactExistence(
-      'verify-result.json',
+      PATHS.VERIFY_RESULT,
       verifyResultPath,
       repoRoot,
       taskIds,
