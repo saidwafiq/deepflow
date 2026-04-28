@@ -495,19 +495,15 @@ const DEEPFLOW_PERMISSIONS = [
   // Agents need to search codebase
   "Glob",
   "Grep",
-  // Git operations (orchestrator handles worktrees, agents read status)
+  // Git read-only operations (orchestrator + impl/test/integration agents need these)
+  // Mutating git ops (commit, add, branch, checkout, merge, revert, stash, worktree)
+  // are enforced per-agent via df-bash-scope (allowed only for df-haiku-ops scope).
   "Bash(git status:*)",
   "Bash(git diff:*)",
-  "Bash(git add:*)",
-  "Bash(git commit:*)",
   "Bash(git log:*)",
-  "Bash(git stash:*)",
-  "Bash(git checkout:*)",
-  "Bash(git branch:*)",
-  "Bash(git revert:*)",
-  "Bash(git worktree:*)",
+  "Bash(git show:*)",
   "Bash(git ls-files:*)",
-  "Bash(git merge:*)",
+  "Bash(git rev-parse:*)",
   // Build & test (ratchet health checks)
   "Bash(npm run build:*)",
   "Bash(npm test:*)",
@@ -525,7 +521,6 @@ const DEEPFLOW_PERMISSIONS = [
   "Bash(node:*)",
   "Bash(ls:*)",
   "Bash(cat:*)",
-  "Bash(mkdir:*)",
   "Bash(date:*)",
   "Bash(wc:*)",
   "Bash(head:*)",
