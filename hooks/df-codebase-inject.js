@@ -20,6 +20,18 @@
  * Lazy: if `.deepflow/maps/{spec}/` does not exist, falls back to
  * `.deepflow/codebase/`. If neither directory exists, exits silently (AC-4).
  *
+ * [STALE] detection + auto-regen (REQ-6, AC-6, AC-7):
+ *   When a required artifact is prefixed with `[STALE] `, this hook:
+ *   1. Checks for an in-flight lock file to avoid double-spawning.
+ *   2. If not in-flight, spawns `claude -p --dangerously-skip-permissions
+ *      "/df:map --only {name}"` synchronously (spawnSync) scoped to the single
+ *      stale artifact — leaves all other artifacts untouched (AC-7).
+ *   3. After spawn, reloads the freshly regenerated artifact content.
+ *   4. Emits a `regenerating {name}, ~Ns` line in additionalContext so the
+ *      status is user-visible (AC-6).
+ *   Idempotent: if a `.regen-{name}.lock` file already exists in the artifact
+ *   directory, the hook skips the spawn and uses whatever content is present.
+ *
  * Pass-through for non-Task tools (tool_name !== 'Task') and for agents not
  * in the table (returns no output — Claude Code treats missing output as allow).
  *
@@ -31,6 +43,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { readStdinIfMain } = require('./lib/hook-stdin');
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -43,6 +56,19 @@ const CODEBASE_DIR = path.join('.deepflow', 'codebase');
 
 /** Deduplication marker — prevents double-injection on re-entrant Task spawns. */
 const INJECTION_MARKER = '<!-- df-codebase-inject -->';
+
+/** Stale prefix written by df-codebase-staleness.js (must stay in sync). */
+const STALE_MARKER = '[STALE] ';
+
+/**
+ * Lock-file prefix used to signal an in-flight regen for a specific artifact.
+ * Written as `{artifactDir}/.regen-{name}.lock` before spawning and removed
+ * (best-effort) after the spawn returns.
+ */
+const LOCK_PREFIX = '.regen-';
+
+/** Maximum ms to wait for a single-artifact regen sub-agent (30 s). */
+const REGEN_TIMEOUT_MS = 30000;
 
 /**
  * Canonical agent → artifact-subset mapping.
@@ -150,6 +176,149 @@ function loadArtifacts(artifactDir, artifacts) {
   return parts.join('');
 }
 
+// ── Stale detection + single-artifact regen ──────────────────────────────────
+
+/**
+ * Return true when the artifact content starts with the `[STALE] ` marker.
+ *
+ * @param {string} content - Raw artifact file content.
+ * @returns {boolean}
+ */
+function isStaleContent(content) {
+  return typeof content === 'string' && content.startsWith(STALE_MARKER);
+}
+
+/**
+ * Return the path of the in-flight lock file for a given artifact.
+ *
+ * @param {string} artifactDir - Directory containing the artifact.
+ * @param {string} artifactName - E.g. "CONVENTIONS.md".
+ * @returns {string}
+ */
+function lockFilePath(artifactDir, artifactName) {
+  return path.join(artifactDir, `${LOCK_PREFIX}${artifactName}.lock`);
+}
+
+/**
+ * Attempt to regenerate a single stale artifact by spawning
+ *   claude -p --dangerously-skip-permissions "/df:map --only {name}"
+ * synchronously (blocking the hook until regen completes or times out).
+ *
+ * Idempotent: if a lock file already exists for this artifact, the spawn is
+ * skipped (regen is already in-flight from a concurrent hook invocation).
+ *
+ * Returns an object describing the outcome:
+ *   { spawned: boolean, durationMs: number, timedOut: boolean, skipped: boolean }
+ *
+ * Never throws — all errors are swallowed so the hook stays fail-open.
+ *
+ * @param {string} artifactDir  - Absolute path to the artifact directory.
+ * @param {string} artifactName - Filename of the stale artifact, e.g. "CONVENTIONS.md".
+ * @param {string} cwd          - Project root (passed to the subprocess).
+ * @returns {{ spawned: boolean, durationMs: number, timedOut: boolean, skipped: boolean }}
+ */
+function regenArtifact(artifactDir, artifactName, cwd) {
+  const lockFile = lockFilePath(artifactDir, artifactName);
+
+  // Idempotency guard — skip if regen already in-flight
+  try {
+    if (fs.existsSync(lockFile)) {
+      return { spawned: false, durationMs: 0, timedOut: false, skipped: true };
+    }
+  } catch (_) {
+    return { spawned: false, durationMs: 0, timedOut: false, skipped: true };
+  }
+
+  // Write lock file before spawn
+  try {
+    fs.writeFileSync(lockFile, String(Date.now()), 'utf8');
+  } catch (_) {
+    // Can't write lock — skip spawn to be safe
+    return { spawned: false, durationMs: 0, timedOut: false, skipped: true };
+  }
+
+  const t0 = Date.now();
+  let timedOut = false;
+  let spawned = false;
+
+  try {
+    // Spawn `claude` CLI with -p (print/non-interactive) mode.
+    // --dangerously-skip-permissions avoids interactive trust dialogs in hook context.
+    const result = spawnSync(
+      'claude',
+      ['-p', '--dangerously-skip-permissions', `/df:map --only ${artifactName}`],
+      {
+        cwd,
+        timeout: REGEN_TIMEOUT_MS,
+        encoding: 'utf8',
+        // Inherit env so claude can find API keys
+        env: process.env,
+      }
+    );
+    spawned = true;
+    timedOut = result.signal === 'SIGTERM' || result.error != null && result.error.code === 'ETIMEDOUT';
+  } catch (_) {
+    // Spawn failed (e.g. claude not on PATH) — continue with existing content
+  }
+
+  const durationMs = Date.now() - t0;
+
+  // Remove lock file (best-effort — don't throw on failure)
+  try {
+    fs.unlinkSync(lockFile);
+  } catch (_) {
+    // Ignore — lock file removal is best-effort
+  }
+
+  return { spawned, durationMs, timedOut, skipped: false };
+}
+
+/**
+ * For each stale artifact in `artifactNames` found under `artifactDir`, trigger
+ * single-artifact regeneration and collect user-visible status lines.
+ *
+ * Returns an array of human-readable status strings, one per stale artifact that
+ * was processed (either spawned or skipped as already in-flight).
+ *
+ * @param {string}   artifactDir   - Absolute path to the artifact directory.
+ * @param {string[]} artifactNames - Names of artifacts requested by this agent.
+ * @param {string}   cwd           - Project root.
+ * @returns {string[]} Status lines, e.g. ["regenerating CONVENTIONS.md, ~3s"]
+ */
+function processStaleArtifacts(artifactDir, artifactNames, cwd) {
+  const statusLines = [];
+
+  for (const name of artifactNames) {
+    const filePath = path.join(artifactDir, name);
+    let content;
+    try {
+      content = fs.readFileSync(filePath, 'utf8');
+    } catch (_) {
+      continue; // Missing artifact — skip (handled by loadArtifacts)
+    }
+
+    if (!isStaleContent(content)) {
+      continue; // Not stale — nothing to do
+    }
+
+    // Artifact is stale — attempt single-artifact regen
+    const outcome = regenArtifact(artifactDir, name, cwd);
+
+    if (outcome.skipped) {
+      // Already in-flight from a concurrent hook call
+      statusLines.push(`regenerating ${name}, in-flight`);
+    } else if (outcome.spawned) {
+      const secs = Math.round(outcome.durationMs / 1000);
+      statusLines.push(`regenerating ${name}, ~${secs}s`);
+    } else {
+      // Spawn failed (claude not on PATH, etc.) — still emit a status line
+      statusLines.push(`regenerating ${name}, spawn-failed`);
+    }
+  }
+
+  return statusLines;
+}
+
 // ── Main logic ───────────────────────────────────────────────────────────────
 
 /**
@@ -198,7 +367,11 @@ function main(payload) {
     return null; // AC-4: lazy — skip silently
   }
 
-  // Load artifact content
+  // [STALE] detection + single-artifact regen (REQ-6, AC-6, AC-7)
+  // Must run BEFORE loadArtifacts so the reloaded content is fresh.
+  const regenStatusLines = processStaleArtifacts(artifactDir, artifacts, effectiveCwd);
+
+  // Load artifact content (re-reads files after any regen that just ran)
   const injectedContent = loadArtifacts(artifactDir, artifacts);
   if (!injectedContent) {
     return null; // All artifacts missing — skip silently
@@ -206,16 +379,21 @@ function main(payload) {
 
   const updatedPrompt = `${prompt}\n\n${INJECTION_MARKER}${injectedContent}`;
 
-  return {
-    hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      permissionDecision: 'allow',
-      updatedInput: {
-        ...tool_input,
-        prompt: updatedPrompt,
-      },
+  // Build hookSpecificOutput — include additionalContext only when regen occurred
+  const hookOutput = {
+    hookEventName: 'PreToolUse',
+    permissionDecision: 'allow',
+    updatedInput: {
+      ...tool_input,
+      prompt: updatedPrompt,
     },
   };
+
+  if (regenStatusLines.length > 0) {
+    hookOutput.additionalContext = regenStatusLines.join('\n');
+  }
+
+  return { hookSpecificOutput: hookOutput };
 }
 
 // ── Entry point ──────────────────────────────────────────────────────────────
@@ -237,8 +415,15 @@ module.exports = {
   extractSpecName,
   resolveArtifactDir,
   loadArtifacts,
+  isStaleContent,
+  lockFilePath,
+  regenArtifact,
+  processStaleArtifacts,
   AGENT_ARTIFACT_MAP,
   INJECTION_MARKER,
+  STALE_MARKER,
+  LOCK_PREFIX,
+  REGEN_TIMEOUT_MS,
   MAPS_DIR,
   CODEBASE_DIR,
 };
