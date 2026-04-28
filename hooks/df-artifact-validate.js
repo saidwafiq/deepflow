@@ -56,6 +56,7 @@ const {
   computeOutOfScopeCount,
 } = require('./lib/artifact-predicates');
 const PATHS = require('./lib/artifact-paths');
+const { validateResult } = require('./lib/schemas/validate-against-schema');
 
 // ── Artifact kinds ────────────────────────────────────────────────────────────
 
@@ -1596,6 +1597,18 @@ function writeResultsJson(specName, artifactName, checks, exitCode, repoRoot, dr
     // Include drift block only when drift checks ran (REQ-5: "present only when drift checks ran")
     if (drift && typeof drift === 'object') {
       result.drift = drift;
+    }
+
+    // Validate result object against the frozen drift-key schema before writing (T94).
+    // On schema mismatch: log to stderr and annotate the result with schema_valid + schema_errors.
+    // The result is still written so downstream consumers get observability.
+    const _v = validateResult(result);
+    if (!_v.valid) {
+      process.stderr.write(`[df-artifact-validate] schema_mismatch: ${_v.errors.join('; ')}\n`);
+      result.schema_valid = false;
+      result.schema_errors = _v.errors;
+    } else {
+      result.schema_valid = true;
     }
 
     fs.writeFileSync(resultPath, JSON.stringify(result, null, 2), 'utf8');

@@ -43,6 +43,7 @@
 const fs = require('fs');
 const path = require('path');
 const { readStdinIfMain } = require('./lib/hook-stdin');
+const { validateResult } = require('./lib/schemas/validate-against-schema');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -531,6 +532,47 @@ readStdinIfMain(module, (data) => {
 });
 
 // ---------------------------------------------------------------------------
+// REQ-4 trigger reader: drift result schema guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Read and validate a validate-result JSON file produced by df-artifact-validate.js.
+ * If the file contains a `drift` block, it must conform to the frozen drift schema
+ * (validate-result.schema.json). Returns an error descriptor with error_code
+ * "schema_mismatch" when the drift object fails validation.
+ *
+ * @param {string} filePath - Absolute path to the validate-result JSON file.
+ * @returns {{ ok: true, parsed: object } | { ok: false, error_code: string, errors: string[], source: string }}
+ */
+function readValidateResult(filePath) {
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    return { ok: false, error_code: 'read_error', errors: [err.message], source: filePath };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return { ok: false, error_code: 'parse_error', errors: [err.message], source: filePath };
+  }
+
+  if (parsed.drift) {
+    const _v = validateResult(parsed);
+    if (!_v.valid) {
+      process.stderr.write(
+        `[df-spike-validate] schema_mismatch in ${filePath}: ${_v.errors.join('; ')}\n`
+      );
+      return { ok: false, error_code: 'schema_mismatch', errors: _v.errors, source: filePath };
+    }
+  }
+
+  return { ok: true, parsed };
+}
+
+// ---------------------------------------------------------------------------
 // Exports for testing
 // ---------------------------------------------------------------------------
 
@@ -543,4 +585,5 @@ module.exports = {
   validateSchema,
   VALID_STATUS,
   REQUIRED_KEYS,
+  readValidateResult,
 };
