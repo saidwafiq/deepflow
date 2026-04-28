@@ -90,6 +90,17 @@ required-output-schema:
   task-status: "Final line must be TASK_STATUS:pass or TASK_STATUS:fail"
 ```
 
+#### Risk concentration
+
+As of T110 (narrow-bash-per-agent), df-haiku-ops holds the **widest Bash scope** in the system.
+Git mutations (commit, push, branch, merge) and filesystem mutations that were previously on the global allowlist are now exclusively permitted for df-haiku-ops; all other agents operate under a narrower pattern set.
+
+Enforcement is per-agent at hook load time via `hooks/df-bash-scope.js` (PreToolUse, Bash invocations) backed by scope definitions in `hooks/lib/bash-scopes.js`.
+Every Bash invocation is appended to `.deepflow/bash-telemetry.jsonl` (one JSON line per call: role, command, decision, timestamp) for post-hoc audit.
+
+Implication: a misconfigured or over-permissive df-haiku-ops contract grants access to the broadest mutation surface in the pipeline.
+Review `allowedInputs` and `forbiddenInputs` for this agent with extra scrutiny before making any changes.
+
 ---
 
 ### df-implement
