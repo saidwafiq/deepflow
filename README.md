@@ -136,34 +136,58 @@ $ git log --oneline
 
 ## Commands
 
+**Human loop** — you drive these to shape intent into a spec.
+
 | Command | Purpose |
 |---------|---------|
 | `/df:discover <name>` | Explore problem space with Socratic questioning |
 | `/df:debate <topic>` | Multi-perspective analysis (4 agents) |
 | `/df:spec <name>` | Generate spec from conversation |
-| `/df:plan` | Compare specs to code, create tasks |
-| `/df:execute` | Run tasks with parallel agents |
-| `/df:verify` | Check specs satisfied (L0-L5), merge to main |
-| `/df:update` | Update deepflow to latest |
+| `/df:fix <done-spec>` | Derive a follow-up spec from a completed one (regressions, unmet ACs) |
+
+**AI loop** — orchestrator drives these to evolve code toward the spec.
+
+| Command | Purpose |
+|---------|---------|
+| `/df:plan` | Compare specs to code (LSP-first impact), create waved tasks |
+| `/df:execute` | Spawn parallel sub-agents in worktrees, ratchet validates each commit |
+| `/df:verify` | Check specs satisfied (L0–L5), merge to main, rename `doing-` → `done-` |
 | `/df:auto` | Autonomous mode (plan → loop → verify, no human needed) |
+| `/df:auto-cycle` | One iteration of autonomous mode (used by `/df:auto` `/loop`) |
+
+**Support**
+
+| Command | Purpose |
+|---------|---------|
+| `/df:map` | Generate codebase artifacts (sketch / impact / findings / structure / testing / CLAUDE.md) |
+| `/df:dashboard` | View deepflow dashboard (team mode via URL or local mode via CLI server) |
+| `/df:eval` | Run a skill against a benchmark suite, or scaffold a new benchmark dir |
+| `/df:update` | Update or uninstall deepflow, check installed version |
 
 ## File Structure
 
 ```
 your-project/
 +-- specs/
-|   +-- auth.md           # new spec
-|   +-- doing-upload.md   # in progress
-+-- PLAN.md               # active tasks
+|   +-- auth.md                # new spec
+|   +-- doing-upload.md        # in progress
+|   +-- done-upload.md         # completed (decisions extracted)
++-- PLAN.md                    # active task index (slim — task body lives in .deepflow/plans/)
 +-- .deepflow/
-    +-- config.yaml            # project settings
-    +-- decisions.md           # auto-extracted + ad-hoc decisions
+    +-- config.yaml            # project settings (build/test commands, parallelism, optimize keys)
+    +-- decisions.md           # auto-extracted [APPROACH] / [PROVISIONAL] / [FUTURE] / [UPDATE]
+    +-- checkpoint.json        # /df:execute resume state (waves, completed tasks, worktree map)
+    +-- context.json           # statusline-written context % (read by /df:execute for parallelism gate)
     +-- auto-report.md         # morning report (autonomous mode)
     +-- auto-memory.yaml       # cross-cycle learning
-    +-- token-history.jsonl    # per-render token usage (auto)
-    +-- experiments/           # spike results (pass/fail)
-    +-- worktrees/             # isolated execution
-        +-- upload/            # one worktree per spec
+    +-- auto-snapshot-{spec}.txt  # per-spec ratchet baseline (pre-existing tests)
+    +-- token-history.jsonl    # per-render token usage
+    +-- plans/                 # full per-spec mini-plans (Files, ACs, Impact)
+    +-- experiments/           # spike results, named {topic}--{hypothesis}--{status}.md
+    +-- maps/                  # /df:map artifacts per spec (sketch.md, impact.md, findings.md)
+    +-- codebase/              # global artifacts (STRUCTURE.md, TESTING.md, CLAUDE.md)
+    +-- results/               # per-task result archives + verify JSON
+    +-- worktrees/             # one isolated execution branch per spec
 ```
 
 ## What Deepflow Rejects
@@ -206,15 +230,45 @@ Deepflow's design isn't opinionated — it's a direct response to measured LLM l
 
 **LSP-powered impact analysis** — Plan-time uses `findReferences` and `incomingCalls` to map blast radius precisely. Execute-time runs a freshness check before implementing — catching callers added after planning. Grep as fallback — though [embedding-based retrieval has a hard mathematical ceiling](https://arxiv.org/abs/2508.21038) (Google DeepMind, 2025) that LSP doesn't share.
 
+## Sub-agents
+
+Sub-agents are spawned by the orchestrator with strict input/output contracts (enforced by the `df-delegation-contract` PreToolUse hook reading `agents/DELEGATION.md`). The orchestrator routes each task to a sub-agent by `subagent_type`; the sub-agent returns a structured payload, never freeform prose.
+
+| Sub-agent | Role |
+|-----------|------|
+| `df-implement` | Executes one PLAN.md task — read by path, edit, run tests. No search tools. |
+| `df-integration` | Cross-spec integration — implements tasks that span multiple specs or touch shared interfaces |
+| `df-spike` | Proof-of-concept investigator — validates risky hypotheses, never edits existing files |
+| `df-test` | Writes tests for a given module or feature, runs the suite, reports status |
+| `df-optimize` | Performance/quality optimization — profiles, refactors for efficiency, no behavior changes |
+| `df-haiku-ops` | Fast Bash-only ops (git, shell). No code reading/editing — pure mechanical execution |
+| `reasoner` | Complex analysis — prioritization, debugging, architectural decisions (Opus-based) |
+
 ## Skills
+
+Skills are reusable capabilities invoked by sub-agents or commands. Some run in forked context to keep input:output ratios low; others encode protocols (commit format, AC coverage, decision capture).
 
 | Skill | Purpose |
 |-------|---------|
+| `gap-discovery` | Surface missing requirements during ideation |
+| `df-decisions` | Decision capture protocol — extracts `[APPROACH] / [PROVISIONAL] / [ASSUMPTION] / [FUTURE] / [UPDATE]` tags from agent output to `.deepflow/decisions.md` |
+| `df-ac-coverage` | Acceptance-criteria coverage protocol — agents emit `AC_COVERAGE: AC-1=test:file#name, ...` so the post-task hook can audit |
+| `atomic-commits` | One logical change per commit, conventional format |
+| `code-completeness` | Find TODOs, stubs, placeholders, skipped tests, missing implementations |
 | `browse-fetch` | Fetch external API docs via headless Chromium (replaces context-hub) |
 | `browse-verify` | L5 browser verification — Playwright a11y tree assertions |
-| `atomic-commits` | One logical change per commit |
-| `code-completeness` | Find TODOs, stubs, and missing implementations |
-| `gap-discovery` | Surface missing requirements during ideation |
+| `repo-inspect` | Structured JSON intelligence for a remote GitHub repo — no local clone |
+| `auto-cycle` | One-task iteration loop with ratchet health checks (used by `/df:auto`) |
+
+## Lifecycle hooks
+
+23 hooks fire at specific Claude Code lifecycle events to enforce invariants without requiring orchestrator decisions:
+
+- **PreToolUse** (Task spawns): `df-codebase-inject` injects relevant artifacts into agent prompts; `df-delegation-contract` enforces input/output contracts; `df-implement-protocol` / `df-verify-protocol` / `df-explore-protocol` add tool restrictions; `df-bash-worktree-guard` blocks cross-worktree mutations; `df-worktree-precheck` prevents stale-base spawns.
+- **PostToolUse** (after edits): `df-artifact-validate` checks sketch/impact/findings/PLAN consistency and emits a JSON Schema-validated drift report; `df-spike-validate` rejects schema-mismatch results; `df-codebase-staleness` flags artifact rot; `df-experiment-immutable` protects spike results; `df-validate-tasks-gates` audits PLAN.md task structure; `df-harness-score` records benchmark deltas.
+- **UserPromptSubmit**: `df-spec-lint` validates spec format; `df-invariant-check` runs project invariants; `df-check-update` notifies when a new deepflow version is published.
+
+All hooks are zero-dep Node, fail-open by default (warnings to stderr), and idempotent.
 
 ## More
 

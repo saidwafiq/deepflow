@@ -230,17 +230,40 @@ async function main() {
   console.log(`${c.green}Installation complete!${c.reset}`);
   console.log('');
   console.log(`Installed to ${c.cyan}${CLAUDE_DIR}${c.reset}:`);
-  console.log('  commands/df/     — /df:discover, /df:debate, /df:spec, /df:plan, /df:execute, /df:verify, /df:auto, /df:update');
-  console.log('  skills/          — gap-discovery, atomic-commits, code-completeness, browse-fetch, browse-verify, auto-cycle');
-  console.log('  agents/          — reasoner (/df:auto — autonomous execution via /loop)');
-  console.log('  bin/             — plan-consolidator, prompt-compose, wave-runner, ratchet, worktree-deps');
-  console.log('  templates/       — explore-protocol (auto-injected into Explore agents via hook)');
+  console.log('  commands/df/     — 13 slash commands');
+  console.log('                       human loop:  /df:discover  /df:debate  /df:spec  /df:fix');
+  console.log('                       AI loop:     /df:plan  /df:execute  /df:verify  /df:auto  /df:auto-cycle');
+  console.log('                       support:     /df:map  /df:dashboard  /df:eval  /df:update');
+  console.log('  skills/          — 9 skills');
+  console.log('                       capture:     gap-discovery, df-decisions, df-ac-coverage');
+  console.log('                       craft:       atomic-commits, code-completeness');
+  console.log('                       fetch:       browse-fetch, browse-verify, repo-inspect');
+  console.log('                       runtime:     auto-cycle');
+  console.log('  agents/          — 7 sub-agents + DELEGATION.md contract');
+  console.log('                       df-implement, df-integration, df-spike, df-test, df-optimize, df-haiku-ops, reasoner');
+  console.log('                       (input/output contracts enforced by df-delegation-contract PreToolUse hook)');
+  console.log('  bin/             — count-tokens, df-filter-suggest, lsp-query, lineage-ingest,');
+  console.log('                     plan-consolidator, prompt-compose, ratchet, wave-runner, worktree-deps');
+  console.log('  templates/       — 7 agent-prompt templates (standard-task, integration, spike,');
+  console.log('                     optimize, optimize-probe, wave-test, bootstrap) + map artifacts');
   if (level === 'global') {
-    console.log('  hooks/           — statusline, update checker, invariant checker, worktree guard, explore protocol, implement protocol, verify protocol');
+    console.log('  hooks/           — 23 lifecycle hooks');
+    console.log('                       PreToolUse:    df-codebase-inject (artifact injection on Task spawn)');
+    console.log('                                      df-delegation-contract (DELEGATION.md enforcement)');
+    console.log('                                      df-explore-protocol, df-implement-protocol, df-verify-protocol');
+    console.log('                                      df-bash-rewrite, df-bash-worktree-guard, df-implement-bash-search-guard');
+    console.log('                                      df-snapshot-guard, df-worktree-guard, df-worktree-precheck');
+    console.log('                       PostToolUse:   df-artifact-validate (sketch/impact/findings/PLAN consistency)');
+    console.log('                                      df-codebase-staleness, df-experiment-immutable, df-spike-validate');
+    console.log('                                      df-validate-tasks-gates, df-bash-telemetry, df-harness-score');
+    console.log('                       UserPromptSubmit: df-spec-lint, df-invariant-check, df-check-update');
+    console.log('                       Stop / etc:    df-statusline');
+  } else {
+    console.log('  hooks/df-spec-*  — spec validation (auto-enforced by /df:spec and /df:plan)');
+    console.log('  hooks/df-artifact-validate.js — artifact existence + consistency (PostToolUse)');
+    console.log('  hooks/df-delegation-contract.js — DELEGATION.md contract enforcement (PreToolUse)');
   }
-  console.log('  hooks/df-spec-*  — spec validation (auto-enforced by /df:spec and /df:plan)');
-  console.log('  hooks/df-artifact-validate.js — artifact existence + consistency checker (PostToolUse: sketch.md, impact.md, findings/*.md, PLAN.md)');
-  console.log('  env/             — ENABLE_LSP_TOOL (code navigation via goToDefinition, findReferences, workspaceSymbol)');
+  console.log('  env/             — ENABLE_LSP_TOOL (goToDefinition, findReferences, workspaceSymbol)');
   console.log('  permissions/     — granular allow-list for background agents (git, build, test, read/write)');
   console.log('');
   if (level === 'project') {
