@@ -239,6 +239,7 @@ async function main() {
     console.log('  hooks/           — statusline, update checker, invariant checker, worktree guard, explore protocol, implement protocol, verify protocol');
   }
   console.log('  hooks/df-spec-*  — spec validation (auto-enforced by /df:spec and /df:plan)');
+  console.log('  hooks/df-artifact-validate.js — artifact existence + consistency checker (PostToolUse: sketch.md, impact.md, findings/*.md, PLAN.md)');
   console.log('  env/             — ENABLE_LSP_TOOL (code navigation via goToDefinition, findReferences, workspaceSymbol)');
   console.log('  permissions/     — granular allow-list for background agents (git, build, test, read/write)');
   console.log('');
