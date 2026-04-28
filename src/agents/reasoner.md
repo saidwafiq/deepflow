@@ -2,7 +2,7 @@
 name: reasoner
 description: Complex analysis and reasoning. Use for prioritization, debugging, architectural decisions, and comparing specs against code. Handles tasks requiring deep thinking.
 model: opus
-tools: Read, Grep, Glob, Edit, Bash
+tools: Read, Grep, Glob, Edit
 skills:
   - code-completeness
 ---
