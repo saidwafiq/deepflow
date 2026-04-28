@@ -43,6 +43,8 @@ Shell injection:
 - `` !`cat PLAN.md 2>/dev/null || echo 'NOT_FOUND'` ``
 - `` !`cat .deepflow/maps/{spec}/sketch.md 2>/dev/null || echo 'NOT_FOUND'` `` (loaded after spec name is resolved by stripping `specs/` prefix and `.md` suffix from each file returned by the `ls` above; prior from `/df:discover`; skip if absent)
 - `` !`cat .deepflow/maps/{spec}/impact.md 2>/dev/null || echo 'NOT_FOUND'` `` (loaded after spec name is resolved by the same stripping rule; skip if absent)
+- `` !`cat .deepflow/codebase/STRUCTURE.md 2>/dev/null || echo 'NOT_FOUND'` ``
+- `` !`cat .deepflow/codebase/TESTING.md 2>/dev/null || echo 'NOT_FOUND'` ``
 
 Run `validateSpec` on each spec. Hard failures → skip + error. Advisory → include.
 Record each spec's computed layer (gates task generation per §1.5).
@@ -394,6 +396,59 @@ The `[INTEGRATION]` tag is parsed deterministically by `bin/wave-runner.js` and 
 
 **Pass integration analysis output to §5B consolidator** (append to Opus prompt as `## Integration Analysis` section).
 
+### 4.9. PARALLEL SAFETY GATE (CODEBASE MAP)
+
+**When:** `.deepflow/codebase/STRUCTURE.md` or `.deepflow/codebase/TESTING.md` is present (loaded in §1). Skip entirely if neither file was found.
+
+**Purpose:** Prevent `[P]` (parallel) markers on tasks whose declared `Files:` lists include resources known to be shared across suites. A shared resource in parallel execution causes test contamination, port collisions, or data races that fail non-deterministically.
+
+#### 4.9.1. Extract Shared Resource Lists
+
+From `STRUCTURE.md` (if present): read the `## Shared Resources` section. Each bullet under that section is a **declared-shared file path**. If the section is absent, treat the shared list from STRUCTURE.md as empty.
+
+From `TESTING.md` (if present): read the `## Parallel Safety` section and extract:
+- `### Database Isolation` → `**Declared shared resources:**` line items (non-"none detected")
+- `### Port Namespacing` → `**Fixed ports detected:**` line items (non-"none detected")
+- `### Environment Variables` → `**Env vars mutated:**` line items (non-"none detected")
+- `### Filesystem Races` → `**Shared paths detected:**` line items (non-"none detected")
+- `### Shared Fixture Cleanup` → `**Suites with per-suite cleanup only (risky):**` line items (non-"none detected")
+
+Merge all extracted items into a single **shared-resource set** (de-duplicated). If TESTING.md is `NOT_FOUND` or the `## Parallel Safety` section is absent, treat the shared list from TESTING.md as empty.
+
+#### 4.9.2. Check Each Task's Files
+
+For every task that has a `Files:` list (in either the monolithic path or mini-plans):
+
+1. Normalize each declared file path (strip leading `./`, collapse `//`).
+2. Check whether any normalized file path appears in the shared-resource set (exact match or path-prefix match).
+3. If **any file matches**: the task is **`[P]`-ineligible**.
+
+#### 4.9.3. Refuse [P] With Reason
+
+**Do NOT emit `[P]` for any `[P]`-ineligible task.** Instead, append a planning note:
+
+```
+⚠ [P] refused for T{N} — shared resource conflict: {matched_file} declared in {TESTING.md|STRUCTURE.md} ## {section_name}
+```
+
+Emit one note per ineligible task. Collect all refusal notes into a `## Parallel Safety Refusals` block in the plan output, placed after the Summary table.
+
+**Format:**
+
+```markdown
+## Parallel Safety Refusals
+
+- T{N} ({description}): [P] refused — {matched_file} is a declared shared resource ({source_file} § {section})
+```
+
+If no tasks are refused (shared lists are empty or no task files match), omit the block entirely.
+
+#### 4.9.4. [P]-Eligible Tasks
+
+A task that passes the §4.9.2 check (no file in the shared-resource set) is `[P]`-eligible. The orchestrator MAY annotate such a task with `[P]` in PLAN.md output when all five conditions from TESTING.md `### Summary Gate` also pass. `[P]` annotation is advisory — it signals the executor (bin/wave-runner.js) that the task may run concurrently with other `[P]`-annotated tasks in the same wave.
+
+**Rule:** Never mark a task `[P]` without running §4.9.2 first. If the codebase-map artifacts are absent, treat all tasks as `[P]`-ineligible by default (conservative fallback).
+
 ### 5. COMPARE & PRIORITIZE
 
 **Two paths** — determined by spec count from §1/§4.7:
@@ -700,3 +755,4 @@ If any L0–L1 spec: `ℹ L0–L1 specs generate spikes only. Deepen with /df:sp
 - **Context budget** — orchestrator reads ONLY specs, config, experiments, PLAN.md, .deepflow/ state; never implementation files
 - Prefer existing utilities over new code; flag spec gaps
 - Always use `Task` tool with explicit `subagent_type` and `model`
+- **Parallel safety** — Run §4.9 before emitting any `[P]` marker. If `.deepflow/codebase/` artifacts are absent, treat all tasks as `[P]`-ineligible (conservative fallback). Never skip §4.9.
