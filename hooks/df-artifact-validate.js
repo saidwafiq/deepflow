@@ -44,7 +44,11 @@ const {
   extractBlockerRefs,
   extractEdgeIds,
   extractPlanSlices,
+  extractPlanFiles,
   normalizeFilePath,
+  computeJaccardBelow,
+  computeLikelyFilesCoveragePct,
+  computeOutOfScopeCount,
 } = require('./lib/artifact-predicates');
 
 // ── Artifact kinds ────────────────────────────────────────────────────────────
@@ -972,6 +976,139 @@ function checkCrossConsistency(artifacts, taskIds) {
   return rows;
 }
 
+// ── REQ-3: Drift checks ───────────────────────────────────────────────────────
+
+/**
+ * Run REQ-3 drift checks: compute the three canonical drift metrics and emit
+ * advisory/hard rows based on config thresholds.
+ *
+ * Canonical drift keys (cross-spec contract with spike-gate REQ-4 — do not rename):
+ *   drift.jaccard_below         — 1 − Jaccard(sketch.modules, impact.modules)
+ *   drift.likely_files_coverage_pct — % of likely_files covered by PLAN slices
+ *   drift.out_of_scope_count    — count of PLAN task Files ∉ impact edges
+ *
+ * Skip-on-missing: if PLAN.md or impact.md is missing → all checks status: "skipped".
+ *
+ * @param {object} artifacts  - Map of artifact name → { path, content, exists }
+ * @param {object} config     - Config object from loadArtifactValidationConfig()
+ * @returns {{
+ *   rows: Array<{artifact, kind, ref, status, evidence, driftKey?, driftValue?, threshold?}>,
+ *   drift: { jaccard_below: number, likely_files_coverage_pct: number, out_of_scope_count: number } | null
+ * }}
+ */
+function checkDrift(artifacts, config) {
+  const rows = [];
+  const thresholds = config.drift_thresholds;
+
+  const sketchArtifact = artifacts['sketch.md'];
+  const impactArtifact = artifacts['impact.md'];
+  const planArtifact = artifacts['PLAN.md'];
+
+  // Skip-on-missing: both PLAN.md and impact.md must exist for drift checks
+  const planMissing = !planArtifact || !planArtifact.exists;
+  const impactMissing = !impactArtifact || !impactArtifact.exists;
+
+  if (planMissing || impactMissing) {
+    const missingArtifact = planMissing ? 'PLAN.md' : 'impact.md';
+    rows.push({
+      artifact: missingArtifact,
+      kind: 'drift',
+      ref: 'drift checks',
+      status: 'skipped',
+      evidence: `${missingArtifact} not available — drift checks skipped`,
+    });
+    return { rows, drift: null };
+  }
+
+  // ── Gather input sets ──────────────────────────────────────────────────────
+
+  // sketch.modules: from sketch.md modules/touched_modules/likely_files sections
+  // Falls back to empty array when sketch.md is missing (drift still runs on remaining inputs)
+  const sketchModules = (sketchArtifact && sketchArtifact.exists)
+    ? extractSketchModules(sketchArtifact.content)
+    : [];
+
+  // impact.modules: file paths from impact.md edges
+  const impactEdges = extractEdgeIds(impactArtifact.path);
+
+  // likely_files: from sketch.md or spec file (used for coverage_pct)
+  const likelyFiles = sketchModules.length > 0
+    ? sketchModules
+    : (sketchArtifact && sketchArtifact.exists ? extractSketchModules(sketchArtifact.content) : []);
+
+  // PLAN slices: Slice: entries from PLAN tasks (for likely_files_coverage_pct)
+  const planSlices = extractPlanSlices(planArtifact.content);
+
+  // PLAN files: Files: entries from PLAN tasks (for out_of_scope_count)
+  const planFiles = extractPlanFiles(planArtifact.content);
+
+  // ── Compute drift metrics ──────────────────────────────────────────────────
+
+  // 1. jaccard_below = 1 − Jaccard(sketch.modules, impact.modules)
+  const jaccardBelow = computeJaccardBelow(sketchModules, impactEdges);
+
+  // 2. likely_files_coverage_pct = |likelyFiles ∩ planSlices| / |likelyFiles| * 100
+  const likelyFilesCoveragePct = computeLikelyFilesCoveragePct(likelyFiles, planSlices);
+
+  // 3. out_of_scope_count = |planFiles \ impactEdges|
+  const outOfScopeCount = computeOutOfScopeCount(planFiles, impactEdges);
+
+  const drift = {
+    jaccard_below: jaccardBelow,
+    likely_files_coverage_pct: likelyFilesCoveragePct,
+    out_of_scope_count: outOfScopeCount,
+  };
+
+  // ── Emit rows for each drift metric ───────────────────────────────────────
+
+  // jaccard_below: advisory when > jaccard_max
+  const jaccardBreaches = jaccardBelow > thresholds.jaccard_max;
+  rows.push({
+    artifact: 'sketch.md',
+    kind: 'drift',
+    ref: 'drift.jaccard_below',
+    status: jaccardBreaches ? 'advisory' : 'ok',
+    evidence: jaccardBreaches
+      ? `drift.jaccard_below=${jaccardBelow.toFixed(4)} exceeds threshold jaccard_max=${thresholds.jaccard_max} — sketch↔impact divergence`
+      : `drift.jaccard_below=${jaccardBelow.toFixed(4)} within threshold jaccard_max=${thresholds.jaccard_max}`,
+    driftKey: 'jaccard_below',
+    driftValue: jaccardBelow,
+    threshold: thresholds.jaccard_max,
+  });
+
+  // likely_files_coverage_pct: advisory when < likely_files_min_pct
+  const coverageBreaches = likelyFilesCoveragePct < thresholds.likely_files_min_pct;
+  rows.push({
+    artifact: 'sketch.md',
+    kind: 'drift',
+    ref: 'drift.likely_files_coverage_pct',
+    status: coverageBreaches ? 'advisory' : 'ok',
+    evidence: coverageBreaches
+      ? `drift.likely_files_coverage_pct=${likelyFilesCoveragePct.toFixed(2)}% below threshold likely_files_min_pct=${thresholds.likely_files_min_pct}% — likely_files under-covered by PLAN slices`
+      : `drift.likely_files_coverage_pct=${likelyFilesCoveragePct.toFixed(2)}% meets threshold likely_files_min_pct=${thresholds.likely_files_min_pct}%`,
+    driftKey: 'likely_files_coverage_pct',
+    driftValue: likelyFilesCoveragePct,
+    threshold: thresholds.likely_files_min_pct,
+  });
+
+  // out_of_scope_count: advisory when > out_of_scope_max
+  const outOfScopeBreaches = outOfScopeCount > thresholds.out_of_scope_max;
+  rows.push({
+    artifact: 'PLAN.md',
+    kind: 'drift',
+    ref: 'drift.out_of_scope_count',
+    status: outOfScopeBreaches ? 'advisory' : 'ok',
+    evidence: outOfScopeBreaches
+      ? `drift.out_of_scope_count=${outOfScopeCount} exceeds threshold out_of_scope_max=${thresholds.out_of_scope_max} — PLAN files not in impact edges`
+      : `drift.out_of_scope_count=${outOfScopeCount} within threshold out_of_scope_max=${thresholds.out_of_scope_max}`,
+    driftKey: 'out_of_scope_count',
+    driftValue: outOfScopeCount,
+    threshold: thresholds.out_of_scope_max,
+  });
+
+  return { rows, drift };
+}
+
 // ── Main validation logic ─────────────────────────────────────────────────────
 
 /**
@@ -1274,6 +1411,13 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
     allChecks.push(...consistencyRows);
   }
 
+  // ── REQ-3: Drift checks ───────────────────────────────────────────────────
+  let driftResult = null;
+  if (config.enforcement.drift !== 'off') {
+    driftResult = checkDrift(artifactsMap, config);
+    allChecks.push(...driftResult.rows);
+  }
+
   // ── Classify failures ─────────────────────────────────────────────────────
   // Existence violations always hard-fail (REQ-4)
   const existenceHardFails = allChecks.filter((c) => c.status === 'missing');
@@ -1287,11 +1431,24 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
       ? consistencyAdvisories
       : [];
 
-  const hardFails = [...existenceHardFails, ...consistencyHardFails];
+  // Drift advisories: hard-fail in auto mode (REQ-4, mirrors consistency escalation pattern)
+  const driftAdvisories = allChecks.filter(
+    (c) => c.kind === 'drift' && c.status === 'advisory'
+  );
+  const driftHardFails =
+    mode === 'auto' && config.enforcement.drift !== 'off'
+      ? driftAdvisories
+      : [];
+
+  const hardFails = [...existenceHardFails, ...consistencyHardFails, ...driftHardFails];
+
+  // drift block: present only when drift checks ran and returned metrics (REQ-5)
+  const driftBlock = (driftResult && driftResult.drift) ? driftResult.drift : undefined;
 
   return {
     checks: allChecks,
     hardFails,
+    drift: driftBlock,
     exit_code: hardFails.length > 0 ? 1 : 0,
   };
 }
@@ -1303,16 +1460,20 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
  * {
  *   artifact: string,
  *   checks: [{family, name, status, evidence}],
+ *   drift?: { jaccard_below: number, likely_files_coverage_pct: number, out_of_scope_count: number },
  *   exit_code: 0|1
  * }
+ *
+ * The `drift` object is present only when drift checks ran; otherwise omitted.
  *
  * @param {string} specName
  * @param {string} artifactName
  * @param {Array}  checks
  * @param {number} exitCode
  * @param {string} repoRoot
+ * @param {object|undefined} [drift] - Drift metrics block (optional)
  */
-function writeResultsJson(specName, artifactName, checks, exitCode, repoRoot) {
+function writeResultsJson(specName, artifactName, checks, exitCode, repoRoot, drift) {
   const resultsDir = path.join(repoRoot, '.deepflow', 'results');
   try {
     fs.mkdirSync(resultsDir, { recursive: true });
@@ -1321,9 +1482,9 @@ function writeResultsJson(specName, artifactName, checks, exitCode, repoRoot) {
     const resultPath = path.join(resultsDir, filename);
 
     // Map internal check rows to REQ-5 schema
-    // family: 'consistency' for cross-consistency rows, 'existence' for reference checks
+    // family: 'drift' for drift rows, 'consistency' for cross-consistency rows, 'existence' for reference checks
     const schemaChecks = checks.map((c) => ({
-      family: c.kind === 'consistency' ? 'consistency' : 'existence',
+      family: c.kind === 'drift' ? 'drift' : c.kind === 'consistency' ? 'consistency' : 'existence',
       name: `${c.kind}:${c.ref}`,
       status: c.status === 'ok' ? 'pass'
         : c.status === 'missing' ? 'fail'
@@ -1337,6 +1498,11 @@ function writeResultsJson(specName, artifactName, checks, exitCode, repoRoot) {
       checks: schemaChecks,
       exit_code: exitCode,
     };
+
+    // Include drift block only when drift checks ran (REQ-5: "present only when drift checks ran")
+    if (drift && typeof drift === 'object') {
+      result.drift = drift;
+    }
 
     fs.writeFileSync(resultPath, JSON.stringify(result, null, 2), 'utf8');
   } catch (_) {
@@ -1433,38 +1599,57 @@ function runCli(args) {
   }
 
   const mode = autoMode ? 'auto' : 'interactive';
-  const { checks, hardFails, exit_code } = validateArtifacts(specName, repoRoot, { mode });
+  const { checks, hardFails, drift, exit_code } = validateArtifacts(specName, repoRoot, { mode });
 
   // Emit all rows to stdout as machine-parseable JSON (one per line)
   for (const row of checks) {
     process.stdout.write(JSON.stringify(row) + '\n');
   }
 
-  // Write per-artifact results files (REQ-5)
+  // Write per-artifact results files (REQ-5) — include drift block in each file
   const artifactNames = [...new Set(checks.map((c) => c.artifact))];
   for (const artifactName of artifactNames) {
     const artifactChecks = checks.filter((c) => c.artifact === artifactName);
-    writeResultsJson(specName, artifactName, artifactChecks, exit_code, repoRoot);
+    writeResultsJson(specName, artifactName, artifactChecks, exit_code, repoRoot, drift);
   }
 
-  // Emit advisory rows to stderr even when not hard-failing (REQ-2, REQ-4)
+  // Emit advisory rows to stderr even when not hard-failing (REQ-2, REQ-3, REQ-4)
   const advisories = checks.filter((c) => c.status === 'advisory');
-  if (advisories.length > 0) {
+  const consistencyAdvisories = advisories.filter((c) => c.kind === 'consistency');
+  const driftAdvisories = advisories.filter((c) => c.kind === 'drift');
+
+  if (consistencyAdvisories.length > 0) {
     process.stderr.write('\n[df-artifact-validate] CONSISTENCY ADVISORIES:\n');
-    for (const row of advisories) {
+    for (const row of consistencyAdvisories) {
       const taskNote = row.taskId ? ` [task=${row.taskId}]` : '';
       const edgeNote = row.missingEdge ? ` missing-edge=${JSON.stringify(row.missingEdge)}` : '';
       process.stderr.write(`  artifact=${row.artifact} ref=${JSON.stringify(row.ref)}${taskNote}${edgeNote}\n`);
       process.stderr.write(`  evidence: ${row.evidence}\n`);
     }
     if (mode !== 'auto') {
-      process.stderr.write(`[df-artifact-validate] ${advisories.length} consistency advisory(s) — warning only (use --auto to escalate)\n`);
+      process.stderr.write(`[df-artifact-validate] ${consistencyAdvisories.length} consistency advisory(s) — warning only (use --auto to escalate)\n`);
     }
+  }
+
+  if (driftAdvisories.length > 0) {
+    process.stderr.write('\n[df-artifact-validate] DRIFT ADVISORIES:\n');
+    for (const row of driftAdvisories) {
+      process.stderr.write(`  artifact=${row.artifact} ref=${JSON.stringify(row.ref)} value=${row.driftValue} threshold=${row.threshold}\n`);
+      process.stderr.write(`  evidence: ${row.evidence}\n`);
+    }
+    if (mode !== 'auto') {
+      process.stderr.write(`[df-artifact-validate] ${driftAdvisories.length} drift advisory(s) — warning only (use --auto to escalate)\n`);
+    }
+  }
+
+  if (drift) {
+    process.stderr.write(`[df-artifact-validate] drift: jaccard_below=${drift.jaccard_below.toFixed(4)} likely_files_coverage_pct=${drift.likely_files_coverage_pct.toFixed(2)}% out_of_scope_count=${drift.out_of_scope_count}\n`);
   }
 
   if (hardFails.length > 0) {
     const existFails = hardFails.filter((c) => c.status === 'missing');
-    const consFails = hardFails.filter((c) => c.status === 'advisory');
+    const consFails = hardFails.filter((c) => c.kind === 'consistency' && c.status === 'advisory');
+    const driftFails = hardFails.filter((c) => c.kind === 'drift' && c.status === 'advisory');
     if (existFails.length > 0) {
       process.stderr.write('\n[df-artifact-validate] EXISTENCE VIOLATIONS (hard-fail):\n');
       for (const row of existFails) {
@@ -1476,6 +1661,13 @@ function runCli(args) {
       process.stderr.write('\n[df-artifact-validate] CONSISTENCY VIOLATIONS (auto-mode escalation):\n');
       for (const row of consFails) {
         process.stderr.write(`  artifact=${row.artifact} ref=${JSON.stringify(row.ref)}\n`);
+        process.stderr.write(`  evidence: ${row.evidence}\n`);
+      }
+    }
+    if (driftFails.length > 0) {
+      process.stderr.write('\n[df-artifact-validate] DRIFT VIOLATIONS (auto-mode escalation):\n');
+      for (const row of driftFails) {
+        process.stderr.write(`  artifact=${row.artifact} ref=${JSON.stringify(row.ref)} value=${row.driftValue} threshold=${row.threshold}\n`);
         process.stderr.write(`  evidence: ${row.evidence}\n`);
       }
     }
@@ -1511,27 +1703,41 @@ function hookHandler(payload) {
   }
 
   const mode = (payload && payload.mode) === 'auto' ? 'auto' : 'interactive';
-  const { checks, hardFails, exit_code } = validateArtifacts(specName, repoRoot, { mode });
+  const { checks, hardFails, drift, exit_code } = validateArtifacts(specName, repoRoot, { mode });
 
   // Emit machine-parseable rows to stdout
   for (const row of checks) {
     process.stdout.write(JSON.stringify(row) + '\n');
   }
 
-  // Write per-artifact results files (REQ-5)
+  // Write per-artifact results files (REQ-5) — include drift block in each file
   const artifactNames = [...new Set(checks.map((c) => c.artifact))];
   for (const artifactName of artifactNames) {
     const artifactChecks = checks.filter((c) => c.artifact === artifactName);
-    writeResultsJson(specName, artifactName, artifactChecks, exit_code, repoRoot);
+    writeResultsJson(specName, artifactName, artifactChecks, exit_code, repoRoot, drift);
   }
 
   // Emit advisory rows to stderr (non-hard in interactive mode)
   const advisories = checks.filter((c) => c.status === 'advisory');
   if (advisories.length > 0) {
-    process.stderr.write('\n[df-artifact-validate] CONSISTENCY ADVISORIES:\n');
-    for (const row of advisories) {
-      process.stderr.write(`  ${JSON.stringify(row)}\n`);
+    const consistencyAdvisories = advisories.filter((c) => c.kind === 'consistency');
+    const driftAdvisories = advisories.filter((c) => c.kind === 'drift');
+    if (consistencyAdvisories.length > 0) {
+      process.stderr.write('\n[df-artifact-validate] CONSISTENCY ADVISORIES:\n');
+      for (const row of consistencyAdvisories) {
+        process.stderr.write(`  ${JSON.stringify(row)}\n`);
+      }
     }
+    if (driftAdvisories.length > 0) {
+      process.stderr.write('\n[df-artifact-validate] DRIFT ADVISORIES:\n');
+      for (const row of driftAdvisories) {
+        process.stderr.write(`  ${JSON.stringify(row)}\n`);
+      }
+    }
+  }
+
+  if (drift) {
+    process.stderr.write(`[df-artifact-validate] drift: jaccard_below=${drift.jaccard_below.toFixed(4)} likely_files_coverage_pct=${drift.likely_files_coverage_pct.toFixed(2)}% out_of_scope_count=${drift.out_of_scope_count}\n`);
   }
 
   if (hardFails.length > 0) {
@@ -1549,6 +1755,7 @@ module.exports = {
   validateArtifacts,
   checkArtifactExistence,
   checkCrossConsistency,
+  checkDrift,
   extractSketchRefs,
   extractSketchModules,
   extractImpactRefs,
