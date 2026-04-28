@@ -1526,15 +1526,29 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
 /**
  * Write results JSON to .deepflow/results/validate-{spec}-{artifact}.json
  *
- * Schema (REQ-5):
+ * Schema (REQ-5) — validate-owned schema, source of truth for spike-gate and /df:dashboard:
  * {
- *   artifact: string,
- *   checks: [{family, name, status, evidence}],
- *   drift?: { jaccard_below: number, likely_files_coverage_pct: number, out_of_scope_count: number },
- *   exit_code: 0|1
+ *   artifact: string,                    — artifact name (e.g. "sketch.md")
+ *   spec: string,                         — spec name (e.g. "artifact-validation")
+ *   checks: [{                            — per-check rows
+ *     family: "existence"|"consistency"|"drift",
+ *     name: string,                       — "{kind}:{ref}"
+ *     status: "pass"|"fail"|"warn"|"skipped",
+ *     taskId?: string,                    — present on consistency checks with task context
+ *     evidence: string|object
+ *   }],
+ *   drift: {                              — present only when drift checks ran; otherwise omitted
+ *     jaccard_below: number,
+ *     likely_files_coverage_pct: number,
+ *     out_of_scope_count: number
+ *   } | null,
+ *   exit_code: 0|1,
+ *   mode: "interactive"|"auto"|"strict"|"advisory",
+ *   timestamp: string                     — ISO 8601 UTC
  * }
  *
- * The `drift` object is present only when drift checks ran; otherwise omitted.
+ * One file per (spec, artifact) pair — overwrites on each PostToolUse fire.
+ * Idempotent: identical inputs produce byte-identical output (deterministic JSON serialisation).
  *
  * @param {string} specName
  * @param {string} artifactName
@@ -1542,8 +1556,9 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
  * @param {number} exitCode
  * @param {string} repoRoot
  * @param {object|undefined} [drift] - Drift metrics block (optional)
+ * @param {string} [mode] - Enforcement mode ('interactive'|'auto'|'strict'|'advisory')
  */
-function writeResultsJson(specName, artifactName, checks, exitCode, repoRoot, drift) {
+function writeResultsJson(specName, artifactName, checks, exitCode, repoRoot, drift, mode) {
   const resultsDir = path.join(repoRoot, '.deepflow', 'results');
   try {
     fs.mkdirSync(resultsDir, { recursive: true });
@@ -1553,20 +1568,28 @@ function writeResultsJson(specName, artifactName, checks, exitCode, repoRoot, dr
 
     // Map internal check rows to REQ-5 schema
     // family: 'drift' for drift rows, 'consistency' for cross-consistency rows, 'existence' for reference checks
-    const schemaChecks = checks.map((c) => ({
-      family: c.kind === 'drift' ? 'drift' : c.kind === 'consistency' ? 'consistency' : 'existence',
-      name: `${c.kind}:${c.ref}`,
-      status: c.status === 'ok' ? 'pass'
-        : c.status === 'missing' ? 'fail'
-        : c.status === 'advisory' ? 'warn'
-        : c.status, // skipped → 'skipped'
-      evidence: c.evidence,
-    }));
+    const schemaChecks = checks.map((c) => {
+      const row = {
+        family: c.kind === 'drift' ? 'drift' : c.kind === 'consistency' ? 'consistency' : 'existence',
+        name: `${c.kind}:${c.ref}`,
+        status: c.status === 'ok' ? 'pass'
+          : c.status === 'missing' ? 'fail'
+          : c.status === 'advisory' ? 'warn'
+          : c.status, // skipped → 'skipped'
+        evidence: c.evidence,
+      };
+      // Carry taskId through for consistency checks that have task context (REQ-5)
+      if (c.taskId) row.taskId = c.taskId;
+      return row;
+    });
 
     const result = {
       artifact: artifactName,
+      spec: specName,
       checks: schemaChecks,
       exit_code: exitCode,
+      mode: mode || 'interactive',
+      timestamp: new Date().toISOString(),
     };
 
     // Include drift block only when drift checks ran (REQ-5: "present only when drift checks ran")
@@ -1687,11 +1710,11 @@ function runCli(args) {
     process.stdout.write(JSON.stringify(row) + '\n');
   }
 
-  // Write per-artifact results files (REQ-5) — include drift block in each file
+  // Write per-artifact results files (REQ-5) — include drift block and mode in each file
   const artifactNames = [...new Set(checks.map((c) => c.artifact))];
   for (const artifactName of artifactNames) {
     const artifactChecks = checks.filter((c) => c.artifact === artifactName);
-    writeResultsJson(specName, artifactName, artifactChecks, exit_code, repoRoot, drift);
+    writeResultsJson(specName, artifactName, artifactChecks, exit_code, repoRoot, drift, mode);
   }
 
   // Emit advisory rows to stderr even when not hard-failing (REQ-2, REQ-3, REQ-4)
@@ -1796,11 +1819,11 @@ function hookHandler(payload) {
     process.stdout.write(JSON.stringify(row) + '\n');
   }
 
-  // Write per-artifact results files (REQ-5) — include drift block in each file
+  // Write per-artifact results files (REQ-5) — include drift block and mode in each file
   const artifactNames = [...new Set(checks.map((c) => c.artifact))];
   for (const artifactName of artifactNames) {
     const artifactChecks = checks.filter((c) => c.artifact === artifactName);
-    writeResultsJson(specName, artifactName, artifactChecks, exit_code, repoRoot, drift);
+    writeResultsJson(specName, artifactName, artifactChecks, exit_code, repoRoot, drift, mode);
   }
 
   // Emit advisory rows to stderr (non-hard in interactive mode)
