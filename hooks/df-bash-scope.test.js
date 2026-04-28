@@ -547,7 +547,7 @@ describe('AC-5: bin/install.js omits mutating Bash git ops from permissions.allo
 // until T111 completes.
 
 describe('AC-6: df-implement-bash-search-guard.js is removed post-install', () => {
-  it('AC-6: hooks/df-implement-bash-search-guard.js does not exist in install source (todo until T111)', { todo: 'Blocked by T111 — retire search guard source file' }, () => {
+  it('AC-6: hooks/df-implement-bash-search-guard.js does not exist in install source', () => {
     // The search guard is retired by narrow-bash-per-agent (REQ-5 subsumes it).
     // Verify the hook file is gone from the install source (hooks/ dir).
     // Note: the test file (.test.js) may remain, but the hook itself must be absent.

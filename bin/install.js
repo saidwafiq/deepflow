@@ -251,7 +251,7 @@ async function main() {
     console.log('                       PreToolUse:    df-codebase-inject (artifact injection on Task spawn)');
     console.log('                                      df-delegation-contract (DELEGATION.md enforcement)');
     console.log('                                      df-explore-protocol, df-implement-protocol, df-verify-protocol');
-    console.log('                                      df-bash-rewrite, df-bash-worktree-guard, df-implement-bash-search-guard');
+    console.log('                                      df-bash-rewrite, df-bash-worktree-guard, df-bash-scope');
     console.log('                                      df-snapshot-guard, df-worktree-guard, df-worktree-precheck');
     console.log('                       PostToolUse:   df-artifact-validate (sketch/impact/findings/PLAN consistency)');
     console.log('                                      df-codebase-staleness, df-experiment-immutable, df-spike-validate');
