@@ -6,7 +6,7 @@ Integration ACs: {{INTEGRATION_ACS}}
 Specs involved: {{SPECS_INVOLVED}}
 Interface Map: {{INTERFACE_MAP}}
 Contract Risks: {{CONTRACT_RISKS}}
-LSP documentSymbol on Impact files → Read with offset/limit on relevant ranges only (never read full files)
+LSP documentSymbol on Impact files (sketch.md, impact.md, findings.md) → Read with offset/limit on relevant ranges only (never read full files)
 --- END ---
 RULES:
 - Fix the CONSUMER to match the PRODUCER's declared interface. Never weaken the producer.
