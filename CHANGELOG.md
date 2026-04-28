@@ -1,3 +1,55 @@
+## v0.1.129 — 2026-04-28
+
+Five new specs land together: a **codebase-map** artifact pipeline (`/df:map` + injection), end-to-end **artifact validation**, a formal **agent delegation contract**, hash-stable **spike gates** with isolation, and **WHEN/THEN/SHALL** acceptance-criteria enforcement.
+
+### What's new
+
+**`/df:map` — codebase artifact pipeline**
+- **`/df:map` slash command** — generates six codebase artifacts (sketch, findings, impact, etc.) with sha256 staleness detection and `[STALE]` markers.
+- **Per-agent artifact injection** — PreToolUse hook injects only the artifact subset each subagent needs; ordering is `inject → delegation-contract` so contracts see the injected context.
+- **Stale auto-regen** — injection hook detects stale maps and re-runs generation transparently.
+- **Parallel-safety guard** — `/df:plan` now refuses `[P]` (parallel) tags on tasks touching shared resources, with rules encoded in the TESTING.md template.
+- **Map invalidation on merge** — `.deepflow/maps/{spec}/` is invalidated on doing→done transitions so stale maps don't outlive their spec.
+- **`gpt-tokenizer` runtime dep** — token-counting (`bin/count-tokens.js`) enforces AC-8 bounds (CLAUDE.md ≤5k, artifacts 15k–25k).
+
+**Artifact chain (sketch → findings → impact)**
+- **New scaffolds** — `sketch-template.md`, `findings-template.md`, `impact-template.md` populate the chain from `/df:discover` through `/df:plan`.
+- **Plan template** — optional `Slice`, `Symbols`, `Impact edges` frontmatter fields for blast-radius traceability.
+- **Per-task findings** — `/df:execute` now appends per-task findings blocks back into the artifact chain.
+
+**Artifact validation hook (`df-artifact-validate.js`)**
+- **Existence + scope-coverage predicates** — extracted into `hooks/lib/artifact-predicates.js` for greppability and reuse.
+- **Drift checks** — canonical drift formula with frozen result-JSON schema (REQ-5).
+- **Cross-consistency checks** between sketch/findings/impact/plan.
+- **Enforcement modes + auto-escalation** — soft → hard escalation with skip-on-missing-artifact (REQ-7).
+- **Pinned artifact filenames** — constants live in a shared module so templates and hooks can't drift.
+
+**Agent delegation contract**
+- **`DELEGATION.md`** at the repo root declares per-subagent `allowedInputs` / `forbiddenInputs` / `requiredOutputSchema` for 7 agents, with a Router-vs-Interpreter section (AC-9).
+- **PreToolUse enforcement** — `hooks/df-delegation-contract.js` validates every Task spawn against the contract.
+- **All `/df:*` commands conform** — discover, debate, plan, spec, execute spawn sites updated to honor the contract.
+
+**Spike gates + isolation**
+- **Schema validator** — `hooks/df-spike-validate.js` enforces REQ-5 spike result JSON.
+- **Hash-stable spike gates** — `inputs_hash` canonical formula is stable across input reorderings; drift result JSON is frozen.
+- **Spike isolation** — port-pool + tmpdir isolation under `max_parallel`; hash-based worktree cache; `df-experiment-immutable.js` PostToolUse hook locks completed experiments.
+- **`spike.gate.*` and `spike.isolation.*`** config blocks added to the config template.
+
+**WHEN/THEN/SHALL acceptance criteria**
+- **`/df:spec` mandates** WHEN/THEN/SHALL phrasing for all generated ACs.
+- **Spec-lint hook** — new `checkAcPhrasing` rejects free-form ACs.
+- **Updated example ACs** in templates use the new phrasing.
+
+### Fixes & internals
+
+- **`/df:execute` parallelism** — removed the parallelism cap of 5 agents under <50% context.
+- **Wave-runner** — extracts `task_detail_body` from mini-plan bullet lists *and* PLAN.md integration blocks.
+- **Worktree isolation** — sub-agent worktree boundary now enforced across templates, sub-agents, and hooks (post wave-1 contamination recovery).
+- **`/df:discover` & `/df:debate`** — refactored to eliminate orchestrator paraphrasing of agent outputs.
+- **Decisions file index** — experiment template gains `files:` frontmatter; df-decisions skill documents the `Files:` tag.
+- **`validate-tasks-gates`** — PreToolUse hook scaffolded with constants, parser, and three gates.
+- **gitignore** — `node_modules` ignored; tracked symlink removed.
+
 ## v0.1.128 — 2026-04-23
 
 Tighten `/df:verify` output contract to suppress LSP false-positives from worktree symlinks.
