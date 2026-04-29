@@ -1093,6 +1093,51 @@ describe('CLI — --json flag subprocess', () => {
 });
 
 // ---------------------------------------------------------------------------
+// AC-13: [SPIKE-PLATFORM] tag emits {tag, isSpike, isSpikePlatform}
+// ---------------------------------------------------------------------------
+
+describe('wave-runner: [SPIKE-PLATFORM] tag emits {tag, isSpike, isSpikePlatform}', () => {
+  test('parsePlan captures SPIKE-PLATFORM as raw tag', () => {
+    const text = '- [ ] **T1** [SPIKE-PLATFORM]: Probe platform limits\n';
+    const tasks = parsePlan(text);
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].tag, 'SPIKE-PLATFORM');
+  });
+
+  test('formatWavesJson emits tag=SPIKE-PLATFORM, isSpike=true, isSpikePlatform=true', () => {
+    const waves = [
+      [{ id: 'T1', num: 1, description: 'Probe platform limits', model: null, files: null, effort: null, blockedBy: [], spec: null, tag: 'SPIKE-PLATFORM' }],
+    ];
+    const parsed = JSON.parse(formatWavesJson(waves));
+    assert.equal(parsed.length, 1);
+    const t = parsed[0];
+    assert.equal(t.tag, 'SPIKE-PLATFORM', 'tag must be SPIKE-PLATFORM');
+    assert.equal(t.isSpike, true, 'isSpike must be true for SPIKE-PLATFORM');
+    assert.equal(t.isSpikePlatform, true, 'isSpikePlatform must be true for SPIKE-PLATFORM');
+  });
+
+  test('end-to-end via CLI --json: PLAN.md with only [SPIKE-PLATFORM] line', () => {
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, 'PLAN.md'),
+        '- [ ] **T1** [SPIKE-PLATFORM]: Probe platform limits\n'
+      );
+      const { code, stdout } = runWaveRunner(['--json'], { cwd: tmpDir });
+      assert.equal(code, 0, `wave-runner failed: ${stdout}`);
+      const parsed = JSON.parse(stdout);
+      assert.equal(parsed.length, 1);
+      const t = parsed[0];
+      assert.equal(t.tag, 'SPIKE-PLATFORM', 'tag must be SPIKE-PLATFORM');
+      assert.equal(t.isSpike, true, 'isSpike must be true for SPIKE-PLATFORM');
+      assert.equal(t.isSpikePlatform, true, 'isSpikePlatform must be true for SPIKE-PLATFORM');
+    } finally {
+      rmrf(tmpDir);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC-8: round-trip — acceptance_criteria, domain_model, task_detail_body
 // ---------------------------------------------------------------------------
 
