@@ -1,3 +1,22 @@
+## v0.1.130 — 2026-04-29
+
+Per-agent Bash scoping replaces the legacy implement-only guard, a new platform-spike agent unlocks unsandboxed proofs of concept, and `/df:spec` now consumes `/df:map` warm-up artifacts so requirement synthesis is grounded in real stack/architecture.
+
+### What's new
+
+- **Per-agent Bash allowlists** — new `df-bash-scope` PreToolUse hook enforces per-subagent command scopes (read-only for impl/test, mutations only for `df-haiku-ops`, arbitrary CLI for spikes within their worktree). Replaces the global `df-implement-bash-search-guard`.
+- **`df-spike-platform` agent** — a new sub-agent with broader Bash scope for platform-level proof-of-concept work that the standard `df-spike` cannot run. Tagged with `[SPIKE-PLATFORM]` in PLAN.md and routed by `wave-runner`.
+- **`/df:spec` warm-up** — when `.deepflow/codebase/` artifacts exist, `/df:spec` now injects `STACK.md` + `ARCHITECTURE.md` + `INTEGRATIONS.md` into the reasoner so requirements anchor to your real stack instead of guessing. Falls back gracefully if `/df:map` hasn't run yet.
+- **Two-tier agent identity** — runtime agent role is inferred from cwd-branch first (worktree task agents) and falls back to transcript-walk metadata (haiku-ops and arbitrary-cwd subagents). No env-var injection required.
+- **LSP diagnostics protocol** — `df-implement`, `df-integration`, and `df-optimize` now have a codified protocol for consuming LSP diagnostics during edit cycles.
+
+### Fixes & internals
+
+- `reasoner` no longer has direct Bash access — shell ops delegate through `df-haiku-ops`, shrinking the reasoning agent's blast radius.
+- `DEEPFLOW_PERMISSIONS` global allowlist split: 9 mutation patterns (git commit/add/branch/checkout/merge/revert/stash/worktree, mkdir) removed from the global set and enforced per-agent via `df-bash-scope`. `git show` and `git rev-parse` added to the global read-only set.
+- Test coverage: 10 ACs across 6 agents in `df-bash-scope.test.js`; explicit allow+deny tests for `df-spike-platform`.
+- Install banner now reflects 8 sub-agents (was 7); cleaned up 5 duplicate `done-*.md` files already migrated to `.deepflow/specs-done/`.
+
 ## v0.1.129 — 2026-04-28
 
 Five new specs land together: a **codebase-map** artifact pipeline (`/df:map` + injection), end-to-end **artifact validation**, a formal **agent delegation contract**, hash-stable **spike gates** with isolation, and **WHEN/THEN/SHALL** acceptance-criteria enforcement.
