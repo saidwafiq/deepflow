@@ -1,3 +1,12 @@
+## v0.1.131 — 2026-04-29
+
+Hotfix: the v0.1.130 per-agent Bash hook shipped with a malformed `@hook-event` tag, so the installer copied the file but never registered it. The headline feature of v0.1.130 was inert until this release.
+
+### Fixes
+
+- **`df-bash-scope` now actually runs.** The hook header used `// @hook-event PreToolUse` (no colon); the installer's auto-wire regex requires the colon. Without it the hook was copied to `~/.claude/hooks/` but never added to `settings.json` PreToolUse:Bash, so per-agent Bash scoping silently did nothing in v0.1.130. Re-run `npx deepflow@latest` to register the hook.
+- Test that asserted the buggy form was updated to match the installer's actual regex contract.
+
 ## v0.1.130 — 2026-04-29
 
 Per-agent Bash scoping replaces the legacy implement-only guard, a new platform-spike agent unlocks unsandboxed proofs of concept, and `/df:spec` now consumes `/df:map` warm-up artifacts so requirement synthesis is grounded in real stack/architecture.
