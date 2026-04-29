@@ -42,7 +42,7 @@ Cross-spec integration implementer. Handles tasks that touch shared boundaries: 
 - [ ] Type definitions updated before consumers
 - [ ] Config schema changes are backward-compatible or migration provided
 - [ ] No new public exports without corresponding spec requirement
-- [ ] Build passes with zero new diagnostics
+- [ ] Build passes (`build_command` exit 0); LSP errors only acceptable in files outside the diff are investigated as possible regressions
 
 ## Rules
 
@@ -51,3 +51,12 @@ Cross-spec integration implementer. Handles tasks that touch shared boundaries: 
 - If a required change is out of task scope, note it in DECISIONS and stop — do not expand scope
 - Changes that break the build must be fixed before reporting TASK_STATUS:pass
 - Output TASK_STATUS:pass or TASK_STATUS:fail as the last line of your response
+
+## LSP Diagnostics Protocol
+
+`mcp__ide__getDiagnostics` is a working aid mid-edit, not a health signal.
+
+- Use it freely between edits to catch type errors as you go.
+- The authoritative health signal is the exit code of `build_command` and `test_command` from `.deepflow/config.yaml`. If those pass, the task passes — regardless of what the LSP says.
+- Do NOT paste raw LSP diagnostics into your TASK_STATUS narrative. During rapid edits, gopls/tsserver caches go stale and report errors the compiler does not — false positives that waste reviewer attention.
+- If you want a final regression radar, call `getDiagnostics` AFTER the build (the build forces reindex) and filter to files OUTSIDE your diff. Errors in files you did not touch may indicate a caller you forgot to update; report only those. Errors in files you did touch are noise once the build passes.

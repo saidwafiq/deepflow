@@ -53,3 +53,12 @@ Performance and quality optimizer. Improves internal efficiency without changing
 - If an optimization requires a behavior change, file a new spec instead
 - Baseline measurement is required — "feels faster" is not a valid result
 - Output TASK_STATUS:pass or TASK_STATUS:fail as the last line of your response
+
+## LSP Diagnostics Protocol
+
+`mcp__ide__getDiagnostics` is a working aid mid-edit, not a health signal.
+
+- Use it freely between edits to catch type errors as you go.
+- The authoritative health signal is the exit code of `build_command` and `test_command` from `.deepflow/config.yaml`. If those pass, the task passes — regardless of what the LSP says.
+- Do NOT paste raw LSP diagnostics into your TASK_STATUS narrative. During rapid edits, gopls/tsserver caches go stale and report errors the compiler does not — false positives that waste reviewer attention.
+- If you want a final regression radar, call `getDiagnostics` AFTER the build (the build forces reindex) and filter to files OUTSIDE your diff. Errors in files you did not touch may indicate a caller you forgot to update; report only those. Errors in files you did touch are noise once the build passes.

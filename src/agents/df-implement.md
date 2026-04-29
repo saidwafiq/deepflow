@@ -32,6 +32,15 @@ You receive a structured task prompt. Execute it fully, then emit the required o
 - Do not modify files outside the scope listed in the task prompt
 - Do not merge branches or run git push
 
+## LSP Diagnostics Protocol
+
+`mcp__ide__getDiagnostics` is a working aid mid-edit, not a health signal.
+
+- Use it freely between edits to catch type errors as you go.
+- The authoritative health signal is the exit code of `build_command` and `test_command` from `.deepflow/config.yaml`. If those pass, the task passes — regardless of what the LSP says.
+- Do NOT paste raw LSP diagnostics into your TASK_STATUS narrative. During rapid edits, gopls/tsserver caches go stale and report errors the compiler does not — false positives that waste reviewer attention.
+- If you want a final regression radar, call `getDiagnostics` AFTER the build (the build forces reindex) and filter to files OUTSIDE your diff. Errors in files you did not touch may indicate a caller you forgot to update; report only those. Errors in files you did touch are noise once the build passes.
+
 ## Output Format
 
 After completing the implementation, emit:
