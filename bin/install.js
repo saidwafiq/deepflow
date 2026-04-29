@@ -239,8 +239,8 @@ async function main() {
   console.log('                       craft:       atomic-commits, code-completeness');
   console.log('                       fetch:       browse-fetch, browse-verify, repo-inspect');
   console.log('                       runtime:     auto-cycle');
-  console.log('  agents/          — 7 sub-agents + DELEGATION.md contract');
-  console.log('                       df-implement, df-integration, df-spike, df-test, df-optimize, df-haiku-ops, reasoner');
+  console.log('  agents/          — 8 sub-agents + DELEGATION.md contract');
+  console.log('                       df-implement, df-integration, df-spike, df-spike-platform, df-test, df-optimize, df-haiku-ops, reasoner');
   console.log('                       (input/output contracts enforced by df-delegation-contract PreToolUse hook)');
   console.log('  bin/             — count-tokens, df-filter-suggest, lsp-query, lineage-ingest,');
   console.log('                     plan-consolidator, prompt-compose, ratchet, wave-runner, worktree-deps');
