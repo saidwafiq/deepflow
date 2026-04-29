@@ -33,6 +33,13 @@ Check for `specs/.debate-{name}.md` first — if exists, read it and pass Synthe
 
 **Upstream artifact loader** (shell injection — load before spawning explore agents; proceed normally when absent):
 - `` !`cat .deepflow/maps/{name}/sketch.md 2>/dev/null || echo 'NOT_FOUND'` `` (discover prior: modules, entry_points, related_specs; pass to reasoner in step 3 when present; `{name}` is the `<name>` argument from the command invocation `/df:spec <name>`)
+- `` !`cat .deepflow/codebase/STACK.md 2>/dev/null || echo 'NOT_FOUND'` `` (warm-up: runtime, deps, scripts — anchors REQ phrasing to actual stack)
+- `` !`cat .deepflow/codebase/ARCHITECTURE.md 2>/dev/null || echo 'NOT_FOUND'` `` (warm-up: component map, data flow, design patterns — informs constraints and integration points)
+- `` !`cat .deepflow/codebase/INTEGRATIONS.md 2>/dev/null || echo 'NOT_FOUND'` `` (warm-up: external services, env vars — informs constraints and out-of-scope boundaries)
+
+If any of the three `.deepflow/codebase/*.md` loaders return `NOT_FOUND`, proceed without them but include a one-line hint in the final confirmation (§5): `ℹ .deepflow/codebase/ artifacts not generated — run /df:map for warm-up context on next /df:spec`. Do not block.
+
+When the artifacts load successfully, pass them to the reasoner verbatim in step 3 alongside the Explore agent outputs (under a `## Codebase warm-up` heading). The reasoner uses them to anchor REQ phrasing to real stack/architecture/integration points instead of guessing.
 
 Follow `templates/explore-agent.md` for spawn rules, prompt structure, scope restrictions. Find: related implementations, code patterns/conventions, integration points, existing TODOs.
 
@@ -56,6 +63,10 @@ Spawn reasoner agent (`subagent_type: "reasoner"`, `model: "opus"`). Pass Explor
 
 ```
 ## Analysis request: Synthesize codebase findings into a specification
+
+## Codebase warm-up (verbatim from .deepflow/codebase/, when generated)
+
+{verbatim contents of STACK.md, ARCHITECTURE.md, INTEGRATIONS.md — concatenated with file-name headers; or "(not generated — run /df:map)" when all three returned NOT_FOUND}
 
 ## Explore agent outputs (verbatim — do NOT read any files; work from these outputs only)
 
