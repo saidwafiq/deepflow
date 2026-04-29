@@ -52,10 +52,11 @@ const AGENT_ARTIFACT_MAP = {
  */
 function deriveSubagentType(task) {
   const tag = (task.tag || '').toUpperCase();
-  if (tag === 'INTEGRATION') return 'df-integration';
-  if (tag === 'SPIKE')       return 'df-spike';
-  if (tag === 'OPTIMIZE')    return 'df-optimize';
-  if (tag === 'TEST')        return 'df-test';
+  if (tag === 'INTEGRATION')     return 'df-integration';
+  if (tag === 'SPIKE-PLATFORM')  return 'df-spike';
+  if (tag === 'SPIKE')           return 'df-spike';
+  if (tag === 'OPTIMIZE')        return 'df-optimize';
+  if (tag === 'TEST')            return 'df-test';
   return 'df-implement';
 }
 
@@ -121,11 +122,21 @@ function parsePlan(text) {
     }
 
     // Match pending task header: - [ ] **T{N}**...
-    // Captures optional [TAG] as group 2 (e.g. INTEGRATION, SPIKE, OPTIMIZE)
+    // Captures optional [TAG] as group 2 (e.g. INTEGRATION, SPIKE, SPIKE-PLATFORM, OPTIMIZE)
     const taskMatch = line.match(/^\s*-\s+\[\s+\]\s+\*\*T(\d+)\*\*(?:\s+\[([^\]]*)\])?[:\s]*(.*)/);
     if (taskMatch) {
       const rawTag = taskMatch[2] ? taskMatch[2].trim().toUpperCase() : null;
       const rest = taskMatch[3].trim();
+
+      // Collision check: [SPIKE] and [SPIKE-PLATFORM] are mutually exclusive.
+      // Use word-boundary patterns to avoid [SPIKE-PLATFORM] triggering the [SPIKE] check.
+      const hasSpike         = /\[SPIKE\]/.test(line);
+      const hasSpikePlatform = /\[SPIKE-PLATFORM\]/.test(line);
+      if (hasSpike && hasSpikePlatform) {
+        throw new Error(
+          `Task T${taskMatch[1]}: [SPIKE] and [SPIKE-PLATFORM] are mutually exclusive — use one or the other, not both`
+        );
+      }
 
       // Extract inline blocked-by (from " | Blocked by: T1, T2")
       let inlineBlockedBy = [];
@@ -316,7 +327,7 @@ function buildWaves(tasks, stuckIds) {
 
 /**
  * Format waves as a JSON array of task objects, each with a `wave` field.
- * Fields: id, description, model, files, effort, blockedBy, spec, tag, isIntegration, isSpike, isOptimize,
+ * Fields: id, description, model, files, effort, blockedBy, spec, tag, isIntegration, isSpike, isSpikePlatform, isOptimize,
  *         acceptance_criteria, domain_model, task_detail_body, wave
  *
  * @param {Array} waves
@@ -425,9 +436,10 @@ function formatWavesJson(waves, cwd) {
         blockedBy: t.blockedBy,
         spec: t.spec || null,
         tag: tag,
-        isIntegration: tag === 'INTEGRATION',
-        isSpike: tag === 'SPIKE',
-        isOptimize: tag === 'OPTIMIZE',
+        isIntegration:    tag === 'INTEGRATION',
+        isSpike:          tag === 'SPIKE' || tag === 'SPIKE-PLATFORM',
+        isSpikePlatform:  tag === 'SPIKE-PLATFORM',
+        isOptimize:       tag === 'OPTIMIZE',
         acceptance_criteria,
         domain_model,
         task_detail_body,

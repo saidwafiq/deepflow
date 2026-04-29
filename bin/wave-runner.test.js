@@ -789,7 +789,7 @@ describe('formatWavesJson — edge cases and field completeness', () => {
     const keys = Object.keys(parsed[0]).sort();
     assert.deepEqual(keys, [
       'acceptance_criteria', 'artifacts', 'blockedBy', 'description', 'domain_model',
-      'effort', 'files', 'id', 'isIntegration', 'isOptimize', 'isSpike',
+      'effort', 'files', 'id', 'isIntegration', 'isOptimize', 'isSpike', 'isSpikePlatform',
       'model', 'spec', 'tag', 'task_detail_body', 'wave',
     ]);
     // New fields default to empty when spec file not found
