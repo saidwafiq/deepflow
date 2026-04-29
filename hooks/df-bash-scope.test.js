@@ -938,10 +938,10 @@ describe('AC-16 + AC-17: df-spike-platform allow/deny via transcript-walk', () =
 // ---------------------------------------------------------------------------
 
 describe('df-bash-scope.js — hook event tags', () => {
-  it('carries @hook-event PreToolUse within first 5 lines', () => {
+  it('carries @hook-event: PreToolUse within first 5 lines (matches installer scanner regex)', () => {
     const lines = fs.readFileSync(HOOK_PATH, 'utf8').split('\n').slice(0, 5);
-    const hasEvent = lines.some(l => /\/\/\s*@hook-event\s+PreToolUse/.test(l));
-    assert.ok(hasEvent, 'should have @hook-event PreToolUse tag');
+    const hasEvent = lines.some(l => /\/\/\s*@hook-event:\s*PreToolUse/.test(l));
+    assert.ok(hasEvent, 'should have @hook-event: PreToolUse tag (colon required for installer auto-wiring)');
   });
 
   it('carries @hook-owner: deepflow within first 5 lines', () => {

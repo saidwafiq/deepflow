@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// @hook-event PreToolUse
-// @hook-tool Bash
+// @hook-event: PreToolUse
+// @hook-tool: Bash
 // @hook-owner: deepflow
 /**
  * df-bash-scope — per-agent Bash command scope enforcement.
