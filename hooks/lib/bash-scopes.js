@@ -208,6 +208,52 @@ const SCOPES = {
   },
 
   /**
+   * df-spike-platform — platform installation/verification spike agent.
+   * Needs to copy/move/diff/remove files between ~/.claude/** and /tmp/**,
+   * and find files under ~/.claude/projects/**. Inherits build/test patterns
+   * from df-spike. Still blocks git mutations (commits only via df-haiku-ops).
+   *
+   * AC-12: SCOPES['df-spike-platform'] must exist as a key.
+   * AC-17: 'cp ~/.claude/settings.local.json /tmp/bak' must be allowed.
+   */
+  'df-spike-platform': {
+    allow: [
+      ...BUILD_TEST_RUNNERS,
+      ...GIT_READ_ONLY,
+      // fs operations against /tmp/** and ~/.claude/**
+      /^cp\s+.*(?:\/tmp\/|~\/\.claude\/)/, // cp from/to /tmp/ or ~/.claude/
+      /^mv\s+.*(?:\/tmp\/|~\/\.claude\/)/,
+      /^cat\s+.*(?:\/tmp\/|~\/\.claude\/)/,
+      /^diff\s+.*(?:\/tmp\/|~\/\.claude\/)/,
+      /^rm\s+.*(?:\/tmp\/|~\/\.claude\/)/,
+      // find under ~/.claude/projects/**
+      /^find\s+~\/\.claude\/projects\b/,
+      /^find\s+.*\/\.claude\/projects\b/,
+      // Network / fetching (inherited from spike spirit)
+      /^curl\b/,
+      /^wget\b/,
+      // Light read utilities
+      /^ls\b/,
+      /^pwd\b/,
+      /^echo\b/,
+      /^which\b/,
+    ],
+    denyOverride: [
+      /^git\s+push\b/,
+      /^git\s+commit\b/,
+      /^git\s+add\b/,
+      /^git\s+merge\b/,
+      /^git\s+rebase\b/,
+      /^git\s+reset\b/,
+      /^git\s+stash\b/,
+      /^git\s+branch\b(?!\s+--show-current|\s+-[a-z]*v)/,
+      /^git\s+checkout\b/,
+      /^git\s+worktree\b/,
+      /^git\s+tag\b/,
+    ],
+  },
+
+  /**
    * df-spike — proof-of-concept exploration; arbitrary CLI within worktree.
    * Wider than df-implement: network tools (curl, wget), language toolchains,
    * package managers, etc. Still blocks git mutations (commits via df-haiku-ops).
