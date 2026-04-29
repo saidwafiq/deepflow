@@ -3,10 +3,16 @@
 /**
  * hooks/lib/agent-role.js
  *
- * Infer the deepflow subagent role from a Bash invocation's working directory.
+ * Infer the deepflow subagent role from a Bash invocation payload.
  * Ported from T104's reference implementation (probe-T104/agent-role-reference.js).
+ * Extended by T108 to add a transcript-walk fallback tier.
  *
- * Single-source identity: cwd → git branch → PLAN.md tag lookup.
+ * Two-tier strategy (T108):
+ *   Tier 1: cwd-branch inference (inferAgentRoleFromCwd) — deterministic for
+ *            task agents running in df/<spec>--probe-T{N} worktrees.
+ *   Tier 2: transcript-walk (inferAgentRoleViaTranscript) — covers df-haiku-ops
+ *            and any subagent running from an arbitrary cwd (T114 spike result).
+ *
  * No env-var reads (T103 HIGH: DEEPFLOW_AGENT_ROLE is never propagated by Claude Code).
  * No stdin reads — that is the hook's responsibility.
  */
@@ -25,6 +31,8 @@ const TAG_TO_SUBAGENT = {
 };
 
 /**
+ * Tier-1: Infer agent role from the working directory via git branch + PLAN.md tag lookup.
+ *
  * @param {string} cwd  Absolute path (PreToolUse:Bash payload.cwd)
  * @returns {string|null}  subagent_type tag (e.g. 'df-implement', 'df-spike')
  *   or null when cwd is outside any df/<spec>--probe-T{N} worktree, or when
@@ -38,7 +46,7 @@ const TAG_TO_SUBAGENT = {
  *   - PLAN.md not found in the main repo
  *   - Task ID not found in PLAN.md (stale branch or probe typo)
  */
-function inferAgentRole(cwd) {
+function inferAgentRoleFromCwd(cwd) {
   try {
     // Step 1: Resolve git branch from cwd. stderr suppressed so hook output stays clean.
     const branch = execSync('git branch --show-current', {
@@ -121,4 +129,103 @@ function inferAgentRole(cwd) {
   }
 }
 
-module.exports = { inferAgentRole };
+/**
+ * Tier-2: Infer agent role by walking the parent transcript's subagents directory.
+ *
+ * Background (T114 spike): PreToolUse:Bash payloads carry `transcript_path` pointing
+ * to the PARENT (orchestrator) session's .jsonl file. Claude Code writes a sibling
+ * `<sid>/subagents/agent-{agentId}.meta.json` for each active subagent. We find the
+ * most-recently-active subagent whose .jsonl was written within `staleMs` of `nowMs`
+ * and return its agentType — that IS the currently-executing subagent.
+ *
+ * Heuristic boundary: mtime recency. If two subagents are active simultaneously
+ * (unlikely for df:execute's sequential cherry-pick flow), the most-recently-active
+ * one wins. Stale agents (idle for > staleMs) are excluded so a completed prior
+ * subagent doesn't shadow the current one.
+ *
+ * @param {string}  transcriptPath  Absolute path to the parent session .jsonl file.
+ * @param {object}  [opts]
+ * @param {number}  [opts.nowMs=Date.now()]  Reference timestamp for staleness check.
+ * @param {number}  [opts.staleMs=5000]      Subagent .jsonl must be newer than this.
+ * @returns {string|null}  agentType string or null on any failure / no recent subagent.
+ */
+function inferAgentRoleViaTranscript(transcriptPath, opts = {}) {
+  if (!transcriptPath) return null;
+  const nowMs = opts.nowMs !== undefined ? opts.nowMs : Date.now();
+  const staleMs = opts.staleMs !== undefined ? opts.staleMs : 5000;
+
+  try {
+    const dir = path.dirname(transcriptPath);
+    const base = path.basename(transcriptPath, '.jsonl');
+    const subDir = path.join(dir, base, 'subagents');
+
+    let entries;
+    try {
+      entries = fs.readdirSync(subDir);
+    } catch (_) {
+      return null; // subagents dir doesn't exist → no active subagent
+    }
+
+    // Build candidate list: meta files whose sibling .jsonl mtime is within staleMs.
+    const candidates = entries
+      .filter(n => n.endsWith('.meta.json'))
+      .map(n => {
+        const agentId = n.replace(/^agent-/, '').replace(/\.meta\.json$/, '');
+        const jsonlPath = path.join(subDir, `agent-${agentId}.jsonl`);
+        try {
+          const st = fs.statSync(jsonlPath);
+          return { agentId, metaPath: path.join(subDir, n), mtimeMs: st.mtimeMs };
+        } catch (_) {
+          return null;
+        }
+      })
+      .filter(c => c !== null && (nowMs - c.mtimeMs) < staleMs)
+      .sort((a, b) => b.mtimeMs - a.mtimeMs); // most-recent first
+
+    if (candidates.length === 0) return null;
+
+    try {
+      const meta = JSON.parse(fs.readFileSync(candidates[0].metaPath, 'utf8'));
+      return meta.agentType || meta.agent_type || null;
+    } catch (_) {
+      return null;
+    }
+  } catch (_) {
+    // Belt-and-suspenders: no error must escape.
+    return null;
+  }
+}
+
+/**
+ * Combined two-tier agent role inference.
+ *
+ * Accepts a full PreToolUse payload object OR a bare cwd string (back-compat
+ * transitional overload — existing callers that pass cwd directly keep working).
+ *
+ * Tier 1: cwd-branch inference (fast, deterministic for task-worktree agents).
+ * Tier 2: transcript-walk (covers df-haiku-ops + agents from arbitrary cwds).
+ * Tier 3: orchestrator pass-through → null.
+ *
+ * @param {object|string} payload  Full hook payload object, or a bare cwd string.
+ * @returns {string|null}  subagent_type or null.
+ */
+function inferAgentRole(payload) {
+  // Back-compat: bare cwd string passed by transitional callers.
+  if (typeof payload === 'string') return inferAgentRoleFromCwd(payload);
+  if (!payload) return null;
+
+  // Tier 1: cwd-branch inference.
+  const fromCwd = inferAgentRoleFromCwd(payload.cwd);
+  if (fromCwd) return fromCwd;
+
+  // Tier 2: transcript-walk fallback.
+  if (payload.transcript_path) {
+    const fromTranscript = inferAgentRoleViaTranscript(payload.transcript_path);
+    if (fromTranscript) return fromTranscript;
+  }
+
+  // Tier 3: orchestrator pass-through.
+  return null;
+}
+
+module.exports = { inferAgentRole, inferAgentRoleFromCwd, inferAgentRoleViaTranscript };

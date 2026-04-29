@@ -11,17 +11,17 @@
  * a fixture PLAN.md with the appropriate task tag, then passes that dir as
  * `payload.cwd`. This is how inferAgentRole resolves the subagent identity.
  *
- * AC coverage:
- *   AC-1  — df-implement + grep → block citing scope rule
- *   AC-2  — df-haiku-ops + git commit → allow (exit 0, no payload)
- *   AC-3  — df-implement + git commit → block, message contains "delegate" + "df-haiku-ops"
- *   AC-4  — reasoner.md tools: frontmatter must not contain Bash (static file check)
- *   AC-5  — bin/install.js must not include mutating Bash(git ...) in permissions.allow (static file check)
- *   AC-6  — df-implement-bash-search-guard.js must not be present post-install (file-absence check)
- *   AC-7  — no subagent_type / unresolvable role → exit 0, no payload
- *   AC-8  — df-bash-scope and df-bash-worktree-guard run independently on same payload
- *   AC-9  — one allow + one deny case per each of the 6 Bash-bearing agents
- *   AC-10 — df-spike + curl → allow (exit 0, no payload)
+ * Scoped AC references (specs/narrow-bash-per-agent.md):
+ *   specs/narrow-bash-per-agent.md#AC-1  — df-implement + grep → block citing scope rule
+ *   specs/narrow-bash-per-agent.md#AC-2  — df-haiku-ops + git commit → allow (exit 0, no payload)
+ *   specs/narrow-bash-per-agent.md#AC-3  — df-implement + git commit → block, message contains "delegate" + "df-haiku-ops"
+ *   specs/narrow-bash-per-agent.md#AC-4  — reasoner.md tools: frontmatter must not contain Bash (static file check)
+ *   specs/narrow-bash-per-agent.md#AC-5  — bin/install.js must not include mutating Bash(git ...) in permissions.allow (static file check)
+ *   specs/narrow-bash-per-agent.md#AC-6  — df-implement-bash-search-guard.js must not be present post-install (file-absence check)
+ *   specs/narrow-bash-per-agent.md#AC-7  — no subagent_type / unresolvable role → exit 0, no payload
+ *   specs/narrow-bash-per-agent.md#AC-8  — df-bash-scope and df-bash-worktree-guard run independently on same payload
+ *   specs/narrow-bash-per-agent.md#AC-9  — one allow + one deny case per each of the 6 Bash-bearing agents
+ *   specs/narrow-bash-per-agent.md#AC-10 — df-spike + curl → allow (exit 0, no payload)
  */
 
 const { describe, it, beforeEach, afterEach } = require('node:test');
@@ -441,6 +441,113 @@ describe('AC-2: df-haiku-ops git commit is allowed', () => {
     } finally {
       rmrf(tmpDir);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-2: df-haiku-ops via transcript-walk (T108 two-tier inference)
+// ---------------------------------------------------------------------------
+//
+// These tests exercise the Tier-2 path: a subagent running from an arbitrary
+// cwd (not a df/* worktree) whose identity is resolved via the parent transcript's
+// sibling subagents/ directory.
+//
+// Setup pattern:
+//   1. Create <tmp>/projects/<sid>/<sid>.jsonl  (parent transcript — empty stub)
+//   2. Create <tmp>/projects/<sid>/<sid>/subagents/agent-FAKE.jsonl (touch → fresh mtime)
+//   3. Create sibling agent-FAKE.meta.json with {"agentType":"<role>"}
+//   4. Spawn hook with payload.transcript_path = <path-to-sid.jsonl>
+//      and payload.cwd = some non-df path so Tier 1 returns null.
+//
+// The transcript-walk then finds the fresh .jsonl (within 5 s staleMs window),
+// reads the meta.json, and returns the agentType.
+
+describe('AC-2: df-haiku-ops via transcript-walk', () => {
+  let tmpBase;
+
+  beforeEach(() => {
+    tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'df-bash-scope-transcript-'));
+  });
+
+  afterEach(() => {
+    rmrf(tmpBase);
+  });
+
+  /**
+   * Build the transcript-walk fixture and return the parent transcript path.
+   * @param {string} agentType   Value to write in meta.json's agentType field.
+   * @param {boolean} [stale]    If true, backdate the subagent .jsonl mtime so it
+   *                             falls outside the staleMs window → walk returns null.
+   * @returns {string}  Absolute path to the parent <sid>.jsonl stub.
+   */
+  function makeTranscriptFixture(agentType, stale = false) {
+    const sid = `sess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const projectsDir = path.join(tmpBase, 'projects', sid);
+    const subagentsDir = path.join(projectsDir, sid, 'subagents');
+    fs.mkdirSync(subagentsDir, { recursive: true });
+
+    // Parent transcript stub (content irrelevant; hook only reads its path).
+    const transcriptPath = path.join(projectsDir, `${sid}.jsonl`);
+    fs.writeFileSync(transcriptPath, '', 'utf8');
+
+    // Subagent files.
+    const agentId = 'FAKE';
+    const jsonlPath = path.join(subagentsDir, `agent-${agentId}.jsonl`);
+    const metaPath = path.join(subagentsDir, `agent-${agentId}.meta.json`);
+    fs.writeFileSync(jsonlPath, '', 'utf8');
+    fs.writeFileSync(metaPath, JSON.stringify({ agentType }), 'utf8');
+
+    if (stale) {
+      // Backdate the subagent .jsonl to 30 s ago — well outside 5 s staleMs window.
+      const pastSec = (Date.now() - 30_000) / 1000;
+      fs.utimesSync(jsonlPath, pastSec, pastSec);
+    }
+
+    return transcriptPath;
+  }
+
+  it('AC-2 ALLOW: df-haiku-ops via transcript-walk allows git commit', () => {
+    const transcriptPath = makeTranscriptFixture('df-haiku-ops');
+    const payload = {
+      tool_name: 'Bash',
+      tool_input: { command: 'git commit -m "msg"' },
+      cwd: '/some/non-df/path',           // Tier 1 → null (not a df/* worktree)
+      transcript_path: transcriptPath,    // Tier 2 → df-haiku-ops
+    };
+    const r = runHook(HOOK_PATH, payload);
+    assert.equal(r.code, 0);
+    const out = parseOut(r.stdout);
+    assert.equal(out, null, `expected allow (no block payload) for haiku-ops git commit via transcript-walk, got: ${r.stdout}`);
+  });
+
+  it('AC-2 DENY: df-implement via transcript-walk blocks grep (denyOverride)', () => {
+    const transcriptPath = makeTranscriptFixture('df-implement');
+    const payload = {
+      tool_name: 'Bash',
+      tool_input: { command: 'grep -r foo src/' },
+      cwd: '/some/non-df/path',
+      transcript_path: transcriptPath,
+    };
+    const r = runHook(HOOK_PATH, payload);
+    assert.equal(r.code, 0);
+    const out = parseOut(r.stdout);
+    assert.ok(out !== null, 'expected block payload for df-implement grep via transcript-walk');
+    assert.equal(out.decision, 'block');
+  });
+
+  it('AC-2 STALE: stale subagent mtime → fallthrough to orchestrator pass-through', () => {
+    const transcriptPath = makeTranscriptFixture('df-implement', /* stale */ true);
+    const payload = {
+      tool_name: 'Bash',
+      tool_input: { command: 'grep -r foo src/' },
+      cwd: '/some/non-df/path',
+      transcript_path: transcriptPath,
+    };
+    const r = runHook(HOOK_PATH, payload);
+    assert.equal(r.code, 0);
+    const out = parseOut(r.stdout);
+    // Stale subagent excluded → Tier 2 returns null → Tier 3 orchestrator pass-through.
+    assert.equal(out, null, `expected pass-through (stale subagent), got: ${r.stdout}`);
   });
 });
 

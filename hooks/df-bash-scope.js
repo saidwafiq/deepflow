@@ -5,8 +5,9 @@
 /**
  * df-bash-scope — per-agent Bash command scope enforcement.
  *
- * PreToolUse hook: identifies the active deepflow sub-agent via cwd inference
- * (T106 agent-role.js) and applies per-agent SCOPES (T105 bash-scopes.js).
+ * PreToolUse hook: identifies the active deepflow sub-agent via two-tier inference
+ * (T106 cwd-branch + T108 transcript-walk in agent-role.js) and applies per-agent
+ * SCOPES (T105 bash-scopes.js).
  *
  * Precedence: denyOverride beats allow.
  *   1. If command matches ANY denyOverride pattern → block.
@@ -108,10 +109,10 @@ readStdinIfMain(module, (payload) => {
 
   const cwd = payload.cwd || process.cwd();
 
-  // Infer role from cwd → git branch → PLAN.md tag.
+  // Infer role: Tier 1 cwd-branch, Tier 2 transcript-walk (T108).
   let role;
   try {
-    role = inferAgentRole(cwd);
+    role = inferAgentRole(payload);
   } catch (_) {
     // inferAgentRole is already guarded, but be extra safe.
     role = null;
