@@ -202,6 +202,49 @@ required-output-schema:
 
 ---
 
+### df-spike-platform
+
+```yaml agent:df-spike-platform
+allowed-inputs:
+  - hypothesis: "Single-sentence falsifiable yes/no hypothesis about hook config or platform instrumentation"
+  - hook-config: "Verbatim hook configuration excerpts or hook file paths relevant to the experiment"
+  - platform-instrumentation: "Live runtime payload samples, telemetry output, or bash-telemetry.jsonl excerpts"
+  - live-runtime-payload: "Raw PreToolUse/PostToolUse event payloads captured from a live Claude session"
+  - experiment-design: "Optional: minimum viable experiment description scoped to hook/platform behavior"
+  - spike-id: "Optional T{N} [SPIKE]: label"
+
+forbidden-inputs:
+  - production-source-edits: "Do not ask df-spike-platform to edit src/ or hooks/ production files — only Write to new experiment/probe files"
+  - spec-edits: "Do not ask df-spike-platform to modify specs/*.md or PLAN.md"
+  - plan-edits: "Do not ask df-spike-platform to add, remove, or reorder tasks in PLAN.md"
+  - multi-hypothesis: "Do not pass more than one hypothesis per spike — split into separate T[SPIKE] tasks"
+  - orchestrator-summary: "Do not pass a paraphrased problem statement — provide the raw hypothesis and raw payloads directly"
+
+required-output-schema:
+  result-file: "Write result to .deepflow/experiments/{topic}--{hypothesis}--{status}.md"
+  conclusion: "PASSED/FAILED/INCONCLUSIVE with confidence level (HIGH/MEDIUM/LOW)"
+  task-status: "Final line must be TASK_STATUS:pass or TASK_STATUS:fail"
+```
+
+#### Risk concentration
+
+df-spike-platform operates at the boundary between Claude's hook system and live runtime events.
+Its inputs are raw platform payloads (PreToolUse/PostToolUse events) rather than stable source files,
+making payload-shape assumptions a primary failure mode.
+
+Exemplar incidents:
+- **T103** (parent spike INCONCLUSIVE): The spike could not determine the exact shape of the `bash_command`
+  field in the PreToolUse Bash payload, leaving hook logic unverifiable without a live session.
+- **T114-retry** (orchestrator escalation): The T114 spike was escalated to orchestrator after T103's
+  INCONCLUSIVE result because the platform payload shape could not be inferred statically — a live
+  instrumented session was required to observe actual field names and nesting.
+
+Implication: any df-spike-platform task that concludes INCONCLUSIVE on payload shape MUST document
+the specific unknown fields and escalate to the orchestrator for live-session capture before
+downstream implementation tasks proceed.
+
+---
+
 ### df-test
 
 ```yaml agent:df-test
