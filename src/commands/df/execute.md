@@ -420,13 +420,14 @@ REPEAT:
 <!-- LSP type context (EXISTING_TYPES) is injected automatically by the df-implement-protocol PreToolUse hook — no agent action required. -->
 **Template selection and subagent routing** (flags from `WAVE_JSON` — authoritative; do NOT re-parse task description):
 
-| Flag                  | `subagent_type`          | Template                           |
-|-----------------------|--------------------------|------------------------------------|
-| `isIntegration: true` | `df-integration`         | Integration Task (below)           |
-| `isSpike: true`       | `df-spike`               | Spike                              |
-| `isOptimize: true`    | `df-optimize`            | Optimize Task                      |
-| `isTest: true`        | `df-test`                | Wave Test                          |
-| (none)                | `df-implement`           | Standard Task                      |
+| Flag                       | `subagent_type`          | Template                           |
+|----------------------------|--------------------------|------------------------------------|
+| `isIntegration: true`      | `df-integration`         | Integration Task (below)           |
+| `isSpikePlatform: true`    | `df-spike-platform`      | Spike                              |
+| `isSpike: true`            | `df-spike`               | Spike                              |
+| `isOptimize: true`         | `df-optimize`            | Optimize Task                      |
+| `isTest: true`             | `df-test`                | Wave Test                          |
+| (none)                     | `df-implement`           | Standard Task                      |
 
 Spawn each agent as:
 ```
