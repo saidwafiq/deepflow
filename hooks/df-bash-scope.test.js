@@ -810,6 +810,130 @@ describe('AC-10: df-spike curl is allowed', () => {
 });
 
 // ---------------------------------------------------------------------------
+// AC-16 + AC-17: df-spike-platform allow + deny via transcript-walk
+// ---------------------------------------------------------------------------
+//
+// df-spike-platform exists in SCOPES but TAG_TO_SUBAGENT has no '[SPIKE-PLATFORM]'
+// entry, so Tier-1 (cwd-branch) can never produce it. We inject it via the
+// Tier-2 transcript-walk fixture (same pattern as the df-haiku-ops transcript tests).
+//
+// AC-16: SCOPES['df-spike-platform'] must exist as a key (static check on bash-scopes.js).
+// AC-17: 'cp ~/.claude/settings.local.json /tmp/bak' must be ALLOWED (named allow case).
+//        'git push origin main' must be DENIED (named deny case).
+
+describe('AC-16 + AC-17: df-spike-platform allow/deny via transcript-walk', () => {
+  let tmpBase;
+
+  beforeEach(() => {
+    tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'df-bash-scope-spike-platform-'));
+  });
+
+  afterEach(() => {
+    rmrf(tmpBase);
+  });
+
+  /**
+   * Build a transcript-walk fixture for df-spike-platform and return the
+   * parent transcript path. Mirrors makeTranscriptFixture from the AC-2 section.
+   */
+  function makeSpikeTranscript(agentType) {
+    const sid = `sess-spike-plat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const projectsDir = path.join(tmpBase, 'projects', sid);
+    const subagentsDir = path.join(projectsDir, sid, 'subagents');
+    fs.mkdirSync(subagentsDir, { recursive: true });
+
+    const transcriptPath = path.join(projectsDir, `${sid}.jsonl`);
+    fs.writeFileSync(transcriptPath, '', 'utf8');
+
+    const agentId = 'SP1';
+    const jsonlPath = path.join(subagentsDir, `agent-${agentId}.jsonl`);
+    const metaPath = path.join(subagentsDir, `agent-${agentId}.meta.json`);
+    fs.writeFileSync(jsonlPath, '', 'utf8');
+    fs.writeFileSync(metaPath, JSON.stringify({ agentType }), 'utf8');
+
+    return transcriptPath;
+  }
+
+  // AC-16: static check — SCOPES must have the 'df-spike-platform' key.
+  it('AC-16: SCOPES["df-spike-platform"] entry exists in bash-scopes.js', () => {
+    const scopesPath = path.join(__dirname, 'lib', 'bash-scopes.js');
+    const { SCOPES } = require(scopesPath);
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(SCOPES, 'df-spike-platform'),
+      'SCOPES must have a "df-spike-platform" key (AC-16)'
+    );
+  });
+
+  // AC-17: named ALLOW — 'cp ~/.claude/settings.local.json /tmp/bak'
+  it('AC-17 ALLOW: cp ~/.claude/settings.local.json /tmp/bak is permitted for df-spike-platform', () => {
+    const transcriptPath = makeSpikeTranscript('df-spike-platform');
+    const payload = {
+      tool_name: 'Bash',
+      tool_input: { command: 'cp ~/.claude/settings.local.json /tmp/bak' },
+      cwd: '/some/non-df/path',        // Tier 1 → null
+      transcript_path: transcriptPath, // Tier 2 → df-spike-platform
+    };
+    const r = runHook(HOOK_PATH, payload);
+    assert.equal(r.code, 0);
+    const out = parseOut(r.stdout);
+    assert.equal(
+      out, null,
+      `expected allow (no block payload) for "cp ~/.claude/settings.local.json /tmp/bak", got: ${r.stdout}`
+    );
+  });
+
+  // AC-17: named DENY — 'git push origin main'
+  it('AC-17 DENY: git push origin main is blocked for df-spike-platform', () => {
+    const transcriptPath = makeSpikeTranscript('df-spike-platform');
+    const payload = {
+      tool_name: 'Bash',
+      tool_input: { command: 'git push origin main' },
+      cwd: '/some/non-df/path',
+      transcript_path: transcriptPath,
+    };
+    const r = runHook(HOOK_PATH, payload);
+    assert.equal(r.code, 0);
+    const out = parseOut(r.stdout);
+    assert.ok(out !== null, `expected block payload for "git push origin main", got: ${r.stdout}`);
+    assert.equal(out.decision, 'block');
+  });
+
+  // Additional: verify cp to /tmp/ (without ~/.claude/) is also allowed.
+  it('AC-17 ALLOW (supplemental): cp with /tmp/ destination is permitted', () => {
+    const transcriptPath = makeSpikeTranscript('df-spike-platform');
+    const payload = {
+      tool_name: 'Bash',
+      tool_input: { command: 'cp /tmp/foo /tmp/bar' },
+      cwd: '/some/non-df/path',
+      transcript_path: transcriptPath,
+    };
+    const r = runHook(HOOK_PATH, payload);
+    assert.equal(r.code, 0);
+    const out = parseOut(r.stdout);
+    assert.equal(
+      out, null,
+      `expected allow for cp with /tmp/ paths, got: ${r.stdout}`
+    );
+  });
+
+  // Additional: git commit is also denied (not just push).
+  it('AC-17 DENY (supplemental): git commit is blocked for df-spike-platform', () => {
+    const transcriptPath = makeSpikeTranscript('df-spike-platform');
+    const payload = {
+      tool_name: 'Bash',
+      tool_input: { command: 'git commit -m "spike result"' },
+      cwd: '/some/non-df/path',
+      transcript_path: transcriptPath,
+    };
+    const r = runHook(HOOK_PATH, payload);
+    assert.equal(r.code, 0);
+    const out = parseOut(r.stdout);
+    assert.ok(out !== null, `expected block payload for "git commit" in df-spike-platform, got: ${r.stdout}`);
+    assert.equal(out.decision, 'block');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Additional edge cases: hook event tags (static file check)
 // ---------------------------------------------------------------------------
 
