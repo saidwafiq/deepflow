@@ -259,12 +259,11 @@ describe('AC-9: allow/deny coverage for all 6 Bash-bearing agents', () => {
       assert.equal(out, null, `expected no block payload, got: ${r.stdout}`);
     });
 
-    it('AC-9 df-test DENY: git commit is blocked', () => {
+    it('AC-9 df-test ALLOW: git commit is now permitted (T8 REQ-1)', () => {
       const r = runHook(HOOK_PATH, bashPayload('git commit -m "test"', repoDir));
       const out = parseOut(r.stdout);
       assert.equal(r.code, 0);
-      assert.ok(out !== null, 'expected block payload');
-      assert.equal(out.decision, 'block');
+      assert.equal(out, null, `expected allow (no block payload) for git commit in df-test, got: ${r.stdout}`);
     });
   });
 
@@ -305,12 +304,11 @@ describe('AC-9: allow/deny coverage for all 6 Bash-bearing agents', () => {
       assert.equal(out, null, `expected no block payload, got: ${r.stdout}`);
     });
 
-    it('AC-9 df-optimize DENY: git add is blocked', () => {
+    it('AC-9 df-optimize ALLOW: git add is now permitted (T8 REQ-1)', () => {
       const r = runHook(HOOK_PATH, bashPayload('git add src/perf.js', repoDir));
       const out = parseOut(r.stdout);
       assert.equal(r.code, 0);
-      assert.ok(out !== null, 'expected block payload');
-      assert.equal(out.decision, 'block');
+      assert.equal(out, null, `expected allow (no block payload) for git add in df-optimize, got: ${r.stdout}`);
     });
   });
 
@@ -369,17 +367,16 @@ describe('AC-9: allow/deny coverage for all 6 Bash-bearing agents', () => {
       }
     });
 
-    it('AC-9 df-haiku-ops DENY (via df-implement default): git commit blocked from impl worktree', () => {
+    it('AC-9 df-haiku-ops (via df-implement default): git commit ALLOWED from impl worktree (T8 REQ-1)', () => {
       // When a worktree branch has no PLAN.md tag, inferAgentRole returns df-implement.
-      // git commit is in IMPL_DENY → blocked. This tests the denied side of the haiku-ops
-      // use-case (before the role mapping gap is closed).
+      // Since T8, git commit (without --amend) is in the df-implement allow list → permitted.
+      // The grep deny still applies; we test that here as the representative "deny" case.
       const repoDir = makeRoleRepo('df-implement');
       try {
         const r = runHook(HOOK_PATH, bashPayload('git commit -m "msg"', repoDir));
         const out = parseOut(r.stdout);
         assert.equal(r.code, 0);
-        assert.ok(out !== null, 'expected block payload');
-        assert.equal(out.decision, 'block');
+        assert.equal(out, null, `expected allow for git commit in df-implement worktree (T8 REQ-1), got: ${r.stdout}`);
       } finally {
         rmrf(repoDir);
       }
@@ -445,24 +442,20 @@ describe('AC-2: df-haiku-ops git commit is allowed', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC-2: df-haiku-ops via transcript-walk (T108 two-tier inference)
+// AC-2: df-haiku-ops via transcript-walk (Tier-2 DROPPED per T9)
 // ---------------------------------------------------------------------------
 //
-// These tests exercise the Tier-2 path: a subagent running from an arbitrary
-// cwd (not a df/* worktree) whose identity is resolved via the parent transcript's
-// sibling subagents/ directory.
+// NOTE: Tier-2 transcript-walk was dropped in T9 (fix-narrow-bash-per-agent).
+// inferAgentRoleViaTranscript now always returns null. All payloads whose cwd
+// is outside a df/* worktree resolve to null → orchestrator pass-through.
 //
-// Setup pattern:
-//   1. Create <tmp>/projects/<sid>/<sid>.jsonl  (parent transcript — empty stub)
-//   2. Create <tmp>/projects/<sid>/<sid>/subagents/agent-FAKE.jsonl (touch → fresh mtime)
-//   3. Create sibling agent-FAKE.meta.json with {"agentType":"<role>"}
-//   4. Spawn hook with payload.transcript_path = <path-to-sid.jsonl>
-//      and payload.cwd = some non-df path so Tier 1 returns null.
+// These tests were authored when Tier-2 existed; they are retained as
+// regression guards for the pass-through behavior now that Tier-2 is null.
 //
-// The transcript-walk then finds the fresh .jsonl (within 5 s staleMs window),
-// reads the meta.json, and returns the agentType.
+// Setup pattern kept identical so the fixture infrastructure works as before;
+// the assertions now reflect that transcript_path is ignored.
 
-describe('AC-2: df-haiku-ops via transcript-walk', () => {
+describe('AC-2: df-haiku-ops via transcript-walk (Tier-2 dropped — all pass-through)', () => {
   let tmpBase;
 
   beforeEach(() => {
@@ -476,8 +469,7 @@ describe('AC-2: df-haiku-ops via transcript-walk', () => {
   /**
    * Build the transcript-walk fixture and return the parent transcript path.
    * @param {string} agentType   Value to write in meta.json's agentType field.
-   * @param {boolean} [stale]    If true, backdate the subagent .jsonl mtime so it
-   *                             falls outside the staleMs window → walk returns null.
+   * @param {boolean} [stale]    If true, backdate the subagent .jsonl mtime.
    * @returns {string}  Absolute path to the parent <sid>.jsonl stub.
    */
   function makeTranscriptFixture(agentType, stale = false) {
@@ -498,7 +490,7 @@ describe('AC-2: df-haiku-ops via transcript-walk', () => {
     fs.writeFileSync(metaPath, JSON.stringify({ agentType }), 'utf8');
 
     if (stale) {
-      // Backdate the subagent .jsonl to 30 s ago — well outside 5 s staleMs window.
+      // Backdate the subagent .jsonl to 30 s ago.
       const pastSec = (Date.now() - 30_000) / 1000;
       fs.utimesSync(jsonlPath, pastSec, pastSec);
     }
@@ -506,21 +498,22 @@ describe('AC-2: df-haiku-ops via transcript-walk', () => {
     return transcriptPath;
   }
 
-  it('AC-2 ALLOW: df-haiku-ops via transcript-walk allows git commit', () => {
+  it('AC-2 ALLOW: df-haiku-ops via transcript_path passes through (Tier-2 dropped → null → pass-through)', () => {
     const transcriptPath = makeTranscriptFixture('df-haiku-ops');
     const payload = {
       tool_name: 'Bash',
       tool_input: { command: 'git commit -m "msg"' },
       cwd: '/some/non-df/path',           // Tier 1 → null (not a df/* worktree)
-      transcript_path: transcriptPath,    // Tier 2 → df-haiku-ops
+      transcript_path: transcriptPath,    // Tier 2 dropped → ignored → null → pass-through
     };
     const r = runHook(HOOK_PATH, payload);
     assert.equal(r.code, 0);
     const out = parseOut(r.stdout);
-    assert.equal(out, null, `expected allow (no block payload) for haiku-ops git commit via transcript-walk, got: ${r.stdout}`);
+    // Tier-2 dropped → role is null → pass-through (no block payload)
+    assert.equal(out, null, `expected pass-through (Tier-2 dropped), got: ${r.stdout}`);
   });
 
-  it('AC-2 DENY: df-implement via transcript-walk blocks grep (denyOverride)', () => {
+  it('AC-2 PASSTHROUGH: df-implement via transcript_path also passes through (Tier-2 dropped → null)', () => {
     const transcriptPath = makeTranscriptFixture('df-implement');
     const payload = {
       tool_name: 'Bash',
@@ -531,11 +524,11 @@ describe('AC-2: df-haiku-ops via transcript-walk', () => {
     const r = runHook(HOOK_PATH, payload);
     assert.equal(r.code, 0);
     const out = parseOut(r.stdout);
-    assert.ok(out !== null, 'expected block payload for df-implement grep via transcript-walk');
-    assert.equal(out.decision, 'block');
+    // Tier-2 dropped → role is null → orchestrator pass-through (grep not blocked)
+    assert.equal(out, null, `expected pass-through (Tier-2 dropped, cwd not a worktree), got: ${r.stdout}`);
   });
 
-  it('AC-2 STALE: stale subagent mtime → fallthrough to orchestrator pass-through', () => {
+  it('AC-2 STALE: stale subagent mtime → also pass-through (Tier-2 dropped regardless of staleness)', () => {
     const transcriptPath = makeTranscriptFixture('df-implement', /* stale */ true);
     const payload = {
       tool_name: 'Bash',
@@ -546,35 +539,45 @@ describe('AC-2: df-haiku-ops via transcript-walk', () => {
     const r = runHook(HOOK_PATH, payload);
     assert.equal(r.code, 0);
     const out = parseOut(r.stdout);
-    // Stale subagent excluded → Tier 2 returns null → Tier 3 orchestrator pass-through.
-    assert.equal(out, null, `expected pass-through (stale subagent), got: ${r.stdout}`);
+    // Tier-2 dropped → always null → orchestrator pass-through.
+    assert.equal(out, null, `expected pass-through (stale subagent / Tier-2 dropped), got: ${r.stdout}`);
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC-3: df-implement + git commit → block with "delegate" + "df-haiku-ops" in message
+// AC-3: df-implement + git commit → ALLOWED (inverted per T8/REQ-1)
 // ---------------------------------------------------------------------------
+//
+// T8 (fix-narrow-bash-per-agent): impl-class agents now have /^git\s+commit\b/
+// in their allow list so they can commit on their own df/<spec> branch.
+// git commit --amend remains blocked via GIT_AMEND_DENY.
+// The old "delegate to df-haiku-ops" message no longer fires for plain commits.
 
-describe('AC-3: df-implement git commit blocked with delegation hint', () => {
+describe('AC-3: df-implement git commit is ALLOWED (T8 REQ-1 change)', () => {
   let repoDir;
   beforeEach(() => { repoDir = makeRoleRepo('df-implement'); });
   afterEach(() => rmrf(repoDir));
 
-  it('AC-3: df-implement git commit is blocked', () => {
+  it('AC-3: df-implement git commit exits 0 with no block payload (ALLOWED)', () => {
     const r = runHook(HOOK_PATH, bashPayload('git commit -m "msg"', repoDir));
     assert.equal(r.code, 0);
     const out = parseOut(r.stdout);
-    assert.ok(out !== null, 'expected block payload');
-    assert.equal(out.decision, 'block');
+    assert.equal(out, null, `expected allow (no block payload) for git commit in df-implement, got: ${r.stdout}`);
   });
 
-  it('AC-3: block message contains "delegate" AND "df-haiku-ops"', () => {
-    const r = runHook(HOOK_PATH, bashPayload('git commit -m "msg"', repoDir));
+  it('AC-3: df-implement git add is also ALLOWED (REQ-1)', () => {
+    const r = runHook(HOOK_PATH, bashPayload('git add src/foo.js', repoDir));
+    assert.equal(r.code, 0);
     const out = parseOut(r.stdout);
-    assert.ok(out !== null, 'expected block payload');
-    const msg = out.message.toLowerCase();
-    assert.ok(msg.includes('delegate'), `expected "delegate" in message, got: ${out.message}`);
-    assert.ok(out.message.includes('df-haiku-ops'), `expected "df-haiku-ops" in message, got: ${out.message}`);
+    assert.equal(out, null, `expected allow (no block payload) for git add in df-implement, got: ${r.stdout}`);
+  });
+
+  it('AC-3: df-implement git commit --amend is still BLOCKED (GIT_AMEND_DENY)', () => {
+    const r = runHook(HOOK_PATH, bashPayload('git commit --amend', repoDir));
+    assert.equal(r.code, 0);
+    const out = parseOut(r.stdout);
+    assert.ok(out !== null, 'expected block payload for git commit --amend');
+    assert.equal(out.decision, 'block');
   });
 });
 
@@ -810,49 +813,30 @@ describe('AC-10: df-spike curl is allowed', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC-16 + AC-17: df-spike-platform allow + deny via transcript-walk
+// AC-16 + AC-17: df-spike-platform allow/deny — static SCOPES inspection
 // ---------------------------------------------------------------------------
 //
-// df-spike-platform exists in SCOPES but TAG_TO_SUBAGENT has no '[SPIKE-PLATFORM]'
-// entry, so Tier-1 (cwd-branch) can never produce it. We inject it via the
-// Tier-2 transcript-walk fixture (same pattern as the df-haiku-ops transcript tests).
+// Tier-2 transcript-walk dropped per fix-narrow-bash-per-agent T9;
+// df-spike-platform role cannot be injected in unit tests (no [SPIKE-PLATFORM]
+// entry in TAG_TO_SUBAGENT for Tier-1 cwd-branch). These tests verify scope
+// CONFIGURATION; runtime behavior is verified by integration tests when a real
+// df/<spec>--probe-T<N> worktree exists with PLAN.md tag mapping.
 //
 // AC-16: SCOPES['df-spike-platform'] must exist as a key (static check on bash-scopes.js).
-// AC-17: 'cp ~/.claude/settings.local.json /tmp/bak' must be ALLOWED (named allow case).
-//        'git push origin main' must be DENIED (named deny case).
+// AC-17: 'cp ~/.claude/settings.local.json /tmp/bak' must match df-spike-platform.allow.
+//        'git push origin main' must match df-spike-platform.denyOverride.
 
-describe('AC-16 + AC-17: df-spike-platform allow/deny via transcript-walk', () => {
-  let tmpBase;
+/**
+ * Check whether any regex in the array matches the command string.
+ * @param {string} cmd
+ * @param {RegExp[]} regexes
+ * @returns {boolean}
+ */
+function commandMatchesAny(cmd, regexes) {
+  return regexes.some(rx => rx.test(cmd));
+}
 
-  beforeEach(() => {
-    tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'df-bash-scope-spike-platform-'));
-  });
-
-  afterEach(() => {
-    rmrf(tmpBase);
-  });
-
-  /**
-   * Build a transcript-walk fixture for df-spike-platform and return the
-   * parent transcript path. Mirrors makeTranscriptFixture from the AC-2 section.
-   */
-  function makeSpikeTranscript(agentType) {
-    const sid = `sess-spike-plat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const projectsDir = path.join(tmpBase, 'projects', sid);
-    const subagentsDir = path.join(projectsDir, sid, 'subagents');
-    fs.mkdirSync(subagentsDir, { recursive: true });
-
-    const transcriptPath = path.join(projectsDir, `${sid}.jsonl`);
-    fs.writeFileSync(transcriptPath, '', 'utf8');
-
-    const agentId = 'SP1';
-    const jsonlPath = path.join(subagentsDir, `agent-${agentId}.jsonl`);
-    const metaPath = path.join(subagentsDir, `agent-${agentId}.meta.json`);
-    fs.writeFileSync(jsonlPath, '', 'utf8');
-    fs.writeFileSync(metaPath, JSON.stringify({ agentType }), 'utf8');
-
-    return transcriptPath;
-  }
+describe('AC-16 + AC-17: df-spike-platform allow/deny via static SCOPES inspection', () => {
 
   // AC-16: static check — SCOPES must have the 'df-spike-platform' key.
   it('AC-16: SCOPES["df-spike-platform"] entry exists in bash-scopes.js', () => {
@@ -865,71 +849,195 @@ describe('AC-16 + AC-17: df-spike-platform allow/deny via transcript-walk', () =
   });
 
   // AC-17: named ALLOW — 'cp ~/.claude/settings.local.json /tmp/bak'
-  it('AC-17 ALLOW: cp ~/.claude/settings.local.json /tmp/bak is permitted for df-spike-platform', () => {
-    const transcriptPath = makeSpikeTranscript('df-spike-platform');
-    const payload = {
-      tool_name: 'Bash',
-      tool_input: { command: 'cp ~/.claude/settings.local.json /tmp/bak' },
-      cwd: '/some/non-df/path',        // Tier 1 → null
-      transcript_path: transcriptPath, // Tier 2 → df-spike-platform
-    };
-    const r = runHook(HOOK_PATH, payload);
-    assert.equal(r.code, 0);
-    const out = parseOut(r.stdout);
-    assert.equal(
-      out, null,
-      `expected allow (no block payload) for "cp ~/.claude/settings.local.json /tmp/bak", got: ${r.stdout}`
+  it('AC-17 ALLOW: SCOPES["df-spike-platform"].allow matches "cp ~/.claude/settings.local.json /tmp/bak"', () => {
+    const { SCOPES } = require(path.join(__dirname, 'lib', 'bash-scopes.js'));
+    const allow = SCOPES['df-spike-platform'].allow;
+    assert.ok(
+      commandMatchesAny('cp ~/.claude/settings.local.json /tmp/bak', allow),
+      'cp ~/.claude/settings.local.json /tmp/bak should match df-spike-platform.allow'
     );
   });
 
   // AC-17: named DENY — 'git push origin main'
-  it('AC-17 DENY: git push origin main is blocked for df-spike-platform', () => {
-    const transcriptPath = makeSpikeTranscript('df-spike-platform');
-    const payload = {
-      tool_name: 'Bash',
-      tool_input: { command: 'git push origin main' },
-      cwd: '/some/non-df/path',
-      transcript_path: transcriptPath,
-    };
-    const r = runHook(HOOK_PATH, payload);
-    assert.equal(r.code, 0);
-    const out = parseOut(r.stdout);
-    assert.ok(out !== null, `expected block payload for "git push origin main", got: ${r.stdout}`);
-    assert.equal(out.decision, 'block');
-  });
-
-  // Additional: verify cp to /tmp/ (without ~/.claude/) is also allowed.
-  it('AC-17 ALLOW (supplemental): cp with /tmp/ destination is permitted', () => {
-    const transcriptPath = makeSpikeTranscript('df-spike-platform');
-    const payload = {
-      tool_name: 'Bash',
-      tool_input: { command: 'cp /tmp/foo /tmp/bar' },
-      cwd: '/some/non-df/path',
-      transcript_path: transcriptPath,
-    };
-    const r = runHook(HOOK_PATH, payload);
-    assert.equal(r.code, 0);
-    const out = parseOut(r.stdout);
-    assert.equal(
-      out, null,
-      `expected allow for cp with /tmp/ paths, got: ${r.stdout}`
+  it('AC-17 DENY: SCOPES["df-spike-platform"].denyOverride matches "git push origin main"', () => {
+    const { SCOPES } = require(path.join(__dirname, 'lib', 'bash-scopes.js'));
+    const denyOverride = SCOPES['df-spike-platform'].denyOverride;
+    assert.ok(
+      commandMatchesAny('git push origin main', denyOverride),
+      'git push origin main should match df-spike-platform.denyOverride'
     );
   });
 
-  // Additional: git commit is also denied (not just push).
-  it('AC-17 DENY (supplemental): git commit is blocked for df-spike-platform', () => {
-    const transcriptPath = makeSpikeTranscript('df-spike-platform');
+  // Additional: verify cp to /tmp/ (without ~/.claude/) is also in allow.
+  it('AC-17 ALLOW (supplemental): SCOPES["df-spike-platform"].allow matches "cp /tmp/foo /tmp/bar"', () => {
+    const { SCOPES } = require(path.join(__dirname, 'lib', 'bash-scopes.js'));
+    const allow = SCOPES['df-spike-platform'].allow;
+    assert.ok(
+      commandMatchesAny('cp /tmp/foo /tmp/bar', allow),
+      'cp /tmp/foo /tmp/bar should match df-spike-platform.allow'
+    );
+  });
+
+  // Additional: git commit is also in denyOverride (not just push).
+  it('AC-17 DENY (supplemental): SCOPES["df-spike-platform"].denyOverride matches "git commit -m \\"spike result\\""', () => {
+    const { SCOPES } = require(path.join(__dirname, 'lib', 'bash-scopes.js'));
+    const denyOverride = SCOPES['df-spike-platform'].denyOverride;
+    assert.ok(
+      commandMatchesAny('git commit -m "spike result"', denyOverride),
+      'git commit -m "spike result" should match df-spike-platform.denyOverride'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-12: history-rewriting deny for impl-class agents
+// ---------------------------------------------------------------------------
+//
+// T8 (fix-narrow-bash-per-agent): IMPL_DENY = GIT_HISTORY_REWRITING_DENY +
+// GIT_AMEND_DENY + SEARCH_TOOL_DENY. Plain git add and git commit (without
+// --amend) are NOT in denyOverride — they are in allow.
+//
+// This block enumerates every history-rewriting command and asserts each is
+// blocked for df-implement. The same IMPL_DENY applies identically to
+// df-test, df-integration, and df-optimize.
+
+describe('AC-12: history-rewriting deny for impl-class (df-implement)', () => {
+  let repoDir;
+  beforeEach(() => { repoDir = makeRoleRepo('df-implement'); });
+  afterEach(() => rmrf(repoDir));
+
+  const BLOCKED_COMMANDS = [
+    'git push',
+    'git push origin df/my-branch',
+    'git merge main',
+    'git rebase main',
+    'git reset --hard',
+    'git stash',
+    'git branch -D foo',
+    'git checkout other-branch',
+    'git worktree add /tmp/x',
+    'git tag v1',
+    'git commit --amend',
+  ];
+
+  for (const cmd of BLOCKED_COMMANDS) {
+    it(`AC-12: "${cmd}" is blocked for df-implement (denyOverride)`, () => {
+      const r = runHook(HOOK_PATH, bashPayload(cmd, repoDir));
+      assert.equal(r.code, 0);
+      const out = parseOut(r.stdout);
+      assert.ok(out !== null, `expected block payload for "${cmd}", got: ${r.stdout}`);
+      assert.equal(out.decision, 'block', `expected decision=block for "${cmd}", got: ${out.decision}`);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AC-14: orchestrator misidentification regression guard
+// ---------------------------------------------------------------------------
+//
+// Tier-2 was dropped in T9. This test validates that a payload whose cwd is
+// outside a df/* worktree AND whose transcript_path points to a directory with
+// subagents/ still returns null (not a false positive role identification).
+//
+// With Tier-2 dropped, this passes trivially — it serves as a regression guard
+// so future re-introduction of Tier-2 cannot silently misidentify the orchestrator.
+
+describe('AC-14: orchestrator misidentification regression guard (Tier-2 dropped)', () => {
+  let tmpDir;
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-bash-scope-ac14-'));
+  });
+  afterEach(() => rmrf(tmpDir));
+
+  it('AC-14: payload with non-worktree cwd + transcript_path sibling subagents/ → inferAgentRole returns null', () => {
+    // Build a fixture that looks like what transcript-walk would need:
+    // a non-df cwd and a transcript_path with a sibling subagents/agent-*.meta.json
+    const sid = `sess-ac14-${Date.now()}`;
+    const projectsDir = path.join(tmpDir, 'projects', sid);
+    const subagentsDir = path.join(projectsDir, sid, 'subagents');
+    fs.mkdirSync(subagentsDir, { recursive: true });
+
+    const transcriptPath = path.join(projectsDir, `${sid}.jsonl`);
+    fs.writeFileSync(transcriptPath, '', 'utf8');
+
+    // Write a meta.json pretending to be df-implement
+    const jsonlPath = path.join(subagentsDir, 'agent-ORC.jsonl');
+    const metaPath = path.join(subagentsDir, 'agent-ORC.meta.json');
+    fs.writeFileSync(jsonlPath, '', 'utf8');
+    fs.writeFileSync(metaPath, JSON.stringify({ agentType: 'df-implement' }), 'utf8');
+
+    // Build payload: cwd is non-df (tmpDir itself, no git repo branch)
     const payload = {
       tool_name: 'Bash',
-      tool_input: { command: 'git commit -m "spike result"' },
-      cwd: '/some/non-df/path',
-      transcript_path: transcriptPath,
+      tool_input: { command: 'grep -r foo src/' },
+      cwd: tmpDir,                         // Not a df/* worktree → Tier-1 returns null
+      transcript_path: transcriptPath,     // Tier-2 dropped → ignored
     };
+
+    // Use inferAgentRole directly (require the module)
+    const { inferAgentRole } = require(path.join(__dirname, 'lib', 'agent-role.js'));
+    const role = inferAgentRole(payload);
+
+    // Tier-2 dropped: transcript_path is ignored → role must be null
+    assert.equal(role, null, `inferAgentRole should return null for non-worktree cwd (Tier-2 dropped), got: ${role}`);
+
+    // Also verify the hook itself passes through (no block)
     const r = runHook(HOOK_PATH, payload);
     assert.equal(r.code, 0);
     const out = parseOut(r.stdout);
-    assert.ok(out !== null, `expected block payload for "git commit" in df-spike-platform, got: ${r.stdout}`);
-    assert.equal(out.decision, 'block');
+    assert.equal(out, null, `expected pass-through (no block) for non-worktree cwd, got: ${r.stdout}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-15: subagent identification via Tier-1 (cwd+branch) after Tier-2 dropped
+// ---------------------------------------------------------------------------
+//
+// Validates the keep-path: subagents running in df/<spec>--probe-T<N> worktrees
+// are still correctly identified by Tier-1 inference even after Tier-2 was removed.
+// Covers df-implement (default tag) and df-spike ([SPIKE] tag).
+
+describe('AC-15: subagent identification via Tier-1 after Tier-2 dropped', () => {
+  let repoDir;
+  afterEach(() => { if (repoDir) { rmrf(repoDir); repoDir = null; } });
+
+  it('AC-15 df-implement: inferAgentRole returns "df-implement" for df-implement worktree', () => {
+    repoDir = makeRoleRepo('df-implement');
+    const { inferAgentRole } = require(path.join(__dirname, 'lib', 'agent-role.js'));
+    const payload = bashPayload('npm test', repoDir);
+    const role = inferAgentRole(payload);
+    assert.equal(role, 'df-implement', `expected df-implement from Tier-1, got: ${role}`);
+  });
+
+  it('AC-15 df-spike: inferAgentRole returns "df-spike" for df-spike worktree', () => {
+    repoDir = makeRoleRepo('df-spike');
+    const { inferAgentRole } = require(path.join(__dirname, 'lib', 'agent-role.js'));
+    const payload = bashPayload('curl https://example.com', repoDir);
+    const role = inferAgentRole(payload);
+    assert.equal(role, 'df-spike', `expected df-spike from Tier-1, got: ${role}`);
+  });
+
+  it('AC-15 df-test: inferAgentRole returns "df-test" for df-test worktree', () => {
+    repoDir = makeRoleRepo('df-test');
+    const { inferAgentRole } = require(path.join(__dirname, 'lib', 'agent-role.js'));
+    const payload = bashPayload('node --test foo.test.js', repoDir);
+    const role = inferAgentRole(payload);
+    assert.equal(role, 'df-test', `expected df-test from Tier-1, got: ${role}`);
+  });
+
+  it('AC-15 df-integration: inferAgentRole returns "df-integration" for df-integration worktree', () => {
+    repoDir = makeRoleRepo('df-integration');
+    const { inferAgentRole } = require(path.join(__dirname, 'lib', 'agent-role.js'));
+    const payload = bashPayload('npm run build', repoDir);
+    const role = inferAgentRole(payload);
+    assert.equal(role, 'df-integration', `expected df-integration from Tier-1, got: ${role}`);
+  });
+
+  it('AC-15 non-worktree: inferAgentRole returns null when cwd is not a df/* worktree', () => {
+    const { inferAgentRole } = require(path.join(__dirname, 'lib', 'agent-role.js'));
+    const payload = bashPayload('npm test', os.tmpdir());
+    const role = inferAgentRole(payload);
+    assert.equal(role, null, `expected null for non-worktree cwd, got: ${role}`);
   });
 });
 
