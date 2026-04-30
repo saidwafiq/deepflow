@@ -5,13 +5,13 @@
  *
  * Infer the deepflow subagent role from a Bash invocation payload.
  * Ported from T104's reference implementation (probe-T104/agent-role-reference.js).
- * Extended by T108 to add a transcript-walk fallback tier.
  *
- * Two-tier strategy (T108):
+ * Single-tier strategy (fix-narrow-bash-per-agent):
  *   Tier 1: cwd-branch inference (inferAgentRoleFromCwd) — deterministic for
  *            task agents running in df/<spec>--probe-T{N} worktrees.
- *   Tier 2: transcript-walk (inferAgentRoleViaTranscript) — covers df-haiku-ops
- *            and any subagent running from an arbitrary cwd (T114 spike result).
+ *   Tier 2: DROPPED — T7 spike was INCONCLUSIVE (no deterministic payload field
+ *            confirmed as a reliable orchestrator/subagent discriminator).
+ *            See fix-narrow-bash-per-agent spec and REQ-3.
  *
  * No env-var reads (T103 HIGH: DEEPFLOW_AGENT_ROLE is never propagated by Claude Code).
  * No stdin reads — that is the hook's responsibility.
@@ -130,81 +130,31 @@ function inferAgentRoleFromCwd(cwd) {
 }
 
 /**
- * Tier-2: Infer agent role by walking the parent transcript's subagents directory.
+ * Tier-2: DROPPED — always returns null.
  *
- * Background (T114 spike): PreToolUse:Bash payloads carry `transcript_path` pointing
- * to the PARENT (orchestrator) session's .jsonl file. Claude Code writes a sibling
- * `<sid>/subagents/agent-{agentId}.meta.json` for each active subagent. We find the
- * most-recently-active subagent whose .jsonl was written within `staleMs` of `nowMs`
- * and return its agentType — that IS the currently-executing subagent.
+ * Tier-2 transcript-walk dropped per fix-narrow-bash-per-agent (T7 spike INCONCLUSIVE).
+ * Rely on Tier-1 cwd+branch + explicit subagent_type injection.
  *
- * Heuristic boundary: mtime recency. If two subagents are active simultaneously
- * (unlikely for df:execute's sequential cherry-pick flow), the most-recently-active
- * one wins. Stale agents (idle for > staleMs) are excluded so a completed prior
- * subagent doesn't shadow the current one.
+ * Signature preserved for backward compatibility with any caller that still references it.
  *
- * @param {string}  transcriptPath  Absolute path to the parent session .jsonl file.
- * @param {object}  [opts]
- * @param {number}  [opts.nowMs=Date.now()]  Reference timestamp for staleness check.
- * @param {number}  [opts.staleMs=5000]      Subagent .jsonl must be newer than this.
- * @returns {string|null}  agentType string or null on any failure / no recent subagent.
+ * @param {string}  transcriptPath  (unused)
+ * @param {object}  [opts]          (unused)
+ * @returns {null}  Always null.
  */
 function inferAgentRoleViaTranscript(transcriptPath, opts = {}) {
-  if (!transcriptPath) return null;
-  const nowMs = opts.nowMs !== undefined ? opts.nowMs : Date.now();
-  const staleMs = opts.staleMs !== undefined ? opts.staleMs : 5000;
-
-  try {
-    const dir = path.dirname(transcriptPath);
-    const base = path.basename(transcriptPath, '.jsonl');
-    const subDir = path.join(dir, base, 'subagents');
-
-    let entries;
-    try {
-      entries = fs.readdirSync(subDir);
-    } catch (_) {
-      return null; // subagents dir doesn't exist → no active subagent
-    }
-
-    // Build candidate list: meta files whose sibling .jsonl mtime is within staleMs.
-    const candidates = entries
-      .filter(n => n.endsWith('.meta.json'))
-      .map(n => {
-        const agentId = n.replace(/^agent-/, '').replace(/\.meta\.json$/, '');
-        const jsonlPath = path.join(subDir, `agent-${agentId}.jsonl`);
-        try {
-          const st = fs.statSync(jsonlPath);
-          return { agentId, metaPath: path.join(subDir, n), mtimeMs: st.mtimeMs };
-        } catch (_) {
-          return null;
-        }
-      })
-      .filter(c => c !== null && (nowMs - c.mtimeMs) < staleMs)
-      .sort((a, b) => b.mtimeMs - a.mtimeMs); // most-recent first
-
-    if (candidates.length === 0) return null;
-
-    try {
-      const meta = JSON.parse(fs.readFileSync(candidates[0].metaPath, 'utf8'));
-      return meta.agentType || meta.agent_type || null;
-    } catch (_) {
-      return null;
-    }
-  } catch (_) {
-    // Belt-and-suspenders: no error must escape.
-    return null;
-  }
+  // Tier-2 dropped per fix-narrow-bash-per-agent (T7 spike INCONCLUSIVE). Rely on Tier-1 cwd+branch + explicit subagent_type injection.
+  return null;
 }
 
 /**
- * Combined two-tier agent role inference.
+ * Agent role inference (single-tier after fix-narrow-bash-per-agent).
  *
  * Accepts a full PreToolUse payload object OR a bare cwd string (back-compat
  * transitional overload — existing callers that pass cwd directly keep working).
  *
  * Tier 1: cwd-branch inference (fast, deterministic for task-worktree agents).
- * Tier 2: transcript-walk (covers df-haiku-ops + agents from arbitrary cwds).
- * Tier 3: orchestrator pass-through → null.
+ * Tier 2: DROPPED — see inferAgentRoleViaTranscript for rationale.
+ * Orchestrator pass-through → null.
  *
  * @param {object|string} payload  Full hook payload object, or a bare cwd string.
  * @returns {string|null}  subagent_type or null.
@@ -218,13 +168,7 @@ function inferAgentRole(payload) {
   const fromCwd = inferAgentRoleFromCwd(payload.cwd);
   if (fromCwd) return fromCwd;
 
-  // Tier 2: transcript-walk fallback.
-  if (payload.transcript_path) {
-    const fromTranscript = inferAgentRoleViaTranscript(payload.transcript_path);
-    if (fromTranscript) return fromTranscript;
-  }
-
-  // Tier 3: orchestrator pass-through.
+  // Orchestrator pass-through (Tier-2 dropped per fix-narrow-bash-per-agent REQ-3).
   return null;
 }
 
