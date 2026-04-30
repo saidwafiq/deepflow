@@ -61,18 +61,12 @@ const BUILD_TEST_RUNNERS = [
 ];
 
 /**
- * Mutations that ONLY df-haiku-ops is allowed to perform.
- * Deny these for every implementation-class agent.
- * This list is used in denyOverride for df-implement / df-test /
- * df-integration / df-optimize / df-spike.
- *
- * Note: git push is also blocked for df-spike per REQ-2 (commits allowed
- * only through df-haiku-ops, spike's own step is not relevant here since
- * df-haiku-ops is the commit delegate).
+ * History-rewriting and cross-branch git operations blocked for impl-class agents.
+ * Does NOT include `git add` or `git commit` (without --amend) — those are
+ * explicitly allowed for df-implement / df-test / df-integration / df-optimize
+ * so they can commit on their own df/<spec> branch per REQ-1 (fix-narrow-bash-per-agent).
  */
-const GIT_MUTATING_DENY = [
-  /^git\s+commit\b/,
-  /^git\s+add\b/,
+const GIT_HISTORY_REWRITING_DENY = [
   /^git\s+push\b/,
   /^git\s+merge\b/,
   /^git\s+rebase\b/,
@@ -82,6 +76,14 @@ const GIT_MUTATING_DENY = [
   /^git\s+checkout\b/,
   /^git\s+worktree\b/,
   /^git\s+tag\b/,
+];
+
+/**
+ * git commit --amend is blocked for impl-class agents (history rewriting).
+ * Plain `git commit` (without --amend) is allowed.
+ */
+const GIT_AMEND_DENY = [
+  /^git\s+commit\s+--amend\b/,
 ];
 
 /**
@@ -96,8 +98,9 @@ const SEARCH_TOOL_DENY = [
   /(?:^|&&\s*|;\s*|\|\s*)find\b.*-name\b/,
 ];
 
-// denyOverride for all implementation-class agents
-const IMPL_DENY = [...GIT_MUTATING_DENY, ...SEARCH_TOOL_DENY];
+// denyOverride for implementation-class agents (df-implement, df-test, df-integration, df-optimize).
+// git add and plain git commit are intentionally absent — they are in the allow list instead.
+const IMPL_DENY = [...GIT_HISTORY_REWRITING_DENY, ...GIT_AMEND_DENY, ...SEARCH_TOOL_DENY];
 
 // ---------------------------------------------------------------------------
 // SCOPES map
@@ -136,14 +139,17 @@ const SCOPES = {
   },
 
   /**
-   * df-implement — writes code; delegates commits to df-haiku-ops.
-   * Allow: build/test runners, read-only git, node script execution.
-   * Deny: search tools (use Read with explicit paths), git mutations.
+   * df-implement — writes code; commits on its own df/<spec> branch.
+   * Allow: build/test runners, read-only git, git add/commit (non-amend), node script execution.
+   * Deny: search tools (use Read with explicit paths), git history-rewriting / cross-branch ops.
    */
   'df-implement': {
     allow: [
       ...BUILD_TEST_RUNNERS,
       ...GIT_READ_ONLY,
+      // Commit operations on own branch (REQ-1: fix-narrow-bash-per-agent)
+      /^git\s+add\b/,
+      /^git\s+commit\b/,
       // Lightweight read utilities
       /^ls\b/,
       /^pwd\b/,
@@ -161,6 +167,9 @@ const SCOPES = {
     allow: [
       ...BUILD_TEST_RUNNERS,
       ...GIT_READ_ONLY,
+      // Commit operations on own branch (REQ-1: fix-narrow-bash-per-agent)
+      /^git\s+add\b/,
+      /^git\s+commit\b/,
       /^ls\b/,
       /^pwd\b/,
       /^cat\b/,
@@ -177,6 +186,9 @@ const SCOPES = {
     allow: [
       ...BUILD_TEST_RUNNERS,
       ...GIT_READ_ONLY,
+      // Commit operations on own branch (REQ-1: fix-narrow-bash-per-agent)
+      /^git\s+add\b/,
+      /^git\s+commit\b/,
       /^ls\b/,
       /^pwd\b/,
       /^cat\b/,
@@ -193,6 +205,9 @@ const SCOPES = {
     allow: [
       ...BUILD_TEST_RUNNERS,
       ...GIT_READ_ONLY,
+      // Commit operations on own branch (REQ-1: fix-narrow-bash-per-agent)
+      /^git\s+add\b/,
+      /^git\s+commit\b/,
       /^ls\b/,
       /^pwd\b/,
       /^cat\b/,
