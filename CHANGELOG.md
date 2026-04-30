@@ -1,3 +1,18 @@
+## v0.1.132 — 2026-04-29
+
+Follow-up to v0.1.130/131: implementation-class agents can now commit on their own `df/<spec>` branch (the `/df:execute` flow requires 1 task = 1 agent = 1 commit), and the unreliable transcript-walk role-inference fallback is removed.
+
+### What's new
+
+- **Impl-class agents commit their own work.** `df-implement`, `df-test`, `df-integration`, and `df-optimize` are now allowed to run `git add` and plain `git commit` (no `--amend`) inside their worktree. Previously every commit had to round-trip through `df-haiku-ops`, which conflicted with `/df:execute`'s 1-task = 1-agent = 1-commit contract.
+- **History-rewriting still blocked.** `git push`, `merge`, `rebase`, `reset`, `revert`, `cherry-pick`, `branch`, `checkout`, `tag`, and `commit --amend` remain denied for impl-class agents — only forward commits on their own branch are permitted.
+
+### Fixes & internals
+
+- **Tier-2 transcript-walk dropped.** `hooks/lib/agent-role.js` no longer attempts to infer agent role by scanning sibling subagent metadata; the T7 spike was inconclusive and the heuristic was unreliable. Role inference is now Tier-1 only (cwd + branch). The `inferAgentRoleViaTranscript` export is kept as a no-op stub for backward compatibility.
+- `GIT_MUTATING_DENY` renamed to `GIT_HISTORY_REWRITING_DENY` and split from a new `GIT_AMEND_DENY` list to make the policy intent explicit.
+- Test suite reorganized: AC-3 / AC-9 tests inverted (now assert that `git add` / `git commit` are *allowed* for impl-class agents on `df/<spec>` branches); AC-12 / AC-14 / AC-15 added to lock down `--amend`, history rewriting, and cross-branch ops; AC-17 (`df-spike-platform` scope) verified via static SCOPES inspection until a real probe-T worktree exists.
+
 ## v0.1.131 — 2026-04-29
 
 Hotfix: the v0.1.130 per-agent Bash hook shipped with a malformed `@hook-event` tag, so the installer copied the file but never registered it. The headline feature of v0.1.130 was inert until this release.
