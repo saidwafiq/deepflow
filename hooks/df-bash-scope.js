@@ -138,17 +138,9 @@ readStdinIfMain(module, (payload) => {
   if (denyOverride.length > 0 && matchesAny(denyOverride, cmd)) {
     const token = firstToken(cmd);
 
-    // AC-3: special-case git commit from df-implement with delegation hint.
-    let message;
-    if (role === 'df-implement' && /^git\s+commit\b/.test(cmd.trim())) {
-      message =
-        `df-bash-scope: \`git commit\` is outside df-implement scope (mutation). ` +
-        `Delegate via Task(subagent_type:'df-haiku-ops').`;
-    } else {
-      message =
-        `df-bash-scope: \`${token}\` is outside ${role} scope. ` +
-        `Command blocked by denyOverride rule.`;
-    }
+    const message =
+      `df-bash-scope: \`${token}\` is outside ${role} scope. ` +
+      `Command blocked by denyOverride rule.`;
 
     appendTelemetry(cwd, { role, command: cmd, decision: 'block', reason: `denyOverride:${token}` });
     block(message);
