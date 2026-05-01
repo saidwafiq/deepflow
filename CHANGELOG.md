@@ -1,3 +1,20 @@
+## v0.1.135 — 2026-05-01
+
+Closes a curator-pattern leak vector: implementation-class subagents could `cat ../../specs/foo.md` from inside their worktree and use the full spec text — including other tasks' bundles — to over-deliver. Observed in the wild when a `df-implement` subagent wrote another task's test file from inside its own commit, citing ACs verbatim from the spec it shouldn't have read.
+
+### Fixes
+
+- **`df-bash-scope` now blocks subagent reads of curator-only artefacts.** New `CURATOR_PATH_DENY` regex set covers `specs/**.md`, `.deepflow/maps/**`, `.deepflow/decisions.md`, `.deepflow/checkpoint.json`, `.deepflow/config.yaml`, and `CLAUDE.md` — applied as a worktree-level layer that fires for any subagent running inside `.deepflow/worktrees/*`, plus a role-level layer (`IMPL_DENY`) for legacy per-task worktrees.
+- **Block message points at the escape hatch.** When the deny fires, the agent sees a directional error: *"emit `CONTEXT_INSUFFICIENT: <path>` and stop; the orchestrator will augment your bundle"* — using the existing curator-pattern recovery path.
+- **Worktree-level enforcement was needed because role inference returns null on the curator-active branch.** `hooks/lib/agent-role.js` keys on a `--probe-T{N}` branch suffix that `df/curator-active` lacks, so `df-bash-scope` was effectively inactive for subagents in the shared curator worktree until this fix.
+
+### Internals
+
+- `hooks/lib/bash-scopes.js` exports `CURATOR_PATH_DENY` and includes it in `IMPL_DENY`.
+- `hooks/df-bash-scope.js` adds an `isCuratorWorktree(cwd)` predicate that runs before role inference.
+- Agent body docs for `df-implement`, `df-test`, `df-integration`, `df-optimize` mention the new constraint.
+- 24 new tests in `hooks/df-bash-scope-curator-paths.test.js` (15 pattern unit tests covering blocked + allowed paths, 9 end-to-end hook subprocess tests). 58/58 existing `hooks/df-bash-scope.test.js` tests still pass.
+
 ## v0.1.134 — 2026-05-01
 
 Hotfix for v0.1.133. The installer was purely additive, so users who upgraded from v0.1.132 ended up with `/df:plan`, `/df:auto`, `/df:auto-cycle`, the `auto-cycle` skill, `bin/wave-runner.js`, and `bin/plan-consolidator.js` still on disk and still surfaced in Claude Code's skill list — even though those commands no longer exist in the package. The headline curator-pivot promise of v0.1.133 was undermined by these zombie files. Re-run `npx deepflow@latest` to clean them up automatically.
