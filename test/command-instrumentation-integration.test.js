@@ -159,7 +159,7 @@ describe('AC-2: active-command.json marker on df:* Skill start', () => {
   afterEach(() => { rmrf(tmpDir); });
 
   test('marker file exists after PreToolUse with df:* Skill', () => {
-    const payload = makeSkillPayload('df:plan', { sessionId: 'sess-ac2', cwd: tmpDir });
+    const payload = makeSkillPayload('df:execute', { sessionId: 'sess-ac2', cwd: tmpDir });
     runHook(CMD_USAGE_HOOK, payload, { event: 'PreToolUse' });
 
     const markerPath = path.join(tmpDir, '.deepflow', 'active-command.json');
@@ -167,14 +167,14 @@ describe('AC-2: active-command.json marker on df:* Skill start', () => {
   });
 
   test('marker is valid JSON with all required fields', () => {
-    const payload = makeSkillPayload('df:plan', { sessionId: 'sess-ac2-fields', cwd: tmpDir });
+    const payload = makeSkillPayload('df:execute', { sessionId: 'sess-ac2-fields', cwd: tmpDir });
     runHook(CMD_USAGE_HOOK, payload, { event: 'PreToolUse' });
 
     const marker = readMarker(tmpDir);
     assert.ok(marker, 'marker must be parseable JSON');
 
     // Required fields per AC-2
-    assert.equal(marker.command, 'df:plan');
+    assert.equal(marker.command, 'df:execute');
     assert.equal(marker.session_id, 'sess-ac2-fields');
     assert.ok('started_at' in marker, 'started_at field required');
     assert.ok('token_snapshot' in marker, 'token_snapshot field required');
@@ -198,7 +198,7 @@ describe('AC-2: active-command.json marker on df:* Skill start', () => {
       { input_tokens: 1000, cache_read_input_tokens: 400, cache_creation_input_tokens: 100 },
     ]);
 
-    const payload = makeSkillPayload('df:plan', { sessionId: 's', cwd: tmpDir });
+    const payload = makeSkillPayload('df:execute', { sessionId: 's', cwd: tmpDir });
     runHook(CMD_USAGE_HOOK, payload, { event: 'PreToolUse' });
 
     const snap = readMarker(tmpDir).token_snapshot;
@@ -242,7 +242,7 @@ describe('AC-3: previous marker closed on next command or session end', () => {
   test('starting command B closes command A marker and writes A to usage', () => {
     // Start command A
     runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 's1', cwd: tmpDir }),
+      makeSkillPayload('df:execute', { sessionId: 's1', cwd: tmpDir }),
       { event: 'PreToolUse' });
 
     // Start command B — closes A
@@ -252,7 +252,7 @@ describe('AC-3: previous marker closed on next command or session end', () => {
 
     const records = readUsage(tmpDir);
     assert.equal(records.length, 1, 'one usage record for closed command A');
-    assert.equal(records[0].command, 'df:plan');
+    assert.equal(records[0].command, 'df:execute');
 
     // Marker should now be B
     const marker = readMarker(tmpDir);
@@ -357,7 +357,7 @@ describe('AC-5: command-usage.jsonl records have all 9 fields, non-negative delt
     ]);
 
     runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 'sess-ac5', cwd: tmpDir }),
+      makeSkillPayload('df:execute', { sessionId: 'sess-ac5', cwd: tmpDir }),
       { event: 'PreToolUse' });
 
     // Simulate some usage
@@ -384,7 +384,7 @@ describe('AC-5: command-usage.jsonl records have all 9 fields, non-negative delt
     ]);
 
     runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 's', cwd: tmpDir }),
+      makeSkillPayload('df:execute', { sessionId: 's', cwd: tmpDir }),
       { event: 'PreToolUse' });
 
     // Simulate token history going lower (file rotation, etc.)
@@ -404,7 +404,7 @@ describe('AC-5: command-usage.jsonl records have all 9 fields, non-negative delt
 
   test('each line in JSONL is independently valid JSON', () => {
     // Run three commands
-    for (const cmd of ['df:plan', 'df:execute', 'df:verify']) {
+    for (const cmd of ['df:spec', 'df:execute', 'df:verify']) {
       runHook(CMD_USAGE_HOOK,
         makeSkillPayload(cmd, { sessionId: 's-jsonl', cwd: tmpDir }),
         { event: 'PreToolUse' });
@@ -428,7 +428,7 @@ describe('AC-5: command-usage.jsonl records have all 9 fields, non-negative delt
 
   test('tool_calls_count reflects actual PostToolUse events', () => {
     runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 's', cwd: tmpDir }),
+      makeSkillPayload('df:execute', { sessionId: 's', cwd: tmpDir }),
       { event: 'PreToolUse' });
 
     // 5 tool calls
@@ -463,7 +463,7 @@ describe('AC-6: command switching — A closed by B\'s PreToolUse', () => {
   test('command A gets a usage record when command B starts', () => {
     // Command A
     runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 's', cwd: tmpDir }),
+      makeSkillPayload('df:execute', { sessionId: 's', cwd: tmpDir }),
       { event: 'PreToolUse' });
 
     // Tool calls during A
@@ -482,14 +482,14 @@ describe('AC-6: command switching — A closed by B\'s PreToolUse', () => {
     // A should be recorded with its tool calls
     const records = readUsage(tmpDir);
     assert.equal(records.length, 1);
-    assert.equal(records[0].command, 'df:plan');
+    assert.equal(records[0].command, 'df:execute');
     assert.equal(records[0].tool_calls_count, 2);
     assert.ok(records[0].ended_at, 'A must have ended_at');
   });
 
   test('B\'s marker replaces A\'s marker', () => {
     runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 's', cwd: tmpDir }),
+      makeSkillPayload('df:execute', { sessionId: 's', cwd: tmpDir }),
       { event: 'PreToolUse' });
 
     runHook(CMD_USAGE_HOOK,
@@ -503,7 +503,7 @@ describe('AC-6: command switching — A closed by B\'s PreToolUse', () => {
 
   test('three-command chain produces correct records', () => {
     runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 's', cwd: tmpDir }),
+      makeSkillPayload('df:execute', { sessionId: 's', cwd: tmpDir }),
       { event: 'PreToolUse' });
 
     runHook(CMD_USAGE_HOOK,
@@ -518,7 +518,7 @@ describe('AC-6: command switching — A closed by B\'s PreToolUse', () => {
 
     const records = readUsage(tmpDir);
     assert.equal(records.length, 3, 'three commands should produce three records');
-    assert.equal(records[0].command, 'df:plan');
+    assert.equal(records[0].command, 'df:execute');
     assert.equal(records[1].command, 'df:execute');
     assert.equal(records[2].command, 'df:verify');
   });
@@ -649,7 +649,7 @@ describe('AC-8: deleting .deepflow/ mid-session causes no errors', () => {
   test('command-usage hook exits 0 after .deepflow deleted (PreToolUse)', () => {
     // Start a command
     runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 's', cwd: tmpDir }),
+      makeSkillPayload('df:execute', { sessionId: 's', cwd: tmpDir }),
       { event: 'PreToolUse' });
 
     // Delete .deepflow/
@@ -664,7 +664,7 @@ describe('AC-8: deleting .deepflow/ mid-session causes no errors', () => {
 
   test('command-usage hook exits 0 after .deepflow deleted (PostToolUse)', () => {
     runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 's', cwd: tmpDir }),
+      makeSkillPayload('df:execute', { sessionId: 's', cwd: tmpDir }),
       { event: 'PreToolUse' });
 
     rmrf(path.join(tmpDir, '.deepflow'));
@@ -677,7 +677,7 @@ describe('AC-8: deleting .deepflow/ mid-session causes no errors', () => {
 
   test('command-usage hook exits 0 after .deepflow deleted (SessionEnd)', () => {
     runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 's', cwd: tmpDir }),
+      makeSkillPayload('df:execute', { sessionId: 's', cwd: tmpDir }),
       { event: 'PreToolUse' });
 
     rmrf(path.join(tmpDir, '.deepflow'));
@@ -705,7 +705,7 @@ describe('AC-8: deleting .deepflow/ mid-session causes no errors', () => {
 
   test('marker file deleted mid-command — PostToolUse still exits 0', () => {
     runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 's', cwd: tmpDir }),
+      makeSkillPayload('df:execute', { sessionId: 's', cwd: tmpDir }),
       { event: 'PreToolUse' });
 
     // Delete just the marker, not the whole .deepflow
@@ -745,9 +745,9 @@ describe('Cross-hook integration: full command lifecycle', () => {
   afterEach(() => { rmrf(tmpDir); });
 
   test('command start -> tool calls -> token writes -> session end: all records consistent', () => {
-    // 1. Start df:plan
+    // 1. Start df:execute
     runHook(CMD_USAGE_HOOK,
-      makeSkillPayload('df:plan', { sessionId: 'full-integ', cwd: tmpDir }),
+      makeSkillPayload('df:execute', { sessionId: 'full-integ', cwd: tmpDir }),
       { event: 'PreToolUse' });
 
     // 2. Tool usage writes tool record — should have active_command
@@ -766,13 +766,13 @@ describe('Cross-hook integration: full command lifecycle', () => {
 
     // Verify tool usage has active_command (reads from $HOME/.claude/)
     const toolRecords = readToolUsage(tmpDir);
-    const taggedTools = toolRecords.filter(r => r.active_command === 'df:plan');
-    assert.ok(taggedTools.length >= 1, 'tool-usage should have df:plan records');
+    const taggedTools = toolRecords.filter(r => r.active_command === 'df:execute');
+    assert.ok(taggedTools.length >= 1, 'tool-usage should have df:execute records');
 
     // Verify command-usage record
     const usageRecords = readUsage(tmpDir);
     assert.equal(usageRecords.length, 1);
-    assert.equal(usageRecords[0].command, 'df:plan');
+    assert.equal(usageRecords[0].command, 'df:execute');
     assert.equal(usageRecords[0].session_id, 'full-integ');
     assert.ok(usageRecords[0].tool_calls_count >= 1, 'should have at least 1 tool call');
 
