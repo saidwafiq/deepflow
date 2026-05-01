@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is deepflow
 
-A spec-driven iterative development framework for Claude Code. It treats development as discovery — specs are living hypotheses evolved through two loops:
+A spec-driven iterative development framework for Claude Code. It treats development as discovery — specs are living hypotheses evolved through two phases:
 
-- **Human loop** (interactive): `/df:discover` → `/df:debate` → `/df:spec` → `specs/*.md`
-- **AI loop** (autonomous): `/df:plan` → `/df:execute` → `/df:verify` → merged code
+- **Human phase** (interactive): `/df:discover` → `/df:debate` → `/df:spec` → `specs/*.md` (curated tasks live in the spec)
+- **AI phase**: `/df:execute` → `/df:verify` → merged code
 
 Core principle: **metrics decide, not opinions** — no LLM judges another LLM. Only objective health checks (build/test/typecheck/lint) determine success.
 
@@ -36,15 +36,14 @@ Hooks (hooks/)                  Event-driven checks (invariant, spec-lint, workt
 Templates (templates/)          Scaffolds for specs, plans, experiments, config
 ```
 
-**Data flow:** Specs (`specs/*.md`) → PLAN.md (task list) → worktree execution → verification → merge to main
+**Data flow:** Specs (`specs/*.md` with `## Tasks (curated)`) → curator orchestrator (you) → shared worktree execution → verification → merge to main
 
 **Persistent state** lives in `.deepflow/`:
 - `decisions.md` — extracted architectural decisions
-- `auto-memory.yaml` — cross-cycle state for autonomous mode
 - `auto-snapshot.txt` — pre-existing test file baseline (ratchet pattern)
 - `experiments/` — spike results (`{topic}--{hypothesis}--{status}.md`)
 - `results/` — task result archives
-- `worktrees/` — isolated execution branches
+- `worktrees/curator-active/` — single shared execution branch (replaces per-spec worktrees)
 
 ## Key Design Patterns
 
@@ -52,7 +51,7 @@ Templates (templates/)          Scaffolds for specs, plans, experiments, config
 - **Shell injection**: Commands load state via `` !`cat file 2>/dev/null || echo 'NOT_FOUND'` `` instead of tool calls, reducing context usage.
 - **Attention U-curve**: Prompts place critical info (task, failure history, ACs) at START and END zones; less critical info (deps, impact) in the MIDDLE.
 - **Context-fork skills**: High input:output ratio skills (browse-fetch, browse-verify) run in forked context to prevent rot.
-- **LSP-first impact analysis**: `/df:plan` uses `findReferences`/`incomingCalls` over grep for precise caller detection.
+- **LSP-first impact analysis**: `/df:spec`'s blast-radius pass uses `findReferences`/`incomingCalls` over grep for precise caller detection.
 - **Spike-first planning**: Risky work gets small proof-of-concept tasks before full implementation.
 - **Onion-layer specs**: Specs have a computed layer (L0–L3) based on which sections exist. L0 specs (just an objective) immediately generate spikes. Spikes discover constraints, deepening the spec to L2+ which unlocks implementation tasks. Less upfront guessing, more learning-by-doing.
 - **Delegation Contract**: `DELEGATION.md` (root) declares per-subagent allowedInputs/forbiddenInputs/requiredOutputSchema; `hooks/df-delegation-contract.js` (PreToolUse) enforces it on every Task spawn. See AC-9 router/interpreter distinction.
@@ -74,7 +73,7 @@ allowed-tools: [AskUserQuestion, Read]
 
 **Decision tags** in `.deepflow/decisions.md`: `[APPROACH]`, `[PROVISIONAL]`, `[FUTURE]`, `[UPDATE]`
 
-**Task blocking** in PLAN.md uses `Blocked by: T{n}` — blocked tasks cannot start until dependencies complete.
+**Task blocking** in `## Tasks (curated)` uses `Blocked by: T{n}` — blocked tasks cannot start until dependencies complete. The curator computes file ownership upfront so disjoint tasks get `[P]` (parallel) and overlapping tasks get `Blocked by:`.
 
 ## Verification Levels (df:verify)
 

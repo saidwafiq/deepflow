@@ -77,12 +77,12 @@ worktree:
   cleanup_on_fail: false     # preserve failed worktrees for debugging
 ```
 
-### autonomous
+### execution
 
-Settings for `/df:auto`:
+Curator-orchestrator settings consumed by `/df:execute`:
 
 ```yaml
-autonomous:
+execution:
   max_consecutive_reverts: 3   # circuit breaker threshold per task
 ```
 
@@ -101,14 +101,6 @@ Currently:
 ```
 /df:spec auth              # Normal
 /df:spec auth --no-gaps    # Skip gap questions
-```
-
-### /df:plan
-
-```
-/df:plan                   # All specs
-/df:plan --spec auth       # Single spec only
-/df:plan --force           # Regenerate even if PLAN.md exists
 ```
 
 ### /df:execute
@@ -140,9 +132,9 @@ Agents prefer LSP tools when available and fall back to Grep/Glob silently. You'
 
 ## Spec Validation
 
-Specs are validated before downstream consumption by `/df:spec`, `/df:plan`, and `/df:auto`:
+Specs are validated before downstream consumption by `/df:spec` and `/df:execute`:
 
 - **Hard invariants** (block on failure): required sections present, REQ-N prefixes, checkbox ACs, no duplicate IDs
-- **Advisory warnings** (warn interactively, block in auto mode): long specs, orphaned requirements, excessive technical notes
+- **Advisory warnings**: long specs, orphaned requirements, excessive technical notes (escalated to hard via `--strict`)
 
 Run manually: `node hooks/df-spec-lint.js specs/my-spec.md`

@@ -135,7 +135,7 @@ Unblocked:       [T3, T4]         (were waiting on T1)
 
 ## Spike-First Planning
 
-For risky or uncertain work, `/df:plan` generates a spike task first:
+For risky or uncertain work, `/df:spec`'s curate phase generates a spike task first:
 
 ```
 Spike: Validate streaming upload handles 10MB+ files
@@ -144,19 +144,15 @@ Spike: Validate streaming upload handles 10MB+ files
   | Fail? -> Record in .deepflow/experiments/, generate new hypothesis
 ```
 
-In autonomous mode, multiple spikes for the same problem run as parallel probes. Machine selects the winner: fewer regressions > better coverage > fewer files changed.
+When `/df:spec` curates multiple spike candidates for the same problem, they run as parallel probes. Machine selects the winner: fewer regressions > better coverage > fewer files changed.
 
-## Autonomous Mode
+## Two Phases, One Handoff
 
-Two loops operate at different timescales:
+**Human phase (upstream):** `/df:discover` → `/df:debate` → `/df:spec` — you define the problem and approve the curated task list, at your pace.
 
-**Human loop (upstream):** `/df:discover` → `/df:debate` → `/df:spec` — you define the problem, at your pace.
+**AI phase (downstream):** `/df:execute` → `/df:verify` — the curator (the orchestrator session itself) spawns subagents per `## Tasks (curated)` wave, validates with health checks, and merges.
 
-**AI loop (downstream):** `/df:auto` → repeated auto-cycle skill — the system plans, executes, validates, and merges autonomously.
-
-Each cycle gets fresh context (no accumulated rot). Cross-cycle state persists in `.deepflow/auto-memory.yaml` — task outcomes, revert counts, probe insights.
-
-Circuit breaker halts after N consecutive reverts on the same task.
+Failed approaches are recorded in `.deepflow/experiments/` and never repeated. Circuit breaker halts after N consecutive reverts on the same task.
 
 ## Decision Capture
 

@@ -74,22 +74,11 @@ A fifth agent synthesizes consensus, tensions, and open decisions. Output saved 
 /df:spec auth
 ```
 
-Now — after discovering and debating — the conversation context is rich enough to produce a solid spec. Creates `specs/auth.md` with structured requirements (REQ-N format), acceptance criteria, constraints, and out-of-scope items. Validated before writing.
+Now — after discovering and debating — the conversation context is rich enough to produce a solid spec. Creates `specs/auth.md` with structured requirements (REQ-N format), acceptance criteria, constraints, and out-of-scope items. Validated before writing. The curate phase appends a `## Tasks (curated)` section with file-ownership-aware `[P]` markers and `Blocked by:` edges, plus an `## Execution graph` for wave grouping.
 
-### 5. Generate the plan
+If risky work exists, the curate phase emits a spike task first. Renames: `auth.md` → `doing-auth.md` once execution starts.
 
-```
-/df:plan
-```
-
-Compares specs against your codebase:
-- Finds what's already implemented
-- Checks past experiments (won't repeat failed approaches)
-- If risky work exists, generates a spike task first
-- Creates prioritized task list in `PLAN.md`
-- Renames: `auth.md` → `doing-auth.md`
-
-### 6. Execute
+### 5. Execute
 
 ```
 /df:execute
@@ -122,12 +111,12 @@ After running deepflow:
 ```
 your-project/
 ├── specs/
-│   └── doing-auth.md    # Active spec
-├── PLAN.md              # Task checklist
+│   └── doing-auth.md    # Active spec — curated tasks live in this file
 └── .deepflow/
     ├── config.yaml      # Optional configuration
     ├── decisions.md     # Extracted decisions
-    └── experiments/     # Spike results (pass/fail)
+    ├── experiments/     # Spike results (pass/fail)
+    └── worktrees/curator-active/   # Single shared execution branch
 ```
 
 ## Next Steps
