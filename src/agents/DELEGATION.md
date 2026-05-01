@@ -62,6 +62,27 @@ spawn(specialist, build_prompt(summary))
 
 ---
 
+## Tool Inventory
+
+Authoritative listing of which tools each agent's frontmatter grants. Mirror this table when editing any agent's `tools:` field — drift between this section and `src/agents/*.md` is a Wave 3 regression.
+
+| Agent | Tools | Role |
+|---|---|---|
+| df-implement | Edit, Write, Bash, mcp__ide__getDiagnostics, mcp__ide__executeCode | Curator-fed implementer — no Read/Grep/Glob; CONTEXT_INSUFFICIENT escape on missing context |
+| df-test | Edit, Write, Bash, mcp__ide__getDiagnostics, mcp__ide__executeCode | Curator-fed test author — no Read/Grep/Glob |
+| df-integration | Edit, Write, Bash, mcp__ide__getDiagnostics, mcp__ide__executeCode | Curator-fed integration implementer — bundle is read post-commit by the orchestrator (single shared worktree) |
+| df-optimize | Edit, Write, Bash, mcp__ide__getDiagnostics, mcp__ide__executeCode | Curator-fed optimizer — no Read/Grep/Glob |
+| df-haiku-ops | Bash | Mechanical git/shell agent (widest Bash scope — see Risk concentration below) |
+| df-spike | Read, Bash, WebFetch, Write | Exploratory spike — keeps Read because hypotheses are unknowns the curator cannot pre-bundle |
+| df-spike-platform | Bash, Read, Write (via `allowed-tools:`) | Elevated-scope platform spike for hook/system probes |
+| reasoner | Read, Grep, Glob, Edit | Analysis/comparison agent for human discussion — full read tools intentional |
+
+**Why execution agents lost Read/Grep/Glob (Wave 3, spec `subagent-toolset-restriction`):** the curator orchestrator pre-bundles required file content inline. Re-discovery via Read/Grep negates the curator pattern's cost win (bench `orchestration-vs-solo` arm B vs arm C: 4× cost, 3.3× wall time, 3 vs 0 regressions). Tool absence makes the restriction correct-by-construction — a misbundled task surfaces as `CONTEXT_INSUFFICIENT: <path>` (curator gap, observable signal) rather than silent re-discovery.
+
+**Escape hatch:** any execution agent that finds its bundle insufficient SHALL output `CONTEXT_INSUFFICIENT: <path>` on its own line and stop. The orchestrator reads the missing file and re-spawns with augmented context (max 2 retries; see `execute-v2-curator` AC-6).
+
+---
+
 ## Agent Contracts
 
 Each block below is machine-parseable by the hook via the pattern
