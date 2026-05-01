@@ -79,81 +79,45 @@ claude
 # 3. Spec — now the conversation is rich enough to produce a solid spec
 /df:spec image-upload
 
-# 4-6: the AI takes over
-/df:plan                         # Compare spec to code, create tasks
-/df:execute                      # Parallel agents in worktree, ratchet validates
+# 4-5: the AI takes over
+/df:execute                      # Curator orchestrator spawns parallel agents in shared worktree, ratchet validates
 /df:verify                       # Check spec satisfied, merge to main
 ```
 
-**What requires you:** Steps 1-3 (defining the problem and approving the spec). Steps 4-6 run autonomously but you trigger each one and can intervene.
+**What requires you:** Steps 1-3 (defining the problem and approving the spec — `/df:spec`'s curate phase produces the task list inline). Steps 4-5 run with the orchestrator session as curator; you trigger each one and can intervene.
 
-### Autonomous (unattended)
-
-The human loop comes first — discover and debate are where intent gets shaped. You refine the problem, stress-test ideas, and produce a spec that captures what you actually need. That's the living contract. Then you hand it off.
-
-```bash
-# First: the human loop — discover, debate, refine until the spec is solid
-$ claude
-> /df:discover auth
-> /df:debate auth-strategy
-> /df:spec auth              # specs/auth.md — the handoff point
-> /exit
-
-# Then: the AI loop — plan, execute, validate, merge
-$ claude
-> /df:auto
-
-# Next morning
-$ cat .deepflow/auto-report.md
-$ git log --oneline
-```
-
-**What the AI does alone:**
-1. Runs `/df:plan` if no PLAN.md exists
-2. Snapshots pre-existing tests (ratchet baseline)
-3. Starts a loop (`/loop 1m /df:auto-cycle`) — fresh context each cycle
-4. Each cycle: picks next task → executes in worktree → runs health checks (build/tests/typecheck/lint/invariant-check/browser-verify)
-5. Pass = commit stands. Fail = revert + retry next cycle
-6. Circuit breaker: halts after N consecutive reverts on same task
-7. When all tasks done: runs `/df:verify`, merges to main
-
-**Safety:** Never pushes to remote. Failed approaches recorded in `.deepflow/experiments/` and never repeated. Specs validated before processing.
-
-### Two Loops, One Handoff
+### Two Phases, One Handoff
 
 ```
- HUMAN LOOP                         AI LOOP
+ HUMAN PHASE                        AI PHASE
  ─────────────────────────────────  ──────────────────────────────────
- /df:discover — ask, surface gaps   /df:plan — compare spec to code
- /df:debate — stress-test approach  /df:execute — spike, implement
- /df:spec — produce living contract /df:verify — health checks, merge
+ /df:discover — ask, surface gaps   /df:execute — curator spawns subagents,
+ /df:debate — stress-test approach     ratchet validates each commit
+ /df:spec — curate task list        /df:verify — health checks, merge
       ↻ refine until solid               ↻ retry until converged
  ─────────────────────────────────  ──────────────────────────────────
-         specs/*.md is the handoff point
+         specs/*.md (with ## Tasks (curated)) is the handoff point
 ```
 
 **Spec lifecycle:** `feature.md` (new) → `doing-feature.md` (in progress) → `done-feature.md` (decisions extracted, then deleted)
 
 ## Commands
 
-**Human loop** — you drive these to shape intent into a spec.
+**Human phase** — you drive these to shape intent into a curated spec.
 
 | Command | Purpose |
 |---------|---------|
 | `/df:discover <name>` | Explore problem space with Socratic questioning |
 | `/df:debate <topic>` | Multi-perspective analysis (4 agents) |
-| `/df:spec <name>` | Generate spec from conversation |
+| `/df:spec <name>` | Generate spec from conversation; curate phase emits `## Tasks (curated)` (LSP-first impact, file-ownership-aware `[P]`) |
 | `/df:fix <done-spec>` | Derive a follow-up spec from a completed one (regressions, unmet ACs) |
 
-**AI loop** — orchestrator drives these to evolve code toward the spec.
+**AI phase** — the orchestrator session itself acts as curator and drives these.
 
 | Command | Purpose |
 |---------|---------|
-| `/df:plan` | Compare specs to code (LSP-first impact), create waved tasks |
-| `/df:execute` | Spawn parallel sub-agents in worktrees, ratchet validates each commit |
+| `/df:execute` | Curator orchestrator spawns sub-agents per `## Tasks (curated)` wave in a shared worktree, ratchet validates each commit |
 | `/df:verify` | Check specs satisfied (L0–L5), merge to main, rename `doing-` → `done-` |
-| `/df:auto` | Autonomous mode (plan → loop → verify, no human needed) |
-| `/df:auto-cycle` | One iteration of autonomous mode (used by `/df:auto` `/loop`) |
 
 **Support**
 
@@ -169,25 +133,21 @@ $ git log --oneline
 ```
 your-project/
 +-- specs/
-|   +-- auth.md                # new spec
+|   +-- auth.md                # new spec (curated tasks live in this file)
 |   +-- doing-upload.md        # in progress
 |   +-- done-upload.md         # completed (decisions extracted)
-+-- PLAN.md                    # active task index (slim — task body lives in .deepflow/plans/)
 +-- .deepflow/
     +-- config.yaml            # project settings (build/test commands, parallelism, optimize keys)
     +-- decisions.md           # auto-extracted [APPROACH] / [PROVISIONAL] / [FUTURE] / [UPDATE]
-    +-- checkpoint.json        # /df:execute resume state (waves, completed tasks, worktree map)
+    +-- checkpoint.json        # /df:execute resume state (waves, completed tasks)
     +-- context.json           # statusline-written context % (read by /df:execute for parallelism gate)
-    +-- auto-report.md         # morning report (autonomous mode)
-    +-- auto-memory.yaml       # cross-cycle learning
-    +-- auto-snapshot-{spec}.txt  # per-spec ratchet baseline (pre-existing tests)
+    +-- auto-snapshot.txt      # ratchet baseline (pre-existing tests)
     +-- token-history.jsonl    # per-render token usage
-    +-- plans/                 # full per-spec mini-plans (Files, ACs, Impact)
     +-- experiments/           # spike results, named {topic}--{hypothesis}--{status}.md
     +-- maps/                  # /df:map artifacts per spec (sketch.md, impact.md, findings.md)
     +-- codebase/              # global artifacts (STRUCTURE.md, TESTING.md, CLAUDE.md)
     +-- results/               # per-task result archives + verify JSON
-    +-- worktrees/             # one isolated execution branch per spec
+    +-- worktrees/curator-active/   # single shared execution branch
 ```
 
 ## What Deepflow Rejects
@@ -220,7 +180,7 @@ Deepflow's design isn't opinionated — it's a direct response to measured LLM l
 
 **Tool use > context stuffing** — Information in the middle of context has up to 40% less recall than at the start/end ([Lost in the Middle, 2024](https://arxiv.org/abs/2307.03172), Stanford/TACL). [LongMemEval](https://arxiv.org/abs/2410.10813) (ICLR 2025) found GPT-4O scoring 60-64% at full context vs 87-92% with oracle retrieval. Agents access code on-demand via LSP (`findReferences`, `incomingCalls`) and grep — always fresh, no attention dilution.
 
-**Fresh context beats long sessions** — Every AI agent's success rate decreases after [35 minutes of equivalent task time](https://zylos.ai/research/2026-01-16-long-running-ai-agents); doubling duration quadruples failure rate. Deepflow's autonomous mode (`/df:auto`) starts a fresh context each cycle — checkpoint state, not conversation history.
+**Fresh context beats long sessions** — Every AI agent's success rate decreases after [35 minutes of equivalent task time](https://zylos.ai/research/2026-01-16-long-running-ai-agents); doubling duration quadruples failure rate. Deepflow's curator orchestrator spawns each subagent in a fresh context with an inline bundle — checkpoint state, not conversation history.
 
 **Input:output ratio matters** — Agent token ratio is [~100:1 input to output](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus) (Manus, 2025). Deepflow truncates ratchet output (success = zero tokens), context-forks high-ratio skills, and strips prompt sections by effort level to keep the ratio low.
 
@@ -236,7 +196,7 @@ Sub-agents are spawned by the orchestrator with strict input/output contracts (e
 
 | Sub-agent | Role |
 |-----------|------|
-| `df-implement` | Executes one PLAN.md task — read by path, edit, run tests. No search tools. |
+| `df-implement` | Executes one curated task — read by path, edit, run tests. No search tools. |
 | `df-integration` | Cross-spec integration — implements tasks that span multiple specs or touch shared interfaces |
 | `df-spike` | Proof-of-concept investigator — validates risky hypotheses, never edits existing files |
 | `df-test` | Writes tests for a given module or feature, runs the suite, reports status |
@@ -258,14 +218,13 @@ Skills are reusable capabilities invoked by sub-agents or commands. Some run in 
 | `browse-fetch` | Fetch external API docs via headless Chromium (replaces context-hub) |
 | `browse-verify` | L5 browser verification — Playwright a11y tree assertions |
 | `repo-inspect` | Structured JSON intelligence for a remote GitHub repo — no local clone |
-| `auto-cycle` | One-task iteration loop with ratchet health checks (used by `/df:auto`) |
 
 ## Lifecycle hooks
 
 23 hooks fire at specific Claude Code lifecycle events to enforce invariants without requiring orchestrator decisions:
 
 - **PreToolUse** (Task spawns): `df-codebase-inject` injects relevant artifacts into agent prompts; `df-delegation-contract` enforces input/output contracts; `df-implement-protocol` / `df-verify-protocol` / `df-explore-protocol` add tool restrictions; `df-bash-worktree-guard` blocks cross-worktree mutations; `df-worktree-precheck` prevents stale-base spawns.
-- **PostToolUse** (after edits): `df-artifact-validate` checks sketch/impact/findings/PLAN consistency and emits a JSON Schema-validated drift report; `df-spike-validate` rejects schema-mismatch results; `df-codebase-staleness` flags artifact rot; `df-experiment-immutable` protects spike results; `df-validate-tasks-gates` audits PLAN.md task structure; `df-harness-score` records benchmark deltas.
+- **PostToolUse** (after edits): `df-artifact-validate` checks sketch/impact/findings consistency and emits a JSON Schema-validated drift report; `df-spike-validate` rejects schema-mismatch results; `df-codebase-staleness` flags artifact rot; `df-experiment-immutable` protects spike results; `df-validate-tasks-gates` audits curated task structure; `df-harness-score` records benchmark deltas.
 - **UserPromptSubmit**: `df-spec-lint` validates spec format; `df-invariant-check` runs project invariants; `df-check-update` notifies when a new deepflow version is published.
 
 All hooks are zero-dep Node, fail-open by default (warnings to stderr), and idempotent.
