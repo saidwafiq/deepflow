@@ -379,11 +379,11 @@ Pre-existing test files are snapshotted in `.deepflow/auto-snapshot.txt` before 
 
 ## Parallel Safety
 
-This section governs when `[P]` (parallel) markers are legal in PLAN.md task waves. `df:plan` reads this section to decide parallelism. Each subsection is populated by the map agent scanning test files at generation time. `df:plan` MUST treat any non-empty entry under a "BLOCKED" row as a veto on `[P]` for the affected task pair.
+This section governs when `[P]` (parallel) markers are legal in a spec's `## Tasks (curated)` waves. `df:spec`'s curate phase reads this section to decide parallelism. Each subsection is populated by the map agent scanning test files at generation time. `df:spec` MUST treat any non-empty entry under a "BLOCKED" row as a veto on `[P]` for the affected task pair.
 
 ### Per-Suite Resource Ownership
 
-Map each test suite to the resources it owns. This table is the primary input for `df:plan`'s `[P]` gate.
+Map each test suite to the resources it owns. This table is the primary input for `df:spec`'s `[P]` gate.
 
 | Test Suite (file) | DB / Tables | Port | Env Vars Mutated | Fixture Files/Dirs | Cleanup Scope |
 |-------------------|-------------|------|------------------|--------------------|---------------|
@@ -430,7 +430,7 @@ Map each test suite to the resources it owns. This table is the primary input fo
 
 ### Summary Gate
 
-`df:plan` MUST check this checklist before emitting `[P]` for any task pair (Task A, Task B):
+`df:spec` MUST check this checklist before emitting `[P]` for any task pair (Task A, Task B):
 
 - [ ] **DB**: Neither A nor B shares a DB table with the other unless both have per-test isolation (transaction rollback or in-memory DB)
 - [ ] **Port**: A and B do not bind the same hardcoded port number

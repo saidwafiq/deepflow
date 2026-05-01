@@ -79,7 +79,6 @@ const REGEN_TIMEOUT_MS = 30000;
  *
  * This table is the single source of truth — keep in sync with:
  *   - specs/doing-codebase-map.md REQ-4
- *   - bin/wave-runner.js subagent routing table
  */
 const AGENT_ARTIFACT_MAP = {
   'df-implement':   ['CONVENTIONS.md', 'TESTING.md'],

@@ -16,12 +16,10 @@
 // Note: prompt-compose --help invocations are NOT protected (negative lookahead)
 // so the mute rule in RULES can fire for them.
 const PROTECTED = [
-  /wave-runner/,
   /ratchet\.js/,
   /ac-coverage/,
   /worktree-deps/,
   /prompt-compose(?!.*(-h|--help)(\s|$))/,
-  /plan-consolidator/,
 ];
 
 // Safe tail-rewrites: [pattern, tailLines]

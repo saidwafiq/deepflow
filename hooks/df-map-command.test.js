@@ -175,11 +175,11 @@ describe('AC-3: TESTING.md must have ## Parallel Safety section', () => {
     );
   });
 
-  test('Parallel Safety section includes [P] marker gate logic for df:plan', () => {
+  test('Parallel Safety section includes [P] marker gate logic for df:spec curate phase', () => {
     const content = getMapContent();
     assert.ok(
-      content.includes('[P]') && content.includes('df:plan'),
-      'Expected [P] marker and df:plan reference in Parallel Safety section'
+      content.includes('[P]') && content.includes('df:spec'),
+      'Expected [P] marker and df:spec reference in Parallel Safety section'
     );
   });
 
@@ -205,11 +205,11 @@ describe('AC-4: agent→artifact subset mapping documented', () => {
     );
   });
 
-  test('map.md mentions df:plan and the artifacts it needs', () => {
+  test('map.md mentions STRUCTURE.md as a curator artifact', () => {
     const content = getMapContent();
     assert.ok(
       content.includes('STRUCTURE.md'),
-      'Expected STRUCTURE.md referenced (df:plan artifact)'
+      'Expected STRUCTURE.md referenced (consumed by /df:spec curator phase)'
     );
   });
 });

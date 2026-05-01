@@ -149,15 +149,6 @@ describe('df-bash-rewrite — pass-through (no output)', () => {
     assert.equal(r.stdout, '');
   });
 
-  test('skips protected: wave-runner', () => {
-    const r = runHook({
-      tool_name: 'Bash',
-      tool_input: { command: 'node ~/.claude/bin/wave-runner.js --json --plan PLAN.md' },
-      cwd: tmp,
-    });
-    assert.equal(r.stdout, '');
-  });
-
   test('skips protected: ratchet.js', () => {
     const r = runHook({
       tool_name: 'Bash',
@@ -729,7 +720,7 @@ describe('AC-4 regression — protection-list and DF_BASH_REWRITE=0', () => {
 
   test('PROTECTED list contains expected orchestrator patterns', () => {
     // Verify the exported PROTECTED array covers the core orchestrator scripts.
-    const expectedPatterns = ['wave-runner', 'ratchet\\.js', 'ac-coverage', 'worktree-deps'];
+    const expectedPatterns = ['ratchet\\.js', 'ac-coverage', 'worktree-deps'];
     for (const expected of expectedPatterns) {
       const re = new RegExp(expected);
       assert.ok(
@@ -737,18 +728,6 @@ describe('AC-4 regression — protection-list and DF_BASH_REWRITE=0', () => {
         `PROTECTED should include a regex matching "${expected}"`,
       );
     }
-  });
-
-  test('hook: wave-runner passes through unchanged even when templates are loaded (DF_BASH_REWRITE unset)', () => {
-    // loadBuiltinTemplates() ensures at least truncate-stable is active so
-    // dispatch() can return a filter for npm ci — but wave-runner must still
-    // be blocked before dispatch is called.
-    loadBuiltinTemplates();
-    const r = runHook(
-      { tool_name: 'Bash', tool_input: { command: 'node ~/.claude/bin/wave-runner.js --json --plan PLAN.md' }, cwd: tmp },
-      { env: {} },
-    );
-    assert.equal(r.stdout, '', 'wave-runner must produce no output (pass-through)');
   });
 
   test('hook: ratchet.js passes through unchanged even when templates are loaded', () => {
@@ -777,7 +756,7 @@ describe('AC-4 regression — protection-list and DF_BASH_REWRITE=0', () => {
       { name: 'greedy-node', match: (cmd) => /^node\b/.test(cmd.trimStart()), apply: () => ({ header: '# greedy', body: '' }) },
     ]);
     const r = runHook(
-      { tool_name: 'Bash', tool_input: { command: 'node ~/.claude/bin/wave-runner.js --plan PLAN.md' }, cwd: tmp },
+      { tool_name: 'Bash', tool_input: { command: 'node ~/.claude/bin/ratchet.js --worktree x' }, cwd: tmp },
       { env: {} },
     );
     assert.equal(r.stdout, '', 'PROTECTED guard must fire before dispatch even with a matching template registered');
