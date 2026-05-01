@@ -7,7 +7,7 @@
  *   specs/artifact-validation.md#AC-2  — scope: PLAN Slice ∉ impact edges → out_of_scope_count
  *   specs/artifact-validation.md#AC-3  — dangling blocker: Blocked by: T99 not in plan → flagged
  *   specs/artifact-validation.md#AC-4  — drift: jaccard_below / likely_files_coverage_pct / out_of_scope_count canonical keys
- *   specs/artifact-validation.md#AC-5  — auto-mode escalation: advisory→hard when mode==='auto'
+ *   specs/artifact-validation.md#AC-5  — strict-mode escalation: advisory→hard when mode==='strict'
  *   specs/artifact-validation.md#AC-6  — results JSON schema: artifact, checks[], exit_code keys
  *   specs/artifact-validation.md#AC-7  — PostToolUse hook fires on artifact writes
  *   specs/artifact-validation.md#AC-8  — skip-on-missing: absent upstream → skipped, exit 0
@@ -515,16 +515,16 @@ describe('checkScopeCoverage — L1 scope-coverage predicate (single-source)', (
   });
 });
 
-// ── AC-5: auto-mode escalation (predicates surface, hook enforces) ─────────
+// ── AC-5: strict-mode escalation (predicates surface, hook enforces) ───────
 
-describe('auto-mode escalation logic surface — advisory promoted to hard', () => {
+describe('strict-mode escalation logic surface — advisory promoted to hard', () => {
   // specs/artifact-validation.md#AC-5
   // The predicates expose the raw drift values; the hook (df-artifact-validate.js)
-  // applies the mode==='auto' escalation. This test verifies the drift predicates
+  // applies the mode==='strict' escalation. This test verifies the drift predicates
   // produce values that would be used by that escalation logic.
 
   it('computeJaccardBelow produces advisory-triggerable value above threshold', () => {
-    // AC-5: consistency advisory → exit 1 in auto mode (based on drift value)
+    // AC-5: consistency advisory → exit 1 in strict mode (based on drift value)
     const jaccard = computeJaccardBelow(['a', 'b'], ['c', 'd']); // fully disjoint
     const threshold = 0.4; // example config threshold
     assert.equal(jaccard > threshold, true, 'disjoint sets should exceed any reasonable threshold');
@@ -532,7 +532,7 @@ describe('auto-mode escalation logic surface — advisory promoted to hard', () 
 
   it('advisory vs hard behavior is a runtime parameter, not a predicate flag', () => {
     // AC-5: The SAME predicate output is evaluated differently by the hook
-    // depending on the runtime mode==='auto' signal — not by a config key.
+    // depending on the runtime mode==='strict' signal — not by a config key.
     // Predicates are mode-agnostic; enforcement lives in the hook caller.
     const result = checkReferenceExists('nonexistent-symbol-xyz', os.tmpdir());
     // The predicate just returns exists:false — it does NOT exit(1) or exit(0)

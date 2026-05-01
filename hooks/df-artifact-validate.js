@@ -20,10 +20,8 @@
  * The offending reference appears in the JSON evidence field.
  *
  * REQ-1: Existence checks (AC-1) — hard-fail with evidence
- * REQ-4: Enforcement mode (AC-5) — 4 modes (mirrors df-invariant-check.js REQ-9):
+ * REQ-4: Enforcement mode (AC-5) — 3 modes:
  *   interactive (default): existence missing → hard fail; advisories → warnings only (exit 0)
- *   auto:      consistency + drift advisories escalate to hard fail; detected via DEEPFLOW_AUTO=1
- *              env var (set by /df:auto) or --auto CLI flag — NOT via any config key
  *   strict:    ALL advisories become hard fails (existence advisory, consistency, drift)
  *   advisory:  NO hard fails; everything reported as warnings (exit 0)
  * REQ-5: Results schema — { artifact, checks[], drift?, exit_code }
@@ -33,7 +31,7 @@
  * REQ-9: Config thresholds (enforcement levels per family: hard|advisory|off)
  *
  * Usage (PostToolUse hook): reads JSON payload from stdin
- * Usage (CLI):   node df-artifact-validate.js --spec <spec-name> [--repo <path>] [--auto|--strict|--advisory]
+ * Usage (CLI):   node df-artifact-validate.js --spec <spec-name> [--repo <path>] [--strict|--advisory]
  * Usage (module): const { validateArtifacts } = require('./df-artifact-validate');
  */
 
@@ -1277,12 +1275,9 @@ function checkArtifactExistence(artifactName, artifactPath, repoRoot, taskIds, i
  * @param {object} [opts]    - Options
  * @param {'interactive'|'auto'|'strict'|'advisory'} [opts.mode]
  *   Enforcement mode (REQ-4, AC-5):
- *   - 'auto'        — consistency + drift advisories escalate to hard fail (mirrors df-invariant-check.js)
  *   - 'interactive' — existence violations hard-fail; advisories stay as advisory rows (exit 0)
  *   - 'strict'      — ALL advisories (existence advisory, consistency, drift) become hard fails
  *   - 'advisory'    — NO hard fails; everything reports as warnings (exit 0)
- *   Auto-mode is signalled at runtime via DEEPFLOW_AUTO=1 env var or --auto CLI flag;
- *   NOT via a config key (REQ-4: "runtime parameter only").
  * @returns {{
  *   checks: Array<{artifact, kind, ref, status, evidence}>,
  *   hardFails: Array<{artifact, kind, ref, status, evidence}>,
@@ -1477,7 +1472,7 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
     };
   }
 
-  // Existence violations: hard-fail in interactive/auto/strict modes (never in advisory)
+  // Existence violations: hard-fail in interactive/strict modes (never in advisory)
   const existenceHardFails = allChecks.filter((c) => c.status === 'missing');
 
   // Existence advisory rows (e.g. task_id advisory from dangling blockers)
@@ -1486,21 +1481,21 @@ function validateArtifacts(specName, repoRoot, opts = {}) {
     (c) => c.status === 'advisory' && c.kind !== 'consistency' && c.kind !== 'drift'
   );
 
-  // Consistency advisories: hard-fail in auto + strict modes (REQ-4, AC-5)
+  // Consistency advisories: hard-fail in strict mode (REQ-4, AC-5)
   const consistencyAdvisories = allChecks.filter(
     (c) => c.kind === 'consistency' && c.status === 'advisory'
   );
   const consistencyHardFails =
-    (mode === 'auto' || mode === 'strict') && config.enforcement.consistency !== 'off'
+    mode === 'strict' && config.enforcement.consistency !== 'off'
       ? consistencyAdvisories
       : [];
 
-  // Drift advisories: hard-fail in auto + strict modes (REQ-4)
+  // Drift advisories: hard-fail in strict mode (REQ-4)
   const driftAdvisories = allChecks.filter(
     (c) => c.kind === 'drift' && c.status === 'advisory'
   );
   const driftHardFails =
-    (mode === 'auto' || mode === 'strict') && config.enforcement.drift !== 'off'
+    mode === 'strict' && config.enforcement.drift !== 'off'
       ? driftAdvisories
       : [];
 
@@ -1700,22 +1695,18 @@ function runCli(args) {
   const repoRoot = repoIdx !== -1 ? args[repoIdx + 1] : process.cwd();
 
   if (!specName) {
-    process.stderr.write('[df-artifact-validate] Usage: df-artifact-validate.js --spec <name> [--repo <path>] [--auto|--strict|--advisory]\n');
+    process.stderr.write('[df-artifact-validate] Usage: df-artifact-validate.js --spec <name> [--repo <path>] [--strict|--advisory]\n');
     process.exit(1);
   }
 
   // REQ-4, AC-5: Detect runtime mode.
-  // --auto: consistency + drift advisories escalate to hard fail (mirrors df-invariant-check.js)
   // --strict: ALL advisories become hard fails
   // --advisory: no hard fails; everything reported as warnings
-  // DEEPFLOW_AUTO=1 env var also triggers auto mode (runtime signal from /df:auto)
   let mode = 'interactive';
   if (args.includes('--strict')) {
     mode = 'strict';
   } else if (args.includes('--advisory')) {
     mode = 'advisory';
-  } else if (args.includes('--auto') || process.env.DEEPFLOW_AUTO === '1') {
-    mode = 'auto';
   }
   const { checks, hardFails, drift, exit_code } = validateArtifacts(specName, repoRoot, { mode });
 
@@ -1744,8 +1735,8 @@ function runCli(args) {
       process.stderr.write(`  artifact=${row.artifact} ref=${JSON.stringify(row.ref)}${taskNote}${edgeNote}\n`);
       process.stderr.write(`  evidence: ${row.evidence}\n`);
     }
-    if (mode !== 'auto') {
-      process.stderr.write(`[df-artifact-validate] ${consistencyAdvisories.length} consistency advisory(s) — warning only (use --auto to escalate)\n`);
+    if (mode !== 'strict') {
+      process.stderr.write(`[df-artifact-validate] ${consistencyAdvisories.length} consistency advisory(s) — warning only (use --strict to escalate)\n`);
     }
   }
 
@@ -1755,8 +1746,8 @@ function runCli(args) {
       process.stderr.write(`  artifact=${row.artifact} ref=${JSON.stringify(row.ref)} value=${row.driftValue} threshold=${row.threshold}\n`);
       process.stderr.write(`  evidence: ${row.evidence}\n`);
     }
-    if (mode !== 'auto') {
-      process.stderr.write(`[df-artifact-validate] ${driftAdvisories.length} drift advisory(s) — warning only (use --auto to escalate)\n`);
+    if (mode !== 'strict') {
+      process.stderr.write(`[df-artifact-validate] ${driftAdvisories.length} drift advisory(s) — warning only (use --strict to escalate)\n`);
     }
   }
 
@@ -1776,14 +1767,14 @@ function runCli(args) {
       }
     }
     if (consFails.length > 0) {
-      process.stderr.write('\n[df-artifact-validate] CONSISTENCY VIOLATIONS (auto-mode escalation):\n');
+      process.stderr.write('\n[df-artifact-validate] CONSISTENCY VIOLATIONS (strict-mode escalation):\n');
       for (const row of consFails) {
         process.stderr.write(`  artifact=${row.artifact} ref=${JSON.stringify(row.ref)}\n`);
         process.stderr.write(`  evidence: ${row.evidence}\n`);
       }
     }
     if (driftFails.length > 0) {
-      process.stderr.write('\n[df-artifact-validate] DRIFT VIOLATIONS (auto-mode escalation):\n');
+      process.stderr.write('\n[df-artifact-validate] DRIFT VIOLATIONS (strict-mode escalation):\n');
       for (const row of driftFails) {
         process.stderr.write(`  artifact=${row.artifact} ref=${JSON.stringify(row.ref)} value=${row.driftValue} threshold=${row.threshold}\n`);
         process.stderr.write(`  evidence: ${row.evidence}\n`);
@@ -1820,12 +1811,7 @@ function hookHandler(payload) {
     return;
   }
 
-  // REQ-4, AC-5: Detect runtime auto-mode signal — mirrors df-invariant-check.js pattern.
-  // DEEPFLOW_AUTO=1 is set by /df:auto when running in autonomous mode.
-  // payload.mode can also carry 'auto' when the orchestrator sets it explicitly.
-  // No config key is read here — auto-mode is a runtime signal only (REQ-4).
-  const isAutoEnv = process.env.DEEPFLOW_AUTO === '1';
-  const mode = isAutoEnv || (payload && payload.mode) === 'auto' ? 'auto' : 'interactive';
+  const mode = 'interactive';
   const { checks, hardFails, drift, exit_code } = validateArtifacts(specName, repoRoot, { mode });
 
   // Emit machine-parseable rows to stdout

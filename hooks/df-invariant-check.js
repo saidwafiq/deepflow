@@ -10,7 +10,6 @@
  *
  * REQ-6: CLI mode — parse args, read files, exit non-zero on hard failures
  * REQ-7: Output format — `${file}:${line}: [${TAG}] ${description}`, capped at 15 lines
- * REQ-9: Auto-mode escalation — advisory items promoted to hard when mode === 'auto'
  */
 
 'use strict';
@@ -918,14 +917,13 @@ function checkConfigYamlGuard(files, specContent, taskType) { // eslint-disable-
  * @param {string} diff - Raw unified diff text
  * @param {string} specContent - Raw spec markdown content
  * @param {object} opts
- * @param {'interactive'|'auto'} opts.mode - 'auto' promotes advisory to hard (REQ-9)
  * @param {'bootstrap'|'spike'|'implementation'} opts.taskType - Affects which checks apply
  * @param {string} [opts.projectRoot] - Project root for LSP detection (defaults to process.cwd())
  * @returns {{ hard: Array<{ file: string, line: number, tag: string, description: string }>,
  *             advisory: Array<{ file: string, line: number, tag: string, description: string }> }}
  */
 function checkInvariants(diff, specContent, opts = {}) {
-  const { mode = 'interactive', taskType = 'implementation', projectRoot = process.cwd() } = opts;
+  const { taskType = 'implementation', projectRoot = process.cwd() } = opts;
 
   const hard = [];
   const advisory = [];
@@ -979,13 +977,6 @@ function checkInvariants(diff, specContent, opts = {}) {
   // REQ-3: config.yaml guard — always hard, no advisory variant
   const configGuardViolations = checkConfigYamlGuard(files, specContent, taskType);
   hard.push(...configGuardViolations);
-
-  // ── Auto-mode escalation (REQ-9) ─────────────────────────────────────────
-  // In auto mode (non-interactive CI/hook runs), all advisory items are promoted
-  // to hard failures so the pipeline blocks on any violation.
-  if (mode === 'auto') {
-    hard.push(...advisory.splice(0, advisory.length));
-  }
 
   return { hard, advisory };
 }
@@ -1167,7 +1158,7 @@ readStdinIfMain(module, (data) => {
   }
 
   const specContent = matchedSpec.content;
-  const results = checkInvariants(diff, specContent, { mode: 'auto', taskType: 'implementation', projectRoot: cwd });
+  const results = checkInvariants(diff, specContent, { taskType: 'implementation', projectRoot: cwd });
 
   if (results.hard.length > 0) {
     console.error('[df-invariant-check] Hard invariant failures detected:');
@@ -1199,14 +1190,12 @@ if (require.main === module && process.argv.includes('--invariants')) {
     console.error('');
     console.error('Options:');
     console.error('  --invariants <spec-file.md> <diff-file>   Run invariant checks');
-    console.error('  --auto                                     Auto mode (advisory => hard)');
     console.error('  --task-type <bootstrap|spike|implementation>  Task type (default: implementation)');
     process.exit(1);
   }
 
   const specPath = args[invariantsIdx + 1];
   const diffPath = args[invariantsIdx + 2];
-  const mode = args.includes('--auto') ? 'auto' : 'interactive';
 
   const taskTypeIdx = args.indexOf('--task-type');
   const taskType = taskTypeIdx !== -1 ? args[taskTypeIdx + 1] : 'implementation';
@@ -1226,7 +1215,7 @@ if (require.main === module && process.argv.includes('--invariants')) {
     process.exit(1);
   }
 
-  const results = checkInvariants(diff, specContent, { mode, taskType });
+  const results = checkInvariants(diff, specContent, { taskType });
   const outputLines = formatOutput(results);
 
   if (results.hard.length > 0) {

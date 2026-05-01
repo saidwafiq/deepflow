@@ -10,7 +10,7 @@
  * AC-2  consistency-advisory: PLAN Slice outside impact edges → advisory row with taskId
  * AC-3  dangling-blocker: T99 missing → advisory
  * AC-4  drift-threshold: jaccard_below > config max → advisory; drift object with all 3 keys
- * AC-5  auto-mode escalation: same advisory input, interactive=0, auto=1
+ * AC-5  strict-mode escalation: same advisory input, interactive=0, strict=1
  * AC-6  results JSON shape: file at .deepflow/results/validate-{spec}-{artifact}.json, schema keys
  * AC-7  PostToolUse registration: hook fires on Edit/Write to artifact paths
  * AC-8  skip-on-missing: impact.md absent → status:"skipped" rows, exit 0
@@ -447,10 +447,10 @@ describe('AC-4: drift-threshold — jaccard_below > config max → advisory; dri
   });
 });
 
-// ── AC-5: auto-mode escalation ────────────────────────────────────────────────
+// ── AC-5: strict-mode escalation ──────────────────────────────────────────────
 
-describe('AC-5: auto-mode escalation — same advisory input, interactive=exit-0, auto=exit-1', () => {
-  test('AC-5: consistency advisory: interactive=exit-0, auto=exit-1', () => {
+describe('AC-5: strict-mode escalation — same advisory input, interactive=exit-0, strict=exit-1', () => {
+  test('AC-5: consistency advisory: interactive=exit-0, strict=exit-1', () => {
     const { dir, specName, mapsDir, cleanup } = makeTmpRepo({
       withSketch: true,
       sketchModules: ['lib/foo.js'],
@@ -460,7 +460,7 @@ describe('AC-5: auto-mode escalation — same advisory input, interactive=exit-0
 
     try {
       const interactive = validateArtifacts(specName, dir, { mode: 'interactive' });
-      const auto = validateArtifacts(specName, dir, { mode: 'auto' });
+      const strict = validateArtifacts(specName, dir, { mode: 'strict' });
 
       const hasConsistencyAdvisory = interactive.checks.some(
         (c) => c.kind === 'consistency' && c.status === 'advisory'
@@ -468,18 +468,18 @@ describe('AC-5: auto-mode escalation — same advisory input, interactive=exit-0
 
       if (hasConsistencyAdvisory) {
         assert.equal(interactive.exit_code, 0, 'AC-5: interactive mode MUST exit 0 for consistency advisory');
-        assert.equal(auto.exit_code, 1, 'AC-5: auto mode MUST exit 1 for consistency advisory (escalation)');
+        assert.equal(strict.exit_code, 1, 'AC-5: strict mode MUST exit 1 for consistency advisory (escalation)');
       } else {
         // If no advisory was generated, validate that both modes agree on exit 0
         assert.equal(interactive.exit_code, 0, 'AC-5: no advisory → interactive should exit 0');
-        assert.equal(auto.exit_code, 0, 'AC-5: no advisory → auto should also exit 0');
+        assert.equal(strict.exit_code, 0, 'AC-5: no advisory → strict should also exit 0');
       }
     } finally {
       cleanup();
     }
   });
 
-  test('AC-5: drift advisory: interactive=exit-0, auto=exit-1', () => {
+  test('AC-5: drift advisory: interactive=exit-0, strict=exit-1', () => {
     // sketch module completely disjoint from impact → jaccard_below=1.0 → drift advisory
     const { dir, specName, cleanup } = makeTmpRepo({
       withSketch: true,
@@ -491,7 +491,7 @@ describe('AC-5: auto-mode escalation — same advisory input, interactive=exit-0
 
     try {
       const interactive = validateArtifacts(specName, dir, { mode: 'interactive' });
-      const auto = validateArtifacts(specName, dir, { mode: 'auto' });
+      const strict = validateArtifacts(specName, dir, { mode: 'strict' });
 
       const hasDriftAdvisory = interactive.checks.some(
         (c) => c.kind === 'drift' && c.status === 'advisory'
@@ -499,7 +499,7 @@ describe('AC-5: auto-mode escalation — same advisory input, interactive=exit-0
 
       if (hasDriftAdvisory) {
         assert.equal(interactive.exit_code, 0, 'AC-5: drift advisory in interactive → exit 0');
-        assert.equal(auto.exit_code, 1, 'AC-5: drift advisory in auto → escalate to exit 1');
+        assert.equal(strict.exit_code, 1, 'AC-5: drift advisory in strict → escalate to exit 1');
       }
     } finally {
       cleanup();

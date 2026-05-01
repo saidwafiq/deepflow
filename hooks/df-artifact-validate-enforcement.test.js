@@ -2,10 +2,10 @@
 /**
  * Tests for df-artifact-validate.js REQ-4 enforcement modes (T29).
  *
- * AC-5: WHEN the hook is invoked with the runtime auto-mode signal (DEEPFLOW_AUTO=1 or
- *       mode==='auto') THEN a consistency advisory SHALL produce exit code 1;
- *       without the runtime signal the same input SHALL exit 0 with warning text.
- *       The hook MUST NOT read a top-level `auto_mode` config key.
+ * AC-5: WHEN the hook is invoked with mode='strict' THEN consistency and drift
+ *       advisories SHALL escalate to exit code 1; with mode='interactive' the
+ *       same input SHALL exit 0 with warning text. The hook MUST NOT read a
+ *       top-level `auto_mode` config key — enforcement is a runtime parameter.
  */
 
 const { describe, test } = require('node:test');
@@ -78,7 +78,7 @@ function makeTmpRepo({ withSketch = false, sketchModules = [], withImpact = fals
   };
 }
 
-// ── REQ-4 / AC-5: Enforcement mode — interactive vs auto ─────────────────────
+// ── REQ-4 / AC-5: Enforcement mode — interactive vs strict ───────────────────
 
 describe('REQ-4 enforcement modes (AC-5)', () => {
 
@@ -95,30 +95,6 @@ describe('REQ-4 enforcement modes (AC-5)', () => {
       const result = validateArtifacts(specName, dir, { mode: 'interactive' });
       // REQ-4: consistency advisories do NOT escalate in interactive mode
       assert.equal(result.exit_code, 0, 'Interactive mode: consistency advisory should NOT hard-fail (exit 0)');
-    } finally {
-      cleanup();
-    }
-  });
-
-  // REQ-4: AC-5 — auto mode: consistency advisory → exit 1 (escalation)
-  test('AC-5: auto mode — consistency advisory escalates to exit 1', () => {
-    const { dir, specName, cleanup } = makeTmpRepo({
-      withSketch: true,
-      sketchModules: ['hooks/some-module.js'],
-      withImpact: true, // impact.md has no edges → sketch module not in impact → advisory
-      withPlan: true,
-    });
-
-    try {
-      const result = validateArtifacts(specName, dir, { mode: 'auto' });
-      // REQ-4, AC-5: auto mode escalates consistency advisory to hard fail
-      // (only if there are actual consistency advisory rows)
-      const consistencyAdvisories = result.checks.filter(
-        (c) => c.kind === 'consistency' && c.status === 'advisory'
-      );
-      if (consistencyAdvisories.length > 0) {
-        assert.equal(result.exit_code, 1, 'Auto mode: consistency advisory MUST escalate to exit 1');
-      }
     } finally {
       cleanup();
     }
@@ -203,8 +179,8 @@ describe('REQ-4 enforcement modes (AC-5)', () => {
     }
   });
 
-  // AC-5: Same input — interactive exits 0, auto exits 1 for consistency advisory
-  test('AC-5: same advisory input: interactive=exit-0, auto=exit-1', () => {
+  // AC-5: Same input — interactive exits 0, strict exits 1 for consistency advisory
+  test('AC-5: same advisory input: interactive=exit-0, strict=exit-1', () => {
     const { dir, specName, cleanup } = makeTmpRepo({
       withSketch: true,
       sketchModules: ['lib/foo.js'],
@@ -214,7 +190,7 @@ describe('REQ-4 enforcement modes (AC-5)', () => {
 
     try {
       const interactive = validateArtifacts(specName, dir, { mode: 'interactive' });
-      const auto = validateArtifacts(specName, dir, { mode: 'auto' });
+      const strict = validateArtifacts(specName, dir, { mode: 'strict' });
 
       const hasConsistencyAdvisory = interactive.checks.some(
         (c) => c.kind === 'consistency' && c.status === 'advisory'
@@ -223,7 +199,7 @@ describe('REQ-4 enforcement modes (AC-5)', () => {
       if (hasConsistencyAdvisory) {
         // REQ-4, AC-5: the critical AC assertion
         assert.equal(interactive.exit_code, 0, 'AC-5: interactive mode MUST exit 0 for consistency advisory');
-        assert.equal(auto.exit_code, 1, 'AC-5: auto mode MUST exit 1 for consistency advisory');
+        assert.equal(strict.exit_code, 1, 'AC-5: strict mode MUST exit 1 for consistency advisory');
       }
     } finally {
       cleanup();
@@ -232,9 +208,9 @@ describe('REQ-4 enforcement modes (AC-5)', () => {
 
 });
 
-// ── DEEPFLOW_AUTO env var detection ──────────────────────────────────────────
+// ── Config schema invariants ─────────────────────────────────────────────────
 
-describe('DEEPFLOW_AUTO=1 env var detection (REQ-4 runtime signal)', () => {
+describe('Enforcement config schema (REQ-4: runtime parameter, not config key)', () => {
 
   test('loadArtifactValidationConfig does not return auto_mode key', () => {
     const { dir, cleanup } = makeTmpRepo({});
@@ -284,27 +260,6 @@ describe('Existence hard-fail behavior per mode', () => {
       const missingRows = result.checks.filter((c) => c.status === 'missing');
       if (missingRows.length > 0) {
         assert.equal(result.exit_code, 1, 'Interactive mode: missing file ref MUST hard-fail (exit 1)');
-      }
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('auto mode: missing file → exit 1', () => {
-    const { dir, specName, cleanup } = makeTmpRepo({ withPlan: true });
-    const mapsDir = path.join(dir, '.deepflow', 'maps', specName);
-    fs.mkdirSync(mapsDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(mapsDir, 'sketch.md'),
-      'modules:\n- hooks/does-not-exist-abc.js\n',
-      'utf8'
-    );
-
-    try {
-      const result = validateArtifacts(specName, dir, { mode: 'auto' });
-      const missingRows = result.checks.filter((c) => c.status === 'missing');
-      if (missingRows.length > 0) {
-        assert.equal(result.exit_code, 1, 'Auto mode: missing file ref MUST hard-fail (exit 1)');
       }
     } finally {
       cleanup();

@@ -448,10 +448,10 @@ function lintSpecFile(filePath) {
 // ── Entry points ─────────────────────────────────────────────────────────────
 if (require.main === module) {
   if (process.argv[2]) {
-    // CLI mode: node df-spec-lint.js <spec-file.md> [--auto]
+    // CLI mode: node df-spec-lint.js <spec-file.md>
     const filePath = process.argv[2];
     const content = fs.readFileSync(filePath, 'utf8');
-    const mode = process.argv.includes('--auto') ? 'auto' : 'interactive';
+    const mode = 'interactive';
     const specsDir = path.resolve(path.dirname(filePath));
     const result = validateSpec(content, { mode, specsDir, filename: path.basename(filePath) });
 
