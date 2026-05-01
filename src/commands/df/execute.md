@@ -1,17 +1,17 @@
 ---
 name: df:execute
-description: Execute tasks from PLAN.md with agent spawning, ratchet health checks, and worktree management
-allowed-tools: [Agent, Bash, TaskCreate, TaskUpdate, TaskList, Read, Write]
+description: Execute curated tasks from spec with ratchet health checks and a shared worktree.
+allowed-tools: [Agent, Bash, TaskCreate, TaskUpdate, TaskList, Read, Edit, Write]
 ---
 
-# /df:execute — Execute Tasks from Plan
+# /df:execute — Execute Curated Tasks from Spec
 
 ## Orchestrator Role
 
-You are a coordinator. Spawn agents, run ratchet checks, update PLAN.md. Never implement code yourself.
+You are a coordinator. Spawn agents, run ratchet checks, update task state. Never implement code yourself.
 
-**NEVER:** Read source files, edit code, use TaskOutput, use EnterPlanMode, use ExitPlanMode, read `.deepflow/experiments/**`, read `**/CLAUDE.md`, read any file not explicitly referenced in the section being executed
-**ONLY:** Read PLAN.md, read specs/doing-*.md, read `.deepflow/plans/doing-*.md` for task detail, spawn background agents, run ratchet health checks, update PLAN.md, write `.deepflow/decisions.md`
+**NEVER:** Read source files, edit code, use TaskOutput, use EnterPlanMode, use ExitPlanMode, read `.deepflow/experiments/**`, read `**/CLAUDE.md`, read any file not explicitly referenced in the active section.
+**ONLY:** Read `specs/doing-*.md`, read `.deepflow/config.yaml`, spawn background agents, run ratchet health checks, edit `specs/doing-*.md` to augment context bundles (escape hatch / integration), write `.deepflow/decisions.md`.
 
 ## Core Loop (Notification-Driven)
 
@@ -22,7 +22,7 @@ Each task = one background agent. **NEVER use TaskOutput** (100KB+ transcripts e
 2. STOP. End turn. Do NOT poll.
 3. On EACH notification:
    a. Ratchet check (§5.5)
-   b. Passed → TaskUpdate(status: "completed"), update PLAN.md [x] + commit hash
+   b. Passed → TaskUpdate(status: "completed"), mark task done
    c. Failed → partial salvage (§5.5). Salvaged → passed. Not → git revert, TaskUpdate(status: "pending")
    d. Report ONE line: "✓ T1: ratchet passed (abc123)" or "⚕ T1: salvaged (abc124)" or "✗ T1: reverted"
    e. NOT all done → end turn, wait | ALL done → next wave or finish
@@ -30,293 +30,228 @@ Each task = one background agent. **NEVER use TaskOutput** (100KB+ transcripts e
 5. Repeat until: all done, all blocked, or context ≥50%.
 ```
 
-**Context threshold:** Statusline writes `.deepflow/context.json`: `{"percentage": 45}`. <50% = full parallelism (no cap; spawn all ready tasks in one message). ≥50% = wait, checkpoint, exit.
+**Context threshold:** Statusline writes `.deepflow/context.json`: `{"percentage": 45}`. <50% = full parallelism. ≥50% = wait, checkpoint, exit.
 
 ---
 
 ## Behavior
 
-### 1. CHECK CHECKPOINT
+### 0. PRECHECK
 
-`--fresh` → delete checkpoint. Checkpoint exists without flag → prompt "Resume? (y/n)".
-Shell: `` !`cat .deepflow/checkpoint.json 2>/dev/null || echo 'NOT_FOUND'` `` / `` !`git diff --quiet && echo 'CLEAN' || echo 'DIRTY'` ``
+Read every `specs/doing-*.md`. Each MUST contain a `## Tasks (curated)` section. Any spec missing it is a hard error:
 
-**`--continue` EXPRESS LANE — skip §1.5 through §2.5 entirely:**
-1. Load checkpoint.json. If NOT_FOUND → error "No checkpoint found. Use --fresh."
-2. Rehydrate `SPEC_WORKTREES` from `checkpoint.spec_worktrees` — no discovery needed.
-3. Verify each worktree path exists (one `ls -d` per spec). Missing → error "Worktree {path} gone. Use --fresh."
-4. Load current wave: if checkpoint has `wave3_ready` (or equivalent `waveN_ready`), use it directly — **skip wave-runner**. Otherwise: `node "${HOME}/.claude/bin/wave-runner.js" --json --plan PLAN.md 2>/dev/null`.
-5. TaskCreate only for wave tasks NOT already in `checkpoint.native_task_ids`. Reuse existing IDs for the rest.
-6. Jump directly to §5 (SPAWN AGENTS).
-
-**NEVER on `--continue`:** read `specs/doing-*.md`, `PLAN.md`, `.deepflow/plans/*.md`, `.deepflow/experiments/**`, `**/CLAUDE.md`, any source file, or any file not listed in steps 1–4 above.
-
-### 1.5. CREATE WORKTREES (per spec)
-
-Require clean HEAD. Discover **all** specs in execution scope:
 ```
-DOING_SPECS=!`ls specs/doing-*.md 2>/dev/null | sed 's|specs/doing-||;s|\.md$||' | tr '\n' ' ' || echo 'NOT_FOUND'`
+✗ ERROR: specs/doing-{name}.md has no '## Tasks (curated)' section.
+  Run /df:spec --upgrade specs/doing-{name}.md to migrate, then re-run /df:execute.
 ```
 
-For **each** `{spec}` in `DOING_SPECS`, create `.deepflow/worktrees/{spec}` on branch `df/{spec}`. Reuse if exists; `--fresh` deletes first. If `worktree.sparse_paths` non-empty: `git worktree add --no-checkout`, `sparse-checkout set {paths}`, checkout.
+Exit 1. No fan-out, no fallback. The legacy PLAN.md flow has been removed; pre-curator specs MUST be migrated first.
 
-Build an in-memory map `SPEC_WORKTREES = {spec → {path, branch}}`. This map drives per-task routing in §5 and §5.5 and is persisted in `.deepflow/checkpoint.json` under `spec_worktrees`. Tasks from spec A run in worktree A; tasks from spec B run in worktree B. No cross-spec commits share a branch.
+Checkpoint handling (after precheck passes):
+- `--fresh` → delete `.deepflow/checkpoint.json`.
+- Checkpoint exists without flag → prompt "Resume? (y/n)". If yes: rehydrate from checkpoint (§A.1).
 
-Then run §1.5.1, §1.6, and §1.7 **per worktree** before any wave spawns.
+---
 
-### 1.5.1. SYMLINK DEPENDENCIES (per worktree)
+### §A. SHARED WORKTREE
 
-After each worktree is created, symlink `node_modules` from the main repo so TypeScript/LSP/build can resolve dependencies without a full install:
+Single worktree for all curated tasks: `.deepflow/worktrees/curator-active/` on branch `df/curator-active`.
+
 ```bash
-node "${HOME}/.claude/bin/worktree-deps.js" --source "$(git rev-parse --show-toplevel)" --worktree "${SPEC_WORKTREES[spec].path}"
+# Require clean HEAD
+git diff --quiet || (echo "ERROR: dirty working tree. Commit or stash first." && exit 1)
+
+# Create or reuse worktree
+git worktree list | grep -q curator-active \
+  || git worktree add -b df/curator-active .deepflow/worktrees/curator-active HEAD
 ```
-The script finds `node_modules` at root and inside monorepo directories (`packages/`, `apps/`, etc.) and creates symlinks in the worktree. Outputs JSON: `{"linked": N, "total": M}`. Errors are non-fatal — log and continue.
-<!-- NOTE: worktree-deps.js only symlinks pre-existing node_modules (gate: line 49 `if (fs.existsSync(abs))`). Dependencies for newly-created workspace packages are NOT resolved by symlink — they are installed by the ratchet pre-install step (bin/ratchet.js, before STAGE_ORDER loop). -->
 
-### 1.6. RATCHET SNAPSHOT (per worktree)
-
-For each spec worktree, snapshot pre-existing test files — only these count for ratchet (agent-created excluded):
+`--fresh`: remove and recreate:
 ```bash
-git -C ${SPEC_WORKTREES[spec].path} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' > .deepflow/auto-snapshot-{spec}.txt
+git worktree remove --force .deepflow/worktrees/curator-active 2>/dev/null || true
+git branch -D df/curator-active 2>/dev/null || true
+git worktree add -b df/curator-active .deepflow/worktrees/curator-active HEAD
 ```
 
-Each spec has its own snapshot file. Ratchet checks in §5.5 pass the snapshot file matching the task's spec.
-
-### 1.7. NO-TESTS BOOTSTRAP
-
-<!-- AC-1: zero test files triggers bootstrap before wave 1 -->
-<!-- AC-2: bootstrap success re-snapshots auto-snapshot.txt; subsequent tasks use updated snapshot -->
-<!-- AC-3: bootstrap failure with default model retries with Opus; double failure halts with specific message -->
-
-**Gate (per spec):** After §1.6 snapshot, check each spec's snapshot file independently:
+Symlink dependencies once:
 ```bash
-SNAPSHOT_COUNT=$(wc -l < .deepflow/auto-snapshot-{spec}.txt | tr -d ' ')
+node "${HOME}/.claude/bin/worktree-deps.js" \
+  --source "$(git rev-parse --show-toplevel)" \
+  --worktree .deepflow/worktrees/curator-active
 ```
-If `SNAPSHOT_COUNT` is `0` for a given spec (zero test files found), MUST spawn a bootstrap agent for **that spec** before any implementation task from that spec runs. Other specs with non-empty snapshots proceed normally.
 
-**Bootstrap flow (per empty-snapshot spec):**
-1. Spawn `Agent(subagent_type: "df-implement", ...)` with Bootstrap prompt (§6), `Working directory: ${SPEC_WORKTREES[spec].path}`. <!-- df-delegation-contract:skip — bootstrap is an operational (non-task) spawn; no contract entry for df-bootstrap --> End turn, wait for notification.
-2. **On success (TASK_STATUS:pass):** Re-snapshot immediately for that spec:
-   ```bash
-   git -C ${SPEC_WORKTREES[spec].path} ls-files | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' > .deepflow/auto-snapshot-{spec}.txt
-   ```
-   All subsequent tasks for that spec use this updated snapshot as their ratchet baseline. Proceed to wave 1.
-3. **On failure (TASK_STATUS:fail) with default model:** Retry ONCE with `Agent(subagent_type: "df-implement", model: "opus", ...)` using the same Bootstrap prompt. <!-- df-delegation-contract:skip -->
-   - Opus success → re-snapshot (same command above) → proceed to wave 1.
-   - Opus failure → halt with message: `"Bootstrap failed with both default and Opus — manual intervention required"`. Do not proceed.
-
-### 2. LOAD PLAN
-
-Load PLAN.md (required), specs/doing-*.md, .deepflow/config.yaml. Missing → "No PLAN.md found. Run /df:plan first."
-
-**Per-task detail files** (shell injection — load once after PLAN.md):
+Ratchet snapshot (single, shared):
+```bash
+git -C .deepflow/worktrees/curator-active ls-files \
+  | grep -E '\.(test|spec)\.[^/]+$|^test_|_test\.[^/]+$|^tests/|__tests__/' \
+  > .deepflow/auto-snapshot.txt
 ```
-PLAN_TASK_FILES=!`ls .deepflow/plans/doing-*.md 2>/dev/null | tr '\n' ' ' || echo 'NOT_FOUND'`
-```
-When `PLAN_TASK_FILES` is not `NOT_FOUND`, each file `.deepflow/plans/doing-{specName}.md` contains the full task detail (Files, Steps, ACs, Impact) for all tasks in that spec. Load a task's detail on demand when building its agent prompt (§6). PLAN.md is a slim index — Files and Impact live only in mini-plans. `PLAN_TASK_FILES` contains filenames only — do NOT `cat` or read mini-plan files upfront; the body lives in `WAVE_JSON[task].task_detail_body` and is injected per-agent at spawn time.
 
-**Upstream artifact loaders** (shell injection — load per spec after DOING_SPECS is resolved; `{spec}` iterates over each value in `DOING_SPECS`; proceed normally when absent):
-- `` !`cat .deepflow/maps/{spec}/sketch.md 2>/dev/null || echo 'NOT_FOUND'` `` (discover prior: modules, entry_points, related_specs)
-- `` !`cat .deepflow/maps/{spec}/findings.md 2>/dev/null || echo 'NOT_FOUND'` `` (prior task findings: files_read, hypotheses_discarded, confirmed; injected into each task agent prompt so subsequent agents skip re-discovery)
-
-### 2.5. REGISTER NATIVE TASKS
-
-For each `[ ]` task: `TaskCreate(subject: "{task_id}: {description}", activeForm: "{gerund}", description: full block)`. Store task_id → native ID. Set deps via `TaskUpdate(addBlockedBy: [...])`. `--continue` → only remaining `[ ]` items.
-
-### 3–4. READY TASKS
-
-Warn if unplanned `specs/*.md` (excluding doing-/done-) exist (non-blocking).
-
-**Wave computation (shell injection — do NOT compute manually):**
-```
-WAVE_JSON=!`node "${HOME}/.claude/bin/wave-runner.js" --json --plan PLAN.md 2>/dev/null || echo 'WAVE_ERROR'`
-```
-`WAVE_JSON` is structured JSON (produced by T1's `--json` flag). Parse it to determine the current wave and scheduling decisions:
+Persist to checkpoint:
 ```json
-{
-  "waves": [
-    {"wave": 1, "tasks": [{"id": "T1", "description": "...", "files": ["..."], "isolation": "worktree"}, ...]},
-    {"wave": 2, "tasks": [...]}
-  ],
-  "blocked": [{"id": "T3", "blockedBy": ["T2"]}],
-  "done": ["T0"]
-}
+{ "worktree": ".deepflow/worktrees/curator-active", "branch": "df/curator-active" }
 ```
-Use `waves[0].tasks` as the ready set for the current wave. Use `blocked` to identify tasks not yet ready.
 
-**Fallback (text mode):** If `WAVE_JSON` is `WAVE_ERROR` or cannot be parsed as JSON, fall back to text mode:
-```
-WAVE_PLAN=!`node "${HOME}/.claude/bin/wave-runner.js" --plan PLAN.md 2>/dev/null || echo 'WAVE_ERROR'`
-```
-Text output format:
-```
-Wave 1: T1 — description, T4 — description
-Wave 2: T2 — description
-...
-```
-In text fallback: if output is `WAVE_ERROR` or `(no pending tasks)`, fall back to TaskList where status: "pending" AND blockedBy: empty for wave 1.
+### §A.1. CONTINUE EXPRESS LANE
 
-Ready = tasks listed in Wave 1 (cross-referenced with TaskList status: "pending").
+`--continue` skips §A through §C setup:
+1. Load `.deepflow/checkpoint.json`. If missing → error "No checkpoint found. Use --fresh."
+2. Verify worktree exists: `ls -d .deepflow/worktrees/curator-active`. Missing → error "Worktree gone. Use --fresh."
+3. Reload wave state from checkpoint `current_wave` + `completed_tasks`.
+4. Jump to §D (SPAWN WAVE) for remaining tasks.
 
-Before wave 1 spawn, orchestrator MUST NOT read specs/*.md, .deepflow/plans/*.md, or grep across them — all needed fields are in WAVE_JSON.
+### §B. NO-TESTS BOOTSTRAP
 
-### 5. SPAWN AGENTS
-
-**Pre-spawn context capture (wave 1 only):**
+After §A snapshot, check:
 ```bash
-_ctx_pct=$(node -e "try{process.stdout.write(String(JSON.parse(require('fs').readFileSync('.deepflow/context.json','utf8')).percentage))}catch(e){process.stdout.write('0')}")
-_cp=$(cat .deepflow/checkpoint.json 2>/dev/null || echo '{}')
-# Persist context percentage to checkpoint; value available via checkpoint.json for downstream analysis
-node -e "const d=JSON.parse(process.argv[1]);d.pre_spawn_context_pct=${_ctx_pct};require('fs').writeFileSync('.deepflow/checkpoint.json',JSON.stringify(d,null,2))" "$_cp"
+SNAPSHOT_COUNT=$(wc -l < .deepflow/auto-snapshot.txt | tr -d ' ')
 ```
 
-Context ≥50% → checkpoint and exit. Before spawning: `TaskUpdate(status: "in_progress")`.
+If `SNAPSHOT_COUNT` is `0`: spawn bootstrap agent before any implementation task.
 
-**Token tracking start:** Store `start_percentage` (from context.json) and `start_timestamp` (ISO 8601) keyed by task_id. Omit if unavailable.
+1. Spawn `Agent(subagent_type: "df-implement")` with Bootstrap prompt (§6), `Working directory: .deepflow/worktrees/curator-active`. End turn, wait.
+2. On success: re-snapshot `.deepflow/auto-snapshot.txt`. Proceed to §C.
+3. On failure: retry once with `model: opus`. Opus failure → halt: `"Bootstrap failed with both default and Opus — manual intervention required"`.
 
-**Intra-wave isolation:** Each task in a wave runs with `isolation: "worktree"` — tasks from the same spec share that spec's worktree branch so wave 2 sees wave 1 commits; tasks from different specs run in different worktrees and never interleave. **Spawn ALL ready tasks in ONE message** except file conflicts.
+### §C. PARSE CURATED
 
-**Per-spec routing (CRITICAL):** Each task in `WAVE_JSON` carries a `spec` field (from `bin/wave-runner.js`). When building the agent prompt (§6), you MUST set `Working directory: ${SPEC_WORKTREES[task.spec].path}` — the worktree for that task's spec, NOT the first spec in the map. Cross-spec contamination (spawning a task from spec B into spec A's worktree) corrupts branch history and breaks `/df:verify`. If `task.spec` is absent from the JSON, fall back to deriving it from the task's mini-plan file `.deepflow/plans/doing-{specName}.md`; if still unresolvable, defer the task and log `"⚠ T{N} deferred — cannot resolve spec"`.
+Read all `specs/doing-*.md` files. For each, find the `## Tasks (curated)` section and extract task entries:
 
-**File conflicts (1 file = 1 writer):** Check `Files:` from wave-runner JSON output or from mini-plan detail files (`.deepflow/plans/doing-{specName}.md`). File-conflict rule applies **only within the same spec** — two tasks from different specs touching files with identical paths are actually in different worktrees and cannot collide. Overlap within a spec → spawn lowest-numbered only; rest stay pending. Log: `"⏳ T{N} deferred — file conflict with T{M} on {filename}"`
+Each entry is a `### T<n>: <title>` block with fields:
+- `**Slice:**` — files touched
+- `**Parallel:**` — `[P]` or `Blocked by: T<n>, T<m>`
+- `**Context bundle:**` — fenced content (consumed by hook; orchestrator does NOT read it)
+- `**Subagent prompt:**` — short directive text
 
-**≥2 [SPIKE] tasks same problem →** Parallel Spike Probes (§5.7). **[OPTIMIZE] tasks →** Optimize Cycle (§5.9), one at a time. **[INTEGRATION] tasks** (`task.isIntegration === true` in WAVE_JSON) **→** use the Integration Task prompt template (§6 Integration Task), not the Standard Task template. Integration tasks always land in the final wave via `Blocked by:` — wave-runner guarantees this, so they execute after all producer/consumer implementation tasks have committed. Route them to the **consumer spec's** worktree via `SPEC_WORKTREES[task.spec].path` (plan.md §4.8.2 places the integration task under the consumer's section header, so `task.spec` is already the consumer).
+Build wave graph:
+- If `## Execution graph` section exists in the spec → parse wave assignments from it.
+- Otherwise: derive from `**Parallel:**` fields. `[P]` = wave 1 (or earliest unblocked wave). `Blocked by:` → place in wave after all blockers.
 
-### 5.1. INTRA-WAVE CHERRY-PICK MERGE
+`TaskCreate` per task: `subject: "T<n>: <title>"`, `description: full block`.
+Set deps via `TaskUpdate(addBlockedBy: [...])` for `Blocked by:` tasks.
 
-After ALL wave-N agents complete, cherry-pick each wave-N commit back to the main branch BEFORE wave N+1 begins. This ensures wave N+1 agents see all wave-N changes regardless of which worktree they run in.
+### §D. SPAWN WAVE
 
-**Wave gate:** Wave N+1 MUST NOT start until all wave-N cherry-picks complete.
+For each wave, spawn ALL `[P]` tasks in ONE message (single turn):
 
-**Ordering:** Apply cherry-picks in ascending task-number order (e.g., T1 before T2 before T3) for determinism.
+```
+Agent(subagent_type: "<inferred>", run_in_background=true):
+  Working directory: .deepflow/worktrees/curator-active
+  T<n>: <slice>. <subagent_prompt>. Do not use Read/Grep/Glob.
+```
 
-**Steps (per wave completion):**
-1. Collect all task commits from wave N (from ratchet PASS records).
-2. Sort commits by ascending task-number order.
-3. For each commit, spawn haiku context-fork (§5.8): `git cherry-pick {sha}`. Receive one-line summary.
-4. On conflict: log `"⚠ cherry-pick conflict: {sha} — {file}"`, abort cherry-pick, mark task as needing manual resolution.
-5. Only after all wave-N cherry-picks finish → proceed to spawn wave N+1 agents.
+**Hook integration (AC-2, AC-5):** The PreToolUse hook `hooks/df-context-injection.js` fires on every `Task` tool call. It detects the task ID (e.g., `T1`) in the spawn prompt, finds the matching entry in `specs/doing-*.md ## Tasks (curated)`, and prepends the full `**Context bundle:**` content. Orchestrator does NOT inline the bundle — only references the task ID. Hook is already shipped (Wave 1 — REQ-5); do not re-implement.
+
+**Subagent type from title marker** (set by `/df:spec` curation per spec.md §4d):
+- `[INTEGRATION]` → `df-integration`
+- `[SPIKE]` → `df-spike`
+- `[TEST]` → `df-test`
+- `[OPTIMIZE]` → `df-optimize`
+- (no marker) → `df-implement`
+
+End turn after spawning the full wave. Do NOT poll.
+
+Single shared branch `df/curator-active` makes wave N+1 see wave N commits via normal git history. No cherry-pick between waves.
+
+### §E. ESCAPE HATCH (CONTEXT_INSUFFICIENT)
+
+On notification, if agent output contains `CONTEXT_INSUFFICIENT: <path>` instead of `TASK_STATUS:`:
+
+1. Orchestrator reads `<path>` via `Read` tool.
+2. Appends a brief excerpt to the task's `**Context bundle:**` in `specs/doing-<name>.md` via `Edit` tool.
+3. Re-spawns the task with the same prompt (`T<n>: ...`). Hook re-injects the updated bundle automatically.
+4. Track retry count in checkpoint under `retries: {T<n>: count}`.
+5. On 3rd escape hatch trigger (after 2 retries): abort with diagnostic:
+   ```
+   ✗ T<n>: aborted after 2 retries — curator gap on <path>
+   ```
+   `TaskUpdate(status: "pending")`. Do not re-spawn. Log gap for spec author.
+
+### §F. INTEGRATION TASKS
+
+When the wave graph reaches an integration task (type `df-integration`, `Blocked by:` all producers):
+
+1. At execute time, after blocker tasks have committed: orchestrator reads producer/consumer interface files from the current branch state in `.deepflow/worktrees/curator-active/`.
+2. Augments the integration task's `**Context bundle:**` in `specs/doing-<name>.md` via `Edit` tool (append producer interface excerpt).
+3. Spawns `df-integration` with prompt `T<n>: ...`. Hook injects the augmented bundle.
+
+This ensures the integration task sees actual committed interfaces, not stale spec text.
+
+---
+
+## Execution Checks
 
 ### 5.5. RATCHET CHECK
 
-Run after each agent completes, using the task's spec worktree and snapshot file:
+Run after each agent completes:
 ```bash
-node "${HOME}/.claude/bin/ratchet.js" --worktree ${SPEC_WORKTREES[task.spec].path} --snapshot .deepflow/auto-snapshot-{task.spec}.txt --task T{N}
+node "${HOME}/.claude/bin/ratchet.js" \
+  --worktree .deepflow/worktrees/curator-active \
+  --snapshot .deepflow/auto-snapshot.txt \
+  --task T{N}
 ```
 
-See `node "${HOME}/.claude/bin/ratchet.js" --help` for exit codes and scope rules.
+- **Exit 0 (PASS):** commit stands. Run §5.5.1 → §5.5.2 → §5.5.3.
+- **Exit 1 (FAIL):** script reverted HEAD. `TaskUpdate(status: 'pending')`.
+- **Exit 2 (SALVAGEABLE):** spawn `df-implement` fix prompt, re-run ratchet. Still non-zero → revert both, pending.
 
-- **Exit 0 (PASS):** commit stands. Run §5.5.1 AC coverage → §5.5.2 decision extraction → §5.5.3 findings append.
-- **Exit 1 (FAIL):** script already reverted HEAD. `TaskUpdate(status: 'pending')`. Recompute remaining waves with `--recalc --failed T{N}`.
-- **Exit 2 (SALVAGEABLE):** spawn `Agent(subagent_type: "df-implement")` fix prompt (same task context, append failure summary) <!-- df-delegation-contract:skip — salvage is an operational re-try, not a new task spawn -->, re-run ratchet; still non-zero → revert both commits, set pending.
+#### 5.5.1. AC COVERAGE CHECK
 
-Pre-existing test updates require a dedicated PLAN.md task — never inline.
-
-#### 5.5.1. AC COVERAGE CHECK (after ratchet pass)
-
-After ratchet PASS (exit 0), run AC coverage check to verify agent reported all acceptance criteria:
 ```bash
-node "${HOME}/.claude/hooks/ac-coverage.js" --spec {spec_path} --output-file {agent_output_file} --status pass
+node "${HOME}/.claude/hooks/ac-coverage.js" \
+  --spec {spec_path} --output-file {agent_output_file} --status pass
+```
+Exit 0: all covered. Exit 2: SALVAGEABLE override. Exit 1: log error, treat as PASS.
+
+#### 5.5.2. DECISION EXTRACTION
+
+Parse `DECISIONS:` line from agent output. Format: `[TAG] description — rationale`, TAG ∈ {APPROACH, PROVISIONAL, ASSUMPTION, FUTURE, UPDATE}.
+
+```sh
+grep -q "^### $(date +%Y-%m-%d) — {spec_name}$" .deepflow/decisions.md 2>/dev/null \
+  || printf '\n### %s — %s\n' "$(date +%Y-%m-%d)" "{spec_name}" >> .deepflow/decisions.md
+printf -- '- [%s] %s\n' "{TAG}" "{decision_text}" >> .deepflow/decisions.md
 ```
 
-where `{spec_path}` is the path to `specs/doing-{spec_name}.md` and `{agent_output_file}` is the task agent's full output transcript (from TaskOutput or notification context).
+Invalid TAG → SALVAGEABLE for that entry. No `DECISIONS:` line on non-low-effort task → SALVAGEABLE.
 
-**Exit codes from ac-coverage.js:**
-- **Exit 0:** All ACs covered or no ACs in spec. Status remains PASS. Proceed to decision extraction (§5.5.2).
-- **Exit 2 (SALVAGEABLE):** Missed ACs detected despite agent reporting TASK_STATUS:pass. Script outputs summary: `[ac-coverage] N/M ACs covered — missed: AC-X, AC-Y; ...`. Override final status to SALVAGEABLE. Commit stands. TaskUpdate(status: "completed") with note that ACs are incomplete.
-- **Exit 1 (script error):** Log error, do not change status. Proceed as if ratchet PASS (exit 0 from ac-coverage).
+#### 5.5.3. FINDINGS APPEND
 
-#### 5.5.2. DECISION EXTRACTION (on ratchet pass)
-
-Parse the agent's response for `DECISIONS:` line. If present:
-1. Split by ` | ` to get individual decisions
-2. If any entry does not start with `[TAG]` where TAG ∈ {APPROACH, PROVISIONAL, ASSUMPTION, FUTURE, UPDATE}, emit SALVAGEABLE and skip writing that entry to decisions.md (valid entries still get written).
-3. Each decision has format `[TAG] description — rationale` where TAG ∈ {APPROACH, PROVISIONAL, ASSUMPTION, FUTURE, UPDATE}
-4. Append to `.deepflow/decisions.md` under `### {date} — {spec_name}` header using this exact shell pattern:
-   ```sh
-   grep -q "^### $(date +%Y-%m-%d) — {spec_name}$" .deepflow/decisions.md 2>/dev/null || printf '\n### %s — %s\n' "$(date +%Y-%m-%d)" "{spec_name}" >> .deepflow/decisions.md
-   printf -- '- [%s] %s\n' "{TAG}" "{decision_text}" >> .deepflow/decisions.md
-   ```
-5. Format: `- [TAG] description — rationale`
-
-If no `DECISIONS:` line in agent output and the task effort is not `low` → emit SALVAGEABLE (non-trivial tasks without a decision line may indicate the agent skipped documenting architectural choices). For tasks with effort `low`, skip silently (mechanical tasks don't produce decisions).
-
-**This runs on every ratchet pass, not just at verify time.** Decisions are captured incrementally as tasks complete, so they're never lost even if verify fails or merge is manual.
-
-#### 5.5.3. FINDINGS APPEND (on ratchet pass)
-
-After each ratchet PASS, the orchestrator parses the agent's output for a `FINDINGS:` block and appends it to `.deepflow/maps/{spec}/findings.md`. This lets subsequent task agents skip re-discovery of files and hypotheses already explored.
-
-**Agent output format** (task agents MUST emit this block before their `TASK_STATUS:` line):
-```yaml
-FINDINGS:
-  files_read:
-    - path/to/file.ts
-  hypotheses_discarded:
-    - "Hypothesis text that was proven false"
-  confirmed:
-    - "Fact confirmed as true during implementation"
-```
-
-**Orchestrator append step** (after extracting from agent output):
+Parse `FINDINGS:` yaml block from agent output. Append:
 ```bash
 mkdir -p .deepflow/maps/{spec}
 printf '# T%s findings\n' "{task_id}" >> .deepflow/maps/{spec}/findings.md
 printf '%s\n\n' "{findings_block}" >> .deepflow/maps/{spec}/findings.md
 ```
+Missing block → skip silently.
 
-- If the agent emits no `FINDINGS:` block, skip silently (non-fatal; do not emit SALVAGEABLE for missing findings).
-- If `.deepflow/maps/{spec}/` does not exist, create it with `mkdir -p` before writing.
-- Findings are appended (never overwritten) so each task's discoveries accumulate across waves.
-- The `findings.md` content is already loaded per spec via shell injection in §2 and injected into each subsequent task agent prompt, so later agents start with accumulated knowledge from prior tasks.
-
-**Edit scope validation:** ratchet `scope` stage runs `git diff --name-only main...HEAD` vs task `Files:` list. Violation → SALVAGEABLE (commit stands, human decides).
-**Impact completeness:** diff vs Impact callers/duplicates. Gap → advisory warning (no revert).
-
-**Metric gate (Optimize only):** Run `eval "${metric_command}"` with cwd=`${SPEC_WORKTREES[task.spec].path}` (never `cd && eval`). Parse float (non-numeric → revert). Compare using `direction`+`min_improvement_threshold`. Both ratchet AND metric must pass → keep. Ratchet pass + metric stagnant → revert. Secondary metrics: regression > `regression_threshold` (5%) → WARNING in auto-report.md (no revert).
-
-**Token tracking result (on pass):** Read `end_percentage`. Sum token fields from `.deepflow/token-history.jsonl` between start/end timestamps (awk ISO 8601 compare). Write to `.deepflow/results/T{N}.yaml`:
-```yaml
-tokens:
-  start_percentage: {val}
-  end_percentage: {val}
-  delta_percentage: {end - start}
-  input_tokens: {sum}
-  cache_creation_input_tokens: {sum}
-  cache_read_input_tokens: {sum}
-```
-Omit if context.json/token-history.jsonl/awk unavailable. Never fail ratchet for tracking errors.
+**Edit scope validation:** `git diff --name-only main...HEAD` vs task `Slice:` list. Violation → SALVAGEABLE.
 
 ### 5.6. WAVE TEST AGENT
 
-Trigger: task type is [TEST] or orchestrator spawns a dedicated test-writing agent for a wave.
-
-Before spawning the test agent, collect context:
+Trigger: task type is [TEST].
 ```bash
 SNAPSHOT_FILES=!`cat .deepflow/auto-snapshot.txt 2>/dev/null || echo ''`
-EXISTING_TEST_NAMES=!`grep -h -E "^\s*(it|test|describe)\(" ${SNAPSHOT_FILES} 2>/dev/null | sed "s/^[[:space:]]*//" || echo ''`
+EXISTING_TEST_NAMES=!`grep -h -E "^\s*(it|test|describe)\(" ${SNAPSHOT_FILES} 2>/dev/null || echo ''`
 ```
-
-Pass `SNAPSHOT_FILES` and `EXISTING_TEST_NAMES` into the agent prompt so it can avoid duplication.
-
-**Implementation diff:** The wave test agent reads the implementation diff itself using the `Read` tool or `git diff` — do NOT capture or pass the raw diff to the wave test prompt inline. Injecting large diffs inflates context and causes rot.
+Pass into agent prompt. Agent reads impl diff itself via `Read` or `git diff` — do NOT inline raw diff.
 
 ### 5.7. PARALLEL SPIKE PROBES
 
 Trigger: ≥2 [SPIKE] tasks with same blocker or identical hypothesis.
 
-1. `BASELINE=$(git rev-parse HEAD)` in shared worktree
-2. Sub-worktrees per spike: `git worktree add -b df/{spec}--probe-{ID} .deepflow/worktrees/{spec}/probe-{ID} ${BASELINE}`
+1. `BASELINE=$(git rev-parse HEAD)` in shared worktree.
+2. Sub-worktrees per probe: `git worktree add -b df/curator-active--probe-{ID} .deepflow/worktrees/curator-active/probe-{ID} ${BASELINE}`.
 3. Spawn all probes in ONE message. End turn.
-4. Per notification: ratchet (§5.5). Record: ratchet_passed, regressions, coverage_delta, files_changed, commit.
-5. **Winner selection** (no LLM judge): disqualify regressions. Standard: fewer regressions > coverage > fewer files > first complete. Optimize: best metric delta > fewer regressions > fewer files. No passes → reset pending for debugger.
-6. Preserve all worktrees. Losers: branch + `-failed`. Record in checkpoint.json.
-7. Log all outcomes to `.deepflow/auto-memory.yaml` under `spike_insights`+`probe_learnings` (schema in src/skills/auto-cycle/SKILL.md). Both winners and losers.
-8. Cherry-pick winner into shared worktree via haiku context-fork (§5.8): spawn haiku with `git cherry-pick {winner_sha}`; receive one-line summary. Winner → `[x] [PROBE_WINNER]`, losers → `[~] [PROBE_FAILED]`.
+4. Per notification: ratchet (§5.5). Record ratchet_passed, regressions, coverage_delta, files_changed, commit.
+5. **Winner selection** (no LLM judge): disqualify regressions. Standard: fewer regressions > coverage > fewer files > first complete. Optimize: best metric delta > fewer regressions > fewer files. None → reset pending.
+6. Preserve all worktrees. Losers: branch + `-failed`. Record in checkpoint.
+7. Log to `.deepflow/auto-memory.yaml` under `spike_insights`+`probe_learnings`. Both winners and losers.
+8. Cherry-pick winner into shared worktree via haiku (§5.8). Winner → `[x] [PROBE_WINNER]`, losers → `[~] [PROBE_FAILED]`.
 
 #### 5.7.1. PROBE DIVERSITY (Optimize Probes)
 
-Roles: **contextualizada** (refine best), **contraditoria** (opposite of best), **ingenua** (fresh, no context).
+Roles: **contextualizada** (refine best), **contraditoria** (opposite), **ingenua** (fresh).
 
 | Round | Count | Roles |
 |-------|-------|-------|
@@ -328,159 +263,121 @@ Every set: ≥1 contraditoria + ≥1 ingenua. contextualizada from round 2+ only
 
 ### 5.8. HAIKU GIT-OPS (context-fork)
 
-<!-- AC-7: git diff/stash/cherry-pick run in a haiku context-fork; orchestrator receives one-line summary -->
+Git operations with large output MUST be delegated to a context-forked haiku subagent. Raw output never enters orchestrator context.
 
-Git operations that produce large output (diff, stash, cherry-pick conflict output) MUST be delegated to a context-forked haiku subagent. Raw output never enters the orchestrator context.
+**Trigger:** revert confirmation, cherry-pick (spike probe winners).
 
-**Trigger:** Any of: revert confirmation, cherry-pick merge-back (spike probes).
-
-**Pattern:**
 ```
 Spawn Agent(subagent_type: "df-haiku-ops", run_in_background=false):
-  Working directory: ${SPEC_WORKTREES[task.spec].path}
-  Operation: {git command}                      ← exact-shell-command (allowed-input)
-  Exit code check: capture exit code + stdout/stderr of the command (exit-code-check)
-  Output format (required-output-schema — DELEGATION.md#df-haiku-ops):
-    exit: {integer exit code, 0=success}
-    stdout: {one-line summary of command output, e.g. "cherry-pick: applied {sha} cleanly"}
-    stderr: {captured stderr or ""}
+  Working directory: .deepflow/worktrees/curator-active
+  Operation: {git command}
+  Output schema (DELEGATION.md#df-haiku-ops):
+    exit: {int, 0=success}
+    stdout: {one-line summary}
+    stderr: {captured or ""}
     Last line: TASK_STATUS:pass or TASK_STATUS:fail
-  Do NOT output the raw diff or full command output — summarize stdout to one line.
+  Do NOT output raw diff.
 ```
 
-**Examples by operation:**
-
-| Operation | Git command | Expected one-line summary |
-|-----------|-------------|--------------------------|
+| Operation | Git command | One-line summary |
+|-----------|-------------|-----------------|
 | Post-impl diff | `git diff HEAD~1` | `diff: 3 files, +47/-12 lines` |
-| Stash check | `git stash list` | `stash: 2 entries (stash@{0}: T3 work-in-progress)` |
-| Cherry-pick | `git cherry-pick {sha}` | `cherry-pick: applied {sha} cleanly` or `cherry-pick: conflict in {file}` |
-| Revert confirm | `git log --oneline -3` | `log: HEAD={sha} T3-impl, parent={sha} T2-impl` |
+| Stash check | `git stash list` | `stash: 2 entries` |
+| Cherry-pick | `git cherry-pick {sha}` | `cherry-pick: applied {sha} cleanly` |
+| Revert confirm | `git log --oneline -3` | `log: HEAD={sha} T3-impl` |
 
-**Orchestrator stores the one-line summary only.** Never stores or logs the haiku subagent transcript.
-
-**Fallback:** If haiku subagent returns TASK_STATUS:fail, orchestrator runs the minimal shell equivalent (`git diff --stat HEAD~1`) directly — this produces compact output safe for orchestrator context.
+Fallback: TASK_STATUS:fail → run `git diff --stat HEAD~1` directly.
 
 ### 5.9. OPTIMIZE CYCLE
 
-Trigger: task has `Optimize:` block. One at a time, N cycles until stop condition.
+Trigger: task has `Optimize:` block. One at a time, N cycles until stop.
 
-**Init:** Parse metric/target/direction/max_cycles/secondary_metrics from the task's `Optimize:` block. The `metric:` field is a **reference key**, not a shell command.
+Resolve `metric_command` from `.deepflow/config.yaml` (`optimize.metric_command` or `metric_commands.{key}`). Absent → REFUSE and halt: set pending, do not proceed.
 
-**Resolve `metric_command` from config.yaml (required):**
-```
-CONFIG=!`cat .deepflow/config.yaml 2>/dev/null || echo 'NOT_FOUND'`
-```
-Parse YAML: look for `optimize.metric_command` or `metric_commands.{metric_key}` where `{metric_key}` matches the `metric:` field from the task's `Optimize:` block.
+Load/init `optimize_state` in auto-memory.yaml. Measure baseline. Target met → mark `[x]`.
 
-**If `metric_command` is absent from config.yaml → REFUSE and halt this task:**
-```
-ERROR: metric_command for "{metric_key}" is not defined in .deepflow/config.yaml.
-Add it under `optimize.metric_command` or `metric_commands.{metric_key}` before retrying.
-Task "{task_id}" will not execute.
-```
-Set `TaskUpdate(status: "pending")`. Do NOT proceed to baseline measurement or cycle loop.
-
-**If `metric_command` resolves → continue:** Load or init `optimize_state` in auto-memory.yaml (fields: task_id, metric_command, target, direction, baseline, current_best, best_commit, cycles_run, cycles_without_improvement, consecutive_reverts, probe_scale, max_cycles, history[], failed_hypotheses[]). Measure baseline (`eval` with cwd=worktree) → store as baseline+current_best. Measure secondaries. Target met → mark `[x]`, done.
-
-**Cycle loop:**
 ```
 REPEAT:
-  1. Check stop conditions → if triggered, exit
-  2. Spawn ONE optimize agent (§6) run_in_background=true. STOP, end turn.
+  1. Check stop conditions
+  2. Spawn ONE optimize agent run_in_background=true. STOP.
   3. On notification:
-     a. Ratchet fail → revert, ++consecutive_reverts, log hypothesis, goto 1
-     b. Metric parse error → revert, ++consecutive_reverts
-     c. improvement = (new - best) / |best| × 100 (flip for lower; absolute if best==0)
-     d. >= 1% threshold → KEEP, update best, reset counters
-     e. < threshold → REVERT, ++cycles_without_improvement
-     f. ++cycles_run, append history, check secondaries, persist state
-     g. Report: "⟳ T{n} cycle {N}: {old}→{new} ({delta}%) — {kept|reverted} [best: X, target: Y]"
-     h. Context ≥50% → checkpoint, exit
+     a. Ratchet fail → revert, ++consecutive_reverts
+     b. improvement = (new - best) / |best| × 100
+     c. >= 1% → KEEP, update best, reset counters
+     d. < threshold → REVERT, ++cycles_without_improvement
+     e. ++cycles_run, persist state
+     f. Report: "⟳ T{n} cycle {N}: {old}→{new} ({delta}%) — {kept|reverted}"
+     g. Context ≥50% → checkpoint, exit
 ```
 
-**Stop conditions:**
-
-| Condition | Action |
-|-----------|--------|
+| Stop condition | Action |
+|----------------|--------|
 | Target reached | Mark `[x]` |
-| cycles_run >= max_cycles | Mark `[x]`. If best < baseline → `git reset --hard {best_commit}` |
+| cycles_run >= max_cycles | Mark `[x]`; if best < baseline → reset --hard best_commit |
 | 3 cycles without improvement | Launch probes (plateau) |
-| 3 consecutive reverts | Halt, task `[ ]`, requires human intervention |
+| 3 consecutive reverts | Halt, `[ ]`, human intervention required |
 
-**Plateau → probes:** Scale 0→2, 2→4, 4→6 per §5.7.1. Create sub-worktrees, spawn all with diversity roles (§6 Optimize Probe). Per notification: ratchet + metric. Winner → cherry-pick, update best, reset counters. Losers → `-failed`. Log outcomes. Resume cycle.
+Plateau → probes: scale 0→2, 2→4, 4→6 per §5.7.1. Resume cycle after winner applied.
 
-**State persistence:** Write `optimize_state` to auto-memory.yaml after every cycle. Append results table to `.deepflow/auto-report.md`.
+State persistence: write `optimize_state` to auto-memory.yaml after every cycle. Append to `.deepflow/auto-report.md`.
 
 ---
 
 ### 6. PER-TASK (agent prompt)
 
-**Common preamble (all):** `Working directory: ${SPEC_WORKTREES[task.spec].path}. All file ops use this path. Commit format: {type}({spec}): {desc}` — resolve `task.spec` from `WAVE_JSON` (fallback: `.deepflow/plans/doing-*.md`). Never route a task to a different spec's worktree.
-<!-- LSP type context (EXISTING_TYPES) is injected automatically by the df-implement-protocol PreToolUse hook — no agent action required. -->
-**Template selection and subagent routing** (flags from `WAVE_JSON` — authoritative; do NOT re-parse task description):
+**Common preamble:** `Working directory: .deepflow/worktrees/curator-active. All file ops use this path. Commit format: {type}({spec}): {desc}. Do not use Read/Grep/Glob.`
 
-| Flag                       | `subagent_type`          | Template                           |
-|----------------------------|--------------------------|------------------------------------|
-| `isIntegration: true`      | `df-integration`         | Integration Task (below)           |
-| `isSpikePlatform: true`    | `df-spike-platform`      | Spike                              |
-| `isSpike: true`            | `df-spike`               | Spike                              |
-| `isOptimize: true`         | `df-optimize`            | Optimize Task                      |
-| `isTest: true`             | `df-test`                | Wave Test                          |
-| (none)                     | `df-implement`           | Standard Task                      |
+**Template selection** (from title marker per spec.md §4d):
 
-Spawn each agent as:
+| Title marker | `subagent_type` | Template |
+|--------------|-----------------|---------|
+| `[INTEGRATION]` | `df-integration` | Integration |
+| `[SPIKE]` | `df-spike` | Spike |
+| `[TEST]` | `df-test` | Wave Test |
+| `[OPTIMIZE]` | `df-optimize` | Optimize Task |
+| (none) | `df-implement` | Standard Task |
+
 ```
 Agent(subagent_type: "{subagent_type}", run_in_background=true):
-  Working directory: ${SPEC_WORKTREES[task.spec].path}
+  Working directory: .deepflow/worktrees/curator-active
   {rendered template content}
 ```
 
-Never use bare `Agent(model="sonnet")` or `Agent(model="opus")` for task agents — route through `subagent_type` instead. Tool restrictions are enforced by the sub-agent definition, not by the prompt.
-
-**Required output schema per subagent_type** (DELEGATION.md contract — orchestrator reads notification for these):
-
-| `subagent_type`  | Required output fields (all)                                                              |
-|------------------|-------------------------------------------------------------------------------------------|
-| `df-implement`   | Optional `DECISIONS:` line; `AC_COVERAGE:` … `AC_COVERAGE_END` block; final `TASK_STATUS:pass\|fail\|revert` |
-| `df-test`        | Optional `DECISIONS:` line; `AC_COVERAGE:` … `AC_COVERAGE_END` block; final `TASK_STATUS:pass\|fail\|revert` |
-| `df-integration` | `AC_COVERAGE:` … `AC_COVERAGE_END` block; final `TASK_STATUS:pass\|fail`                  |
-| `df-spike`       | Result file at `.deepflow/experiments/…`; `PASSED/FAILED/INCONCLUSIVE` conclusion; final `TASK_STATUS:pass\|fail` |
-| `df-optimize`    | `before {val} → after {val} ({pct}%)` metric line; final `TASK_STATUS:pass\|fail`         |
-
-Ratchet post-pass checks (§5.5.1, §5.5.2) consume `AC_COVERAGE:` and `DECISIONS:` from the agent notification output.
-
-**Template files** (render with `node "${HOME}/.claude/bin/prompt-compose.js" --template <name> --context <json-or-stdin>`):
-
-> **EVERY template requires `WORKTREE_PATH`** in addition to its template-specific tokens. Set it from `${SPEC_WORKTREES[task.spec].path}` — absolute path preferred. The templates use it to render the WORKDIR rules block that enforces `cd <path>`, absolute Read/Edit/Write paths, and `git -C <path>` for every sub-agent operation. `prompt-compose.js` will exit 1 if `WORKTREE_PATH` is missing from the context JSON.
-
-| Template | File | Required tokens (see the file for full list) |
-|---|---|---|
-| Standard Task | `templates/agent-prompts/standard-task.md` | `WORKTREE_PATH`, `TASK_ID`, `DESCRIPTION`, `FILES`, `SPEC`, `ACS`, `TASK_BODY` (+ pre-rendered conditional blocks) |
-| Integration | `templates/agent-prompts/integration.md` | `WORKTREE_PATH`, `TASK_ID`, `SPEC_A`, `SPEC_B`, `INTEGRATION_ACS`, `SPECS_INVOLVED`, `INTERFACE_MAP`, `CONTRACT_RISKS`, `AC_COVERAGE_INSTRUCTIONS` |
-| Bootstrap | `templates/agent-prompts/bootstrap.md` | `WORKTREE_PATH`, `SPEC` |
-| Wave Test | `templates/agent-prompts/wave-test.md` | `WORKTREE_PATH`, `TASK_ID`, `SPEC_NAME`, `SNAPSHOT_FILES`, `EXISTING_TEST_NAMES`, `SPEC_PATH`, `EDIT_SCOPE`, `SPEC`, `ACS`, `FILES` |
-| Spike | `templates/agent-prompts/spike.md` | `WORKTREE_PATH`, `TASK_ID`, `HYPOTHESIS`, `SPEC`, `REVERTED_WARNINGS`, `DESC` |
-| Optimize Task | `templates/agent-prompts/optimize.md` | `WORKTREE_PATH` + (see file) |
-| Optimize Probe | `templates/agent-prompts/optimize-probe.md` | `WORKTREE_PATH` + (see file) |
-
-Conditional blocks (`REVERTED_BLOCK`, `SPIKE_BLOCK`, `DOMAIN_MODEL_BLOCK`, `EXISTING_TYPES_BLOCK`) are pre-rendered by the caller — pass empty string to collapse, pre-formatted content (with trailing `\n`) to include.
-
-**Render efficiency (stdin-pipe):** Avoid temp-file heredocs; use stdin-pipe to render templates:
+Templates rendered via:
 ```bash
 printf '%s' "$ctx" | node "${HOME}/.claude/bin/prompt-compose.js" --template standard-task --context -
 ```
-This pattern avoids intermediate file writes and reduces I/O overhead.
 
-**Findings injection (per task):** When `findings.md` is not `NOT_FOUND` (loaded in §2), inject its content into the agent prompt as a `PRIOR_FINDINGS:` block so the agent skips re-discovering files and hypotheses already explored by prior tasks.
+Every template requires `WORKTREE_PATH` (set to `.deepflow/worktrees/curator-active`). `prompt-compose.js` exits 1 if missing.
 
-**Findings emission requirement:** Every standard task agent MUST emit a `FINDINGS:` block before its `TASK_STATUS:` line. The block is parsed by the orchestrator in §5.5.3 and appended to `.deepflow/maps/{spec}/findings.md`. Agents that do not emit findings have their output logged without error (non-fatal).
+| Template | File |
+|----------|------|
+| Standard Task | `templates/agent-prompts/standard-task.md` |
+| Integration | `templates/agent-prompts/integration.md` |
+| Bootstrap | `templates/agent-prompts/bootstrap.md` |
+| Wave Test | `templates/agent-prompts/wave-test.md` |
+| Spike | `templates/agent-prompts/spike.md` |
+| Optimize Task | `templates/agent-prompts/optimize.md` |
+| Optimize Probe | `templates/agent-prompts/optimize-probe.md` |
 
-### 8. COMPLETE SPECS
+**Required output schema per subagent_type:**
 
-All tasks done for `doing-*` spec:
-1. `skill: "df:verify", args: "doing-{name} --from-execute"` — runs L0-L4 gates, merges, cleans worktree, renames doing→done, extracts decisions. Fail (fix tasks added) → stop; `--continue` picks them up.
-2. PLAN.md section cleanup handled by verify (step 6).
+| `subagent_type` | Required output |
+|-----------------|----------------|
+| `df-implement` / `df-test` | Optional `DECISIONS:`; `AC_COVERAGE:...AC_COVERAGE_END`; `TASK_STATUS:pass\|fail\|revert` |
+| `df-integration` | `AC_COVERAGE:...AC_COVERAGE_END`; `TASK_STATUS:pass\|fail` |
+| `df-spike` | Result file; `PASSED/FAILED/INCONCLUSIVE`; `TASK_STATUS:pass\|fail` |
+| `df-optimize` | `before {val} → after {val} ({pct}%)`; `TASK_STATUS:pass\|fail` |
+
+Findings injection: when `findings.md` is available, inject as `PRIOR_FINDINGS:` block in agent prompt.
+
+### §G. AUTO-VERIFY
+
+After all tasks in all curated specs complete:
+```
+skill: "df:verify", args: "doing-{name} --from-execute"
+```
+Runs L0-L4 gates, merges branch, cleans worktree, renames `doing-` → `done-`, extracts decisions. The `--from-execute` flag prevents recursion (verify will not re-invoke execute). Fail (fix tasks added) → stop; `--continue` picks them up.
 
 ---
 
@@ -490,7 +387,7 @@ All tasks done for `doing-*` spec:
 /df:execute              # All ready tasks
 /df:execute T1 T2        # Specific tasks
 /df:execute --continue   # Resume checkpoint
-/df:execute --fresh      # Ignore checkpoint
+/df:execute --fresh      # Ignore checkpoint, recreate worktree
 /df:execute --dry-run    # Show plan only
 ```
 
@@ -498,13 +395,13 @@ All tasks done for `doing-*` spec:
 
 Skills: `atomic-commits`, `browse-fetch`.
 
-**Model+effort routing** (read from PLAN.md, defaults: sonnet/medium). Sub-agent type is selected by §6 flag table; `effort` controls preamble only:
+**Model+effort routing** (read from spec, defaults: sonnet/medium):
 
-| Effort | Preamble injected into prompt |
-|--------|-------------------------------|
-| low    | `Maximally efficient: skip explanations, minimize tool calls, straight to implementation.` |
+| Effort | Preamble |
+|--------|---------|
+| low | `Maximally efficient: skip explanations, minimize tool calls, straight to implementation.` |
 | medium | `Direct and efficient. Explain only non-obvious logic.` |
-| high   | _(none)_ |
+| high | _(none)_ |
 
 **Checkpoint:** `.deepflow/checkpoint.json`:
 ```json
@@ -512,13 +409,12 @@ Skills: `atomic-commits`, `browse-fetch`.
   "completed_tasks": ["T1"],
   "current_wave": 2,
   "pre_spawn_context_pct": 42,
-  "spec_worktrees": {
-    "upload":   {"path": ".deepflow/worktrees/upload",   "branch": "df/upload"},
-    "auth":     {"path": ".deepflow/worktrees/auth",     "branch": "df/auth"}
-  }
+  "worktree": ".deepflow/worktrees/curator-active",
+  "branch": "df/curator-active",
+  "retries": {"T3": 1}
 }
 ```
-One entry per `doing-*` spec in scope. `--continue` rehydrates this map before wave scheduling.
+`--continue` rehydrates `worktree` and `branch` directly. Pre-curator checkpoints (with `spec_worktrees` map) are not supported — delete `.deepflow/checkpoint.json` and re-run with `--fresh`.
 
 ## Failure Handling
 
@@ -528,10 +424,11 @@ Reverted task: `TaskUpdate(status: "pending")`, dependents stay blocked. Repeate
 
 | Rule | Detail |
 |------|--------|
-| Integration tasks run last | [INTEGRATION] tasks execute after all blocked-by tasks complete. Fix tasks from integration failures are prescriptive (name the contract, producer, consumer, and which side to change). Never weaken the producer's declared interface — prefer fixing the consumer. |
-| Zero tests → bootstrap first | Sole task when snapshot empty |
+| 1 worktree | All curated tasks share `.deepflow/worktrees/curator-active/` |
 | 1 task = 1 agent = 1 commit | `atomic-commits` skill |
-| 1 file = 1 writer | Sequential on conflict |
+| Hook injects bundle | Orchestrator only references task ID; `df-context-injection.js` prepends bundle via PreToolUse |
+| Curator owns conflicts | `[P]` only when file-touch sets are pairwise disjoint (enforced at curation time by `/df:spec`) |
+| Zero tests → bootstrap first | Sole task when snapshot empty |
 | Agent codes, orchestrator measures | Ratchet judges |
 | No LLM evaluates LLM | Health checks only |
 | ≥2 spikes → parallel probes | Never sequential |
@@ -544,3 +441,5 @@ Reverted task: `TaskUpdate(status: "pending")`, dependents stay blocked. Repeate
 | Plateau → probes | 3 cycles <1% triggers probes |
 | Circuit breaker = 3 reverts | Halts, needs human |
 | Probe diversity | ≥1 contraditoria + ≥1 ingenua |
+| Integration tasks run last | `Blocked by:` all producers; orchestrator augments bundle at execute time |
+| CONTEXT_INSUFFICIENT | Max 2 retries; 3rd → abort with diagnostic |
