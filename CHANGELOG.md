@@ -1,3 +1,26 @@
+## v0.1.133 — 2026-05-01
+
+The curator-pattern pivot lands. `/df:execute` no longer fans out per-spec PLAN.md sub-orchestrators — the orchestrator session itself acts as the curator, force-feeding inline context bundles to subagents that no longer have `Read`. Bench (`.deepflow/experiments/orchestration-vs-solo`) showed the previous fan-out was 4–5× more expensive and 3–4× slower than solo Opus with worse quality; the curator simulation matched solo cost while preserving the audit trail. Three commands are removed and `bin/migrate-legacy-plan.js` lands to convert old PLAN.md mini-plans into the new format.
+
+### What's new
+
+- **`/df:spec` curates tasks inline.** New `## Tasks (curated)` section in the spec carries `[P]` (parallel) markers, `Blocked by:` edges, and an `## Execution graph` for wave grouping — produced from file-ownership analysis at spec time. PLAN.md is gone; the spec is now the single source of truth from human handoff through merge.
+- **`/df:execute` is a curator orchestrator.** Single shared worktree at `.deepflow/worktrees/curator-active/` (no more per-spec branches). The orchestrator reads each task's bundle, spawns subagents in parallel batches per `[P]` wave, collects outputs, commits, advances. Hard-errors on legacy specs missing `## Tasks (curated)`.
+- **Subagents lose `Read`/`Grep`/`Glob`.** `df-implement`, `df-test`, `df-integration`, and `df-optimize` now consume the inline bundle the curator pre-built — no on-the-fly file discovery. If something's missing, the agent emits `CONTEXT_INSUFFICIENT: <file>` and stops; the curator augments the bundle and re-spawns (max 2 retries). `df-spike`, `df-spike-platform`, `df-haiku-ops`, and `reasoner` are unchanged.
+- **`/df:plan`, `/df:auto`, `/df:auto-cycle` removed.** The autonomous-mode loop is replaced by the curator pattern (the orchestrator session IS the loop now). The `auto-cycle` skill, `bin/wave-runner.js`, `bin/plan-consolidator.js`, and `templates/plan-template.md` are deleted.
+- **`npx deepflow migrate-legacy`.** New subcommand converts `.deepflow/plans/doing-{spec}.md` mini-plans into `## Tasks (curated)` sections appended to the matching `specs/doing-{spec}.md`. Best-effort — context bundles ship as TODO placeholders the curator must populate before `/df:execute`. Idempotent on already-migrated specs.
+- **Installer auto-detects legacy plans.** After every install, `npx deepflow` checks the current directory for `.deepflow/plans/` and prompts to run the migrator (default Yes in TTY).
+- **`/df:execute` warns on legacy plans dir.** Even after migration, if `.deepflow/plans/` is still present, the precheck emits a one-line stderr hint pointing at the migrator.
+
+### Fixes & internals
+
+- **`mode === 'auto'` escalation removed** from `df-invariant-check` and `df-artifact-validate`. The `--auto` CLI flag and `DEEPFLOW_AUTO=1` env signal — both set only by the now-deleted `/df:auto` — are gone. Strict-mode users get the same advisory→hard escalation that auto used to provide.
+- **New `df-context-injection` PreToolUse hook** auto-discovered by `bin/install.js` via `@hook-event:` tag. Fires on Task spawn for restricted subagent types and validates that an inline bundle is present.
+- **`DELEGATION.md` gains a Tool Inventory section** listing all 8 sub-agents (4 restricted + 4 unchanged) plus the `CONTEXT_INSUFFICIENT` escape contract.
+- README, CLAUDE.md, and `docs/{concepts,configuration,getting-started}.md` rewritten to describe Two Phases (Human + AI) instead of Two Loops; data flow now goes specs → curator → curator-active worktree.
+- 6 obsolete test files deleted (`command-cleanup{,-integration}`, `plan-fanout{,-integration,-v2-integration}`, `orchestrator-v2-integration`) — they tested removed commands and orchestrator behavior.
+- 182/182 hook tests pass after the rewrite; 8/8 unit tests for the new migrator pass (including a regression test for a JS-regex `\z` bug that initially truncated step bodies at literal `z` chars).
+
 ## v0.1.132 — 2026-04-29
 
 Follow-up to v0.1.130/131: implementation-class agents can now commit on their own `df/<spec>` branch (the `/df:execute` flow requires 1 task = 1 agent = 1 commit), and the unreliable transcript-walk role-inference fallback is removed.
