@@ -1,3 +1,17 @@
+## v0.1.134 — 2026-05-01
+
+Hotfix for v0.1.133. The installer was purely additive, so users who upgraded from v0.1.132 ended up with `/df:plan`, `/df:auto`, `/df:auto-cycle`, the `auto-cycle` skill, `bin/wave-runner.js`, and `bin/plan-consolidator.js` still on disk and still surfaced in Claude Code's skill list — even though those commands no longer exist in the package. The headline curator-pivot promise of v0.1.133 was undermined by these zombie files. Re-run `npx deepflow@latest` to clean them up automatically.
+
+### Fixes
+
+- **Installer now prunes stale files between versions.** Two-layer mechanism: a hardcoded one-shot scrub for the v0.1.133 deletions (so existing installs get cleaned on next upgrade), plus an install manifest at `cache/df-install-manifest.json` that records what this version shipped — future installers diff prev vs. current and prune the difference automatically with no code changes needed for new deletions.
+- The first run after upgrading prints `✓ Pruned 6 stale file(s) from previous versions`. Subsequent runs are no-ops unless something else gets removed.
+
+### Internals
+
+- `bin/install.js` exports `STALE_FROM_PRIOR_VERSIONS`, `collectShippedFiles`, `pruneStaleFiles`, and `writeInstallManifest` for tests.
+- 7 new unit tests cover the stale-list contents, package enumeration (global vs project), manifest-driven prune, hardcoded fallback, idempotency, and manifest round-trip.
+
 ## v0.1.133 — 2026-05-01
 
 The curator-pattern pivot lands. `/df:execute` no longer fans out per-spec PLAN.md sub-orchestrators — the orchestrator session itself acts as the curator, force-feeding inline context bundles to subagents that no longer have `Read`. Bench (`.deepflow/experiments/orchestration-vs-solo`) showed the previous fan-out was 4–5× more expensive and 3–4× slower than solo Opus with worse quality; the curator simulation matched solo cost while preserving the audit trail. Three commands are removed and `bin/migrate-legacy-plan.js` lands to convert old PLAN.md mini-plans into the new format.
