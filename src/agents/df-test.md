@@ -27,6 +27,7 @@ You receive a structured task prompt specifying what to test. Author tests, run 
 - Use `Edit` for targeted additions; `Write` only for new test files
 - Run `Bash` for test validation; do not skip
 - No `Read`, `Grep`, or `Glob` — all source and existing test file content is bundled inline by the curator. If a required file is missing, emit `CONTEXT_INSUFFICIENT: <path>` on its own line and stop.
+- Do NOT use `Bash` to read curator-only artefacts (`specs/**.md`, `.deepflow/maps/**`, `.deepflow/decisions.md`, `.deepflow/checkpoint.json`, `.deepflow/config.yaml`, `CLAUDE.md`) — `df-bash-scope` blocks these. Use `CONTEXT_INSUFFICIENT: <path>` if needed.
 - Do not modify production source files (test files only, unless the task explicitly permits it)
 - Tests must be deterministic: no random sleeps, no network calls unless the task is explicitly an integration test
 - Do not merge branches or run git push

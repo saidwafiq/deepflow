@@ -98,9 +98,42 @@ const SEARCH_TOOL_DENY = [
   /(?:^|&&\s*|;\s*|\|\s*)find\b.*-name\b/,
 ];
 
+/**
+ * Curator-only artifact paths — any reference to these in a Bash command
+ * indicates a sub-agent reaching beyond its inline bundle. The curator
+ * pattern's promise is that subagents receive bundled context inline; if
+ * a subagent needs more context it must emit `CONTEXT_INSUFFICIENT: <path>`
+ * and let the orchestrator augment the bundle.
+ *
+ * Block targets (in any path-prefix combination):
+ *   - specs/{name}.md  — full spec text (would leak other tasks' bundles)
+ *   - .deepflow/maps/   — sketch.md / impact.md / findings.md (orchestrator inputs)
+ *   - .deepflow/decisions.md  — historical decisions index (orchestrator-only)
+ *   - .deepflow/checkpoint.json  — execute orchestrator state
+ *   - .deepflow/config.yaml  — project config (orchestrator-only)
+ *   - CLAUDE.md  — codebase guide (orchestrator warmup, not subagent context)
+ *
+ * Patterns match the path substring anywhere in the command, so both
+ * `cat specs/foo.md` and `cat ../../specs/foo.md` and absolute paths
+ * (`/abs/path/specs/foo.md`) all trip the deny.
+ */
+const CURATOR_PATH_DENY = [
+  /\bspecs\/\S+\.md\b/,
+  /\.deepflow\/maps\/\S+/,
+  /\.deepflow\/decisions\.md\b/,
+  /\.deepflow\/checkpoint\.json\b/,
+  /\.deepflow\/config\.yaml\b/,
+  /(?:^|[\s/'"`])CLAUDE\.md\b/,
+];
+
 // denyOverride for implementation-class agents (df-implement, df-test, df-integration, df-optimize).
 // git add and plain git commit are intentionally absent — they are in the allow list instead.
-const IMPL_DENY = [...GIT_HISTORY_REWRITING_DENY, ...GIT_AMEND_DENY, ...SEARCH_TOOL_DENY];
+const IMPL_DENY = [
+  ...GIT_HISTORY_REWRITING_DENY,
+  ...GIT_AMEND_DENY,
+  ...SEARCH_TOOL_DENY,
+  ...CURATOR_PATH_DENY,
+];
 
 // ---------------------------------------------------------------------------
 // SCOPES map
@@ -299,4 +332,4 @@ const SCOPES = {
   },
 };
 
-module.exports = { SCOPES };
+module.exports = { SCOPES, CURATOR_PATH_DENY };

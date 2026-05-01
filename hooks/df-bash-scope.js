@@ -29,7 +29,7 @@ const path = require('path');
 const fs = require('fs');
 const { readStdinIfMain } = require('./lib/hook-stdin');
 const { inferAgentRole } = require('./lib/agent-role');
-const { SCOPES } = require('./lib/bash-scopes');
+const { SCOPES, CURATOR_PATH_DENY } = require('./lib/bash-scopes');
 
 // ---------------------------------------------------------------------------
 // Telemetry
@@ -100,6 +100,21 @@ function firstToken(cmd) {
 // Main hook logic
 // ---------------------------------------------------------------------------
 
+/**
+ * True when cwd is inside any `.deepflow/worktrees/<x>/` path — i.e. a
+ * curator-pattern execution worktree (shared `curator-active`, probe
+ * sub-worktrees, or any future worktree under that root).
+ *
+ * Used to apply the curator-only path block independently of role
+ * inference, since `df/curator-active` doesn't carry the per-task probe
+ * suffix that `inferAgentRoleFromCwd` keys on.
+ */
+function isCuratorWorktree(cwd) {
+  if (!cwd) return false;
+  const marker = path.sep + path.join('.deepflow', 'worktrees') + path.sep;
+  return cwd.includes(marker);
+}
+
 readStdinIfMain(module, (payload) => {
   // Defensive: only act on Bash tool calls.
   if (!payload || payload.tool_name !== 'Bash') return;
@@ -109,7 +124,25 @@ readStdinIfMain(module, (payload) => {
 
   const cwd = payload.cwd || process.cwd();
 
-  // Infer role: Tier 1 cwd-branch, Tier 2 transcript-walk (T108).
+  // Layer 1: Curator-only path block — fires for ANY subagent running inside
+  // a `.deepflow/worktrees/*` path, independent of role inference. This
+  // protects the curator pattern's bundle-isolation invariant: subagents
+  // must not reach beyond their inline bundle into orchestrator-only
+  // artefacts (specs/**, .deepflow/maps/**, decisions, checkpoint, config,
+  // CLAUDE.md). Role inference returns null for `df/curator-active` (no
+  // per-task probe suffix), so this layer is the primary enforcement.
+  if (isCuratorWorktree(cwd) && matchesAny(CURATOR_PATH_DENY, cmd)) {
+    const message =
+      `df-bash-scope: subagent cannot read curator-only artefacts (specs/, .deepflow/maps/, decisions, checkpoint, config, CLAUDE.md). ` +
+      `These are orchestrator inputs — your bundle is the only context source. ` +
+      `If you need a file outside your bundle, emit "CONTEXT_INSUFFICIENT: <path>" on its own line and stop; ` +
+      `the orchestrator will augment your bundle and re-spawn.`;
+    appendTelemetry(cwd, { role: 'curator-worktree', command: cmd, decision: 'block', reason: 'curator-path' });
+    block(message);
+    return;
+  }
+
+  // Layer 2: Per-role scope check (Tier 1 cwd-branch inference for probe-T{N} worktrees).
   let role;
   try {
     role = inferAgentRole(payload);
@@ -138,11 +171,19 @@ readStdinIfMain(module, (payload) => {
   if (denyOverride.length > 0 && matchesAny(denyOverride, cmd)) {
     const token = firstToken(cmd);
 
-    const message =
-      `df-bash-scope: \`${token}\` is outside ${role} scope. ` +
-      `Command blocked by denyOverride rule.`;
+    // Distinguish curator-path leak (informational, points to escape hatch)
+    // from generic denyOverride (operational scope violation).
+    const isCuratorLeak = matchesAny(CURATOR_PATH_DENY, cmd);
+    const message = isCuratorLeak
+      ? `df-bash-scope: ${role} cannot read curator-only artefacts (specs/, .deepflow/maps/, decisions, checkpoint, config, CLAUDE.md). ` +
+        `These are orchestrator inputs — your bundle is the only context source. ` +
+        `If you need a file outside your bundle, emit "CONTEXT_INSUFFICIENT: <path>" on its own line and stop; ` +
+        `the orchestrator will augment your bundle and re-spawn.`
+      : `df-bash-scope: \`${token}\` is outside ${role} scope. ` +
+        `Command blocked by denyOverride rule.`;
 
-    appendTelemetry(cwd, { role, command: cmd, decision: 'block', reason: `denyOverride:${token}` });
+    const reason = isCuratorLeak ? `curator-path:${token}` : `denyOverride:${token}`;
+    appendTelemetry(cwd, { role, command: cmd, decision: 'block', reason });
     block(message);
     return; // unreachable — block() exits, but makes logic explicit.
   }

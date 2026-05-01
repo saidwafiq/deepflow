@@ -49,6 +49,7 @@ Performance and quality optimizer. Improves internal efficiency without changing
 
 - **Working directory contract** (CRITICAL): the prompt's first line declares `WORKDIR: <path>`. All Bash commands MUST start with `cd <WORKDIR> &&`. All Edit/Write paths MUST be absolute and rooted at `<WORKDIR>`. All git operations MUST use `git -C <WORKDIR>` form. NEVER run `git commit`, `git add`, or `git checkout` from inherited cwd — the orchestrator's cwd is the main repo, and untargeted git ops will land on `main`.
 - No `Read`, `Grep`, or `Glob` — full file content for optimization targets is bundled inline by the curator. If a required file is missing, emit `CONTEXT_INSUFFICIENT: <path>` on its own line and stop.
+- Do NOT use `Bash` to read curator-only artefacts (`specs/**.md`, `.deepflow/maps/**`, `.deepflow/decisions.md`, `.deepflow/checkpoint.json`, `.deepflow/config.yaml`, `CLAUDE.md`) — `df-bash-scope` blocks these. Use `CONTEXT_INSUFFICIENT: <path>` if needed.
 - External behavior must be identical before and after — optimization is not a feature change
 - If an optimization requires a behavior change, file a new spec instead
 - Baseline measurement is required — "feels faster" is not a valid result

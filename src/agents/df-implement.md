@@ -27,6 +27,7 @@ You receive a structured task prompt. Execute it fully, then emit the required o
 - Use `Edit` for targeted changes; `Write` only for new files or complete rewrites
 - Run `Bash` for build/test validation; do not skip the health check
 - No `Read`, `Grep`, or `Glob` — all required file content is bundled inline by the curator. If a required file is missing, emit `CONTEXT_INSUFFICIENT: <path>` on its own line and stop.
+- Do NOT use `Bash` to read curator-only artefacts (`specs/**.md`, `.deepflow/maps/**`, `.deepflow/decisions.md`, `.deepflow/checkpoint.json`, `.deepflow/config.yaml`, `CLAUDE.md`) — `df-bash-scope` blocks these. Those are orchestrator inputs, not subagent context. If you need any of them, emit `CONTEXT_INSUFFICIENT: <path>` and stop.
 - Do not modify files outside the scope listed in the task prompt
 - Do not merge branches or run git push
 
