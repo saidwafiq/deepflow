@@ -47,6 +47,124 @@ if (process.argv[2] === 'migrate-legacy') {
   process.exit(result.status == null ? 1 : result.status);
 }
 
+// Hardcoded one-shot scrub for upgrades from before the install manifest
+// existed (v0.1.132 → v0.1.134+). Once the manifest is in place, future
+// version diffs are computed dynamically.
+const STALE_FROM_PRIOR_VERSIONS = Object.freeze([
+  // v0.1.133 — curator pivot deleted these
+  'commands/df/plan.md',
+  'commands/df/auto.md',
+  'commands/df/auto-cycle.md',
+  'skills/auto-cycle',
+  'bin/wave-runner.js',
+  'bin/plan-consolidator.js',
+]);
+
+/**
+ * Enumerate every file/dir this version of the package will install into
+ * CLAUDE_DIR, returning paths relative to CLAUDE_DIR. Used both for prune
+ * computation and as the stored install manifest.
+ */
+function collectShippedFiles(level) {
+  const files = [];
+
+  const dfCommandsDir = path.join(PACKAGE_DIR, 'src', 'commands', 'df');
+  if (fs.existsSync(dfCommandsDir)) {
+    for (const f of fs.readdirSync(dfCommandsDir)) files.push(`commands/df/${f}`);
+  }
+
+  const skillsDir = path.join(PACKAGE_DIR, 'src', 'skills');
+  if (fs.existsSync(skillsDir)) {
+    for (const e of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+      if (e.isDirectory()) files.push(`skills/${e.name}`);
+    }
+  }
+
+  const agentsDir = path.join(PACKAGE_DIR, 'src', 'agents');
+  if (fs.existsSync(agentsDir)) {
+    for (const f of fs.readdirSync(agentsDir)) files.push(`agents/${f}`);
+  }
+
+  // Bin scripts that the installer actually copies to CLAUDE_DIR/bin/.
+  // (migrate-legacy-plan.js is intentionally not here — it's invoked via
+  // `npx deepflow migrate-legacy` directly from the npm package.)
+  for (const script of [
+    'prompt-compose.js',
+    'ratchet.js',
+    'worktree-deps.js',
+    'df-filter-suggest.js',
+  ]) {
+    if (fs.existsSync(path.join(PACKAGE_DIR, 'bin', script))) {
+      files.push(`bin/${script}`);
+    }
+  }
+
+  if (level === 'global') {
+    const hooksRoot = path.join(PACKAGE_DIR, 'hooks');
+    if (fs.existsSync(hooksRoot)) {
+      const walk = (dir, prefix) => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (e.isDirectory()) {
+            walk(path.join(dir, e.name), `${prefix}/${e.name}`);
+          } else if (e.name.endsWith('.js') && !e.name.endsWith('.test.js')) {
+            files.push(`${prefix}/${e.name}`);
+          }
+        }
+      };
+      walk(hooksRoot, 'hooks');
+    }
+  }
+
+  return files;
+}
+
+/**
+ * Remove files that previous deepflow versions shipped but the current
+ * version doesn't. Uses an install manifest written by the prior install when
+ * available; falls back to a hardcoded stale-list for the bootstrap upgrade.
+ */
+function pruneStaleFiles(claudeDir, currentShipped) {
+  const manifestPath = path.join(claudeDir, 'cache', 'df-install-manifest.json');
+  let staleList = [];
+
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const prev = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      if (Array.isArray(prev.files)) {
+        const currSet = new Set(currentShipped);
+        staleList = prev.files.filter((f) => !currSet.has(f));
+      }
+    } catch (_) {
+      staleList = [...STALE_FROM_PRIOR_VERSIONS];
+    }
+  } else {
+    staleList = [...STALE_FROM_PRIOR_VERSIONS];
+  }
+
+  let pruned = 0;
+  for (const rel of staleList) {
+    const full = path.join(claudeDir, rel);
+    if (fs.existsSync(full)) {
+      fs.rmSync(full, { recursive: true, force: true });
+      pruned++;
+    }
+  }
+  if (pruned > 0) {
+    console.log(`  ${c.green}✓${c.reset} Pruned ${pruned} stale file(s) from previous versions`);
+  }
+  return pruned;
+}
+
+function writeInstallManifest(claudeDir, version, level, files) {
+  const cacheDir = path.join(claudeDir, 'cache');
+  fs.mkdirSync(cacheDir, { recursive: true });
+  const manifestPath = path.join(cacheDir, 'df-install-manifest.json');
+  atomicWriteFileSync(
+    manifestPath,
+    JSON.stringify({ version, level, files, timestamp: Date.now() }, null, 2)
+  );
+}
+
 /**
  * Detect a legacy `.deepflow/plans/` directory in process.cwd() and offer to
  * run bin/migrate-legacy-plan.js. Returns silently when there's nothing to do.
@@ -173,6 +291,12 @@ async function main() {
     fs.mkdirSync(path.join(CLAUDE_DIR, dir), { recursive: true });
   }
 
+  // Prune files this version no longer ships. Uses the install manifest from
+  // the previous run when present; falls back to a hardcoded list for the
+  // initial bootstrap (users coming from a pre-manifest deepflow version).
+  const currentShipped = collectShippedFiles(level);
+  pruneStaleFiles(CLAUDE_DIR, currentShipped);
+
   // Copy commands
   copyDir(
     path.join(PACKAGE_DIR, 'src', 'commands', 'df'),
@@ -262,6 +386,12 @@ async function main() {
     }, null, 2));
   } else if (fs.existsSync(cacheFile)) {
     fs.unlinkSync(cacheFile);
+  }
+
+  // Record the install manifest so the next upgrade can compute the prune set
+  // dynamically instead of relying on the hardcoded stale list.
+  if (installedVersion) {
+    writeInstallManifest(CLAUDE_DIR, installedVersion, level, currentShipped);
   }
 
   // Configure hooks (global only)
@@ -799,7 +929,15 @@ async function uninstall() {
 }
 
 // Export for testing
-module.exports = { scanHookEvents, removeDeepflowHooks, atomicWriteFileSync };
+module.exports = {
+  scanHookEvents,
+  removeDeepflowHooks,
+  atomicWriteFileSync,
+  STALE_FROM_PRIOR_VERSIONS,
+  collectShippedFiles,
+  pruneStaleFiles,
+  writeInstallManifest,
+};
 
 // Only run main when executed directly (not when required by tests)
 if (require.main === module) {

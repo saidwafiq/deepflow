@@ -1164,3 +1164,167 @@ describe('atomicWriteFileSync', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stale-file pruning across version upgrades (v0.1.134+)
+// ---------------------------------------------------------------------------
+
+describe('pruneStaleFiles + install manifest', () => {
+  const {
+    STALE_FROM_PRIOR_VERSIONS,
+    collectShippedFiles,
+    pruneStaleFiles,
+    writeInstallManifest,
+  } = require('./install.js');
+
+  test('hardcoded stale list covers the v0.1.133 deletions', () => {
+    // Lock in: any future deletion needs an entry in this set OR a manifest from prior install.
+    for (const expected of [
+      'commands/df/plan.md',
+      'commands/df/auto.md',
+      'commands/df/auto-cycle.md',
+      'skills/auto-cycle',
+      'bin/wave-runner.js',
+      'bin/plan-consolidator.js',
+    ]) {
+      assert.ok(
+        STALE_FROM_PRIOR_VERSIONS.includes(expected),
+        `Expected ${expected} in STALE_FROM_PRIOR_VERSIONS`
+      );
+    }
+  });
+
+  test('collectShippedFiles enumerates the package contents', () => {
+    const files = collectShippedFiles('global');
+    // Spot-check expected entries
+    assert.ok(files.includes('commands/df/spec.md'), 'should include commands/df/spec.md');
+    assert.ok(files.includes('commands/df/execute.md'), 'should include commands/df/execute.md');
+    assert.ok(files.includes('skills/atomic-commits'), 'should include skills/atomic-commits');
+    assert.ok(files.includes('agents/df-implement.md'), 'should include agents/df-implement.md');
+    assert.ok(files.includes('bin/ratchet.js'), 'should include bin/ratchet.js');
+    assert.ok(
+      !files.includes('bin/migrate-legacy-plan.js'),
+      'migrate-legacy-plan.js is invoked via npx — must NOT be in the per-install copy list'
+    );
+    // Hooks only listed for global installs
+    assert.ok(files.some((f) => f.startsWith('hooks/df-')), 'should list deepflow hooks');
+
+    // Sanity: nothing this version no longer ships
+    assert.ok(!files.includes('commands/df/plan.md'), 'plan.md must NOT appear in shipped list');
+    assert.ok(!files.includes('skills/auto-cycle'), 'auto-cycle must NOT appear in shipped list');
+    assert.ok(!files.includes('bin/wave-runner.js'), 'wave-runner.js must NOT appear in shipped list');
+  });
+
+  test('collectShippedFiles for project install excludes hooks', () => {
+    const files = collectShippedFiles('project');
+    assert.ok(!files.some((f) => f.startsWith('hooks/')), 'project install must not enumerate hooks');
+    // But the rest of the inventory survives
+    assert.ok(files.includes('commands/df/spec.md'));
+    assert.ok(files.includes('skills/atomic-commits'));
+  });
+
+  test('pruneStaleFiles removes hardcoded stale entries when no manifest exists', () => {
+    const claudeDir = makeTmpDir();
+    try {
+      // Stage stale files as if they'd been left behind by a prior install
+      fs.mkdirSync(path.join(claudeDir, 'commands', 'df'), { recursive: true });
+      fs.writeFileSync(path.join(claudeDir, 'commands', 'df', 'plan.md'), 'legacy');
+      fs.writeFileSync(path.join(claudeDir, 'commands', 'df', 'auto.md'), 'legacy');
+      fs.writeFileSync(path.join(claudeDir, 'commands', 'df', 'auto-cycle.md'), 'legacy');
+      fs.writeFileSync(path.join(claudeDir, 'commands', 'df', 'spec.md'), 'current'); // must survive
+      fs.mkdirSync(path.join(claudeDir, 'skills', 'auto-cycle'), { recursive: true });
+      fs.writeFileSync(path.join(claudeDir, 'skills', 'auto-cycle', 'SKILL.md'), 'legacy');
+      fs.mkdirSync(path.join(claudeDir, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(claudeDir, 'bin', 'wave-runner.js'), 'legacy');
+      fs.writeFileSync(path.join(claudeDir, 'bin', 'plan-consolidator.js'), 'legacy');
+      fs.writeFileSync(path.join(claudeDir, 'bin', 'ratchet.js'), 'current'); // must survive
+
+      const pruned = pruneStaleFiles(claudeDir, collectShippedFiles('global'));
+      assert.equal(pruned, 6, 'should prune 6 stale entries');
+
+      assert.equal(fs.existsSync(path.join(claudeDir, 'commands/df/plan.md')), false);
+      assert.equal(fs.existsSync(path.join(claudeDir, 'commands/df/auto.md')), false);
+      assert.equal(fs.existsSync(path.join(claudeDir, 'commands/df/auto-cycle.md')), false);
+      assert.equal(fs.existsSync(path.join(claudeDir, 'skills/auto-cycle')), false);
+      assert.equal(fs.existsSync(path.join(claudeDir, 'bin/wave-runner.js')), false);
+      assert.equal(fs.existsSync(path.join(claudeDir, 'bin/plan-consolidator.js')), false);
+
+      // Files still shipped by the current version are untouched
+      assert.equal(fs.existsSync(path.join(claudeDir, 'commands/df/spec.md')), true);
+      assert.equal(fs.existsSync(path.join(claudeDir, 'bin/ratchet.js')), true);
+    } finally {
+      rmrf(claudeDir);
+    }
+  });
+
+  test('pruneStaleFiles uses manifest diff when manifest exists', () => {
+    const claudeDir = makeTmpDir();
+    try {
+      // Simulate previous install that shipped a hypothetical "skills/legacy-thing"
+      // and "bin/legacy-tool.js" which the current package no longer ships.
+      fs.mkdirSync(path.join(claudeDir, 'cache'), { recursive: true });
+      const manifest = {
+        version: '0.1.999',
+        level: 'global',
+        files: ['skills/legacy-thing', 'bin/legacy-tool.js', 'commands/df/spec.md'],
+        timestamp: Date.now(),
+      };
+      fs.writeFileSync(
+        path.join(claudeDir, 'cache', 'df-install-manifest.json'),
+        JSON.stringify(manifest)
+      );
+
+      // Stage those files, plus a current one
+      fs.mkdirSync(path.join(claudeDir, 'skills', 'legacy-thing'), { recursive: true });
+      fs.writeFileSync(path.join(claudeDir, 'skills', 'legacy-thing', 'SKILL.md'), 'legacy');
+      fs.mkdirSync(path.join(claudeDir, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(claudeDir, 'bin', 'legacy-tool.js'), 'legacy');
+      fs.mkdirSync(path.join(claudeDir, 'commands', 'df'), { recursive: true });
+      fs.writeFileSync(path.join(claudeDir, 'commands', 'df', 'spec.md'), 'current');
+
+      // Also stage a v0.1.133 stale file that is NOT in the prev manifest —
+      // the manifest path should NOT scrub it (it predates the manifest era).
+      fs.writeFileSync(path.join(claudeDir, 'commands', 'df', 'plan.md'), 'legacy');
+
+      const pruned = pruneStaleFiles(claudeDir, collectShippedFiles('global'));
+      assert.equal(pruned, 2, 'should prune the 2 entries in manifest but not in current shipped');
+
+      assert.equal(fs.existsSync(path.join(claudeDir, 'skills/legacy-thing')), false);
+      assert.equal(fs.existsSync(path.join(claudeDir, 'bin/legacy-tool.js')), false);
+      assert.equal(fs.existsSync(path.join(claudeDir, 'commands/df/spec.md')), true);
+      // plan.md NOT pruned — manifest path doesn't fall back to STALE_FROM_PRIOR_VERSIONS
+      assert.equal(fs.existsSync(path.join(claudeDir, 'commands/df/plan.md')), true);
+    } finally {
+      rmrf(claudeDir);
+    }
+  });
+
+  test('pruneStaleFiles is no-op when nothing stale exists', () => {
+    const claudeDir = makeTmpDir();
+    try {
+      const pruned = pruneStaleFiles(claudeDir, collectShippedFiles('global'));
+      assert.equal(pruned, 0);
+    } finally {
+      rmrf(claudeDir);
+    }
+  });
+
+  test('writeInstallManifest creates a manifest the next prune can read', () => {
+    const claudeDir = makeTmpDir();
+    try {
+      const files = ['commands/df/spec.md', 'skills/atomic-commits'];
+      writeInstallManifest(claudeDir, '0.1.134', 'global', files);
+
+      const manifestPath = path.join(claudeDir, 'cache', 'df-install-manifest.json');
+      assert.ok(fs.existsSync(manifestPath));
+      const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      assert.equal(m.version, '0.1.134');
+      assert.equal(m.level, 'global');
+      assert.deepEqual(m.files, files);
+      assert.equal(typeof m.timestamp, 'number');
+    } finally {
+      rmrf(claudeDir);
+    }
+  });
+});
+
