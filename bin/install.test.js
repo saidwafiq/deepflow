@@ -122,10 +122,8 @@ describe('Installer output — commands and skills listing', () => {
       '/df:discover',
       '/df:debate',
       '/df:spec',
-      '/df:plan',
       '/df:execute',
       '/df:verify',
-      '/df:auto',
       '/df:update',
     ];
     for (const cmd of expectedCommands) {

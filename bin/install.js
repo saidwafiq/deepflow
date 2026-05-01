@@ -22,17 +22,6 @@ function atomicWriteFileSync(targetPath, data) {
   }
 }
 
-// Legacy subcommand: `deepflow auto` is now `/df:auto` inside Claude Code
-if (process.argv[2] === 'auto') {
-  console.error('`deepflow auto` has moved inside Claude Code for better visibility.');
-  console.error('');
-  console.error('Usage:');
-  console.error('  1. Open Claude Code: claude');
-  console.error('  2. Run: /df:auto');
-  console.error('');
-  process.exit(1);
-}
-
 // Colors
 const c = {
   reset: '\x1b[0m',
@@ -163,10 +152,10 @@ async function main() {
   }
   log('Map artifact templates installed (sketch, impact, findings)');
 
-  // Copy bin utilities (plan-consolidator, wave-runner, ratchet)
+  // Copy bin utilities (prompt-compose, ratchet, worktree-deps, filter-suggest)
   const binDest = path.join(CLAUDE_DIR, 'bin');
   fs.mkdirSync(binDest, { recursive: true });
-  for (const script of ['plan-consolidator.js', 'prompt-compose.js', 'wave-runner.js', 'ratchet.js', 'worktree-deps.js', 'df-filter-suggest.js']) {
+  for (const script of ['prompt-compose.js', 'ratchet.js', 'worktree-deps.js', 'df-filter-suggest.js']) {
     const src = path.join(PACKAGE_DIR, 'bin', script);
     if (fs.existsSync(src)) {
       fs.copyFileSync(src, path.join(binDest, script));
@@ -230,20 +219,19 @@ async function main() {
   console.log(`${c.green}Installation complete!${c.reset}`);
   console.log('');
   console.log(`Installed to ${c.cyan}${CLAUDE_DIR}${c.reset}:`);
-  console.log('  commands/df/     — 13 slash commands');
+  console.log('  commands/df/     — 10 slash commands');
   console.log('                       human loop:  /df:discover  /df:debate  /df:spec  /df:fix');
-  console.log('                       AI loop:     /df:plan  /df:execute  /df:verify  /df:auto  /df:auto-cycle');
+  console.log('                       AI loop:     /df:execute  /df:verify');
   console.log('                       support:     /df:map  /df:dashboard  /df:eval  /df:update');
-  console.log('  skills/          — 9 skills');
+  console.log('  skills/          — 8 skills');
   console.log('                       capture:     gap-discovery, df-decisions, df-ac-coverage');
   console.log('                       craft:       atomic-commits, code-completeness');
   console.log('                       fetch:       browse-fetch, browse-verify, repo-inspect');
-  console.log('                       runtime:     auto-cycle');
   console.log('  agents/          — 8 sub-agents + DELEGATION.md contract');
   console.log('                       df-implement, df-integration, df-spike, df-spike-platform, df-test, df-optimize, df-haiku-ops, reasoner');
   console.log('                       (input/output contracts enforced by df-delegation-contract PreToolUse hook)');
   console.log('  bin/             — count-tokens, df-filter-suggest, lsp-query, lineage-ingest,');
-  console.log('                     plan-consolidator, prompt-compose, ratchet, wave-runner, worktree-deps');
+  console.log('                     prompt-compose, ratchet, worktree-deps');
   console.log('  templates/       — 7 agent-prompt templates (standard-task, integration, spike,');
   console.log('                     optimize, optimize-probe, wave-test, bootstrap) + map artifacts');
   if (level === 'global') {
@@ -259,7 +247,7 @@ async function main() {
     console.log('                       UserPromptSubmit: df-spec-lint, df-invariant-check, df-check-update');
     console.log('                       Stop / etc:    df-statusline');
   } else {
-    console.log('  hooks/df-spec-*  — spec validation (auto-enforced by /df:spec and /df:plan)');
+    console.log('  hooks/df-spec-*  — spec validation (auto-enforced by /df:spec)');
     console.log('  hooks/df-artifact-validate.js — artifact existence + consistency (PostToolUse)');
     console.log('  hooks/df-delegation-contract.js — DELEGATION.md contract enforcement (PreToolUse)');
   }
@@ -631,9 +619,7 @@ async function uninstall() {
     'skills/browse-fetch',
     'skills/browse-verify',
     'agents/reasoner.md',
-    'bin/plan-consolidator.js',
     'bin/prompt-compose.js',
-    'bin/wave-runner.js',
     'bin/ratchet.js',
     'bin/worktree-deps.js',
     'bin/df-filter-suggest.js',
