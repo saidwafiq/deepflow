@@ -20,7 +20,7 @@ related_specs:
 <!--
 Sketch Guidelines:
 - Written by /df:discover at end of exploration, before handoff to /df:spec
-- Consumed by /df:plan and /df:spec via shell-injection (cat ... 2>/dev/null || echo 'NOT_FOUND')
+- Consumed by /df:spec via shell-injection (cat ... 2>/dev/null || echo 'NOT_FOUND')
 - Keep between 15 and 25 lines (excluding this comment block)
 - All three top-level keys (modules:, entry_points:, related_specs:) are required
 - Use NOT_FOUND placeholder values when a field has no entries

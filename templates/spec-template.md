@@ -1,8 +1,8 @@
 ---
 # derives-from: done-{parent-spec-name}  # optional: links this spec to a parent for lineage/rework tracking
-# touched_modules: []  # optional: list of modules/packages this spec is expected to touch (consumed by /df:plan for impact pre-loading)
-# likely_files: []     # optional: list of files anticipated to change (consumed by /df:plan to seed blast-radius analysis)
-# new_surface: []      # optional: new public API/type/table surfaces this spec introduces (consumed by /df:plan Agent B)
+# touched_modules: []  # optional: list of modules/packages this spec is expected to touch (consumed by /df:spec for impact pre-loading)
+# likely_files: []     # optional: list of files anticipated to change (consumed by /df:spec to seed blast-radius analysis)
+# new_surface: []      # optional: new public API/type/table surfaces this spec introduces (consumed by /df:spec's blast-radius pass)
 ---
 
 # {Name}
@@ -30,7 +30,7 @@
 ## Interfaces
 
 <!-- Optional but RECOMMENDED for multi-spec projects. Declare what this spec produces and consumes.
-     /df:plan uses these to auto-generate integration tasks when specs share contracts. -->
+     /df:spec uses these to auto-generate integration tasks when specs share contracts. -->
 
 <!-- ### Produces
 - `POST /api/v1/auth/login` → `{ access_token: string, refresh_token: string }`
@@ -96,7 +96,8 @@ test('specs/my-feature.md#AC-3 handles empty input', () => { ... })
 <!--
 Spec Layers (onion model):
 Specs don't need to be complete to be useful. The layer is computed
-from which sections exist — /df:plan gates task generation accordingly.
+from which sections exist — /df:spec's curate phase gates task
+generation accordingly.
 
   L0 (Objective only)                    → spikes only
   L1 (+ Requirements)                    → targeted spikes

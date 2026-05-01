@@ -110,6 +110,6 @@ Great, we've covered enough for an L{N} spec ({label}).
 /df:debate {name}  — analyze from multiple perspectives first
 
 {If L0-L1:}
-At L{N}, /df:plan will generate spikes to discover what's missing.
-Deepen the spec later with /df:spec {name} after spikes run.
+At L{N}, /df:spec will generate spikes to discover what's missing.
+Deepen the spec later with /df:spec --upgrade {name} after spikes run.
 ```

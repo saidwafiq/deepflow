@@ -108,7 +108,7 @@ Created specs/{fix-name}.md
 derives-from: {done-spec-name}
 Carried over {N} ACs from parent spec
 
-Next: Run /df:plan {fix-name} to generate fix tasks
+Next: Run /df:spec --upgrade {fix-name} to refresh curated tasks
 ```
 
 ## Rules
