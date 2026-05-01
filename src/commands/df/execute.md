@@ -47,6 +47,14 @@ Read every `specs/doing-*.md`. Each MUST contain a `## Tasks (curated)` section.
 
 Exit 1. No fan-out, no fallback. The legacy PLAN.md flow has been removed; pre-curator specs MUST be migrated first.
 
+If `.deepflow/plans/` exists with any `*.md` files, emit a one-line warning to stderr (REQ-11):
+
+```
+! WARNING: legacy .deepflow/plans/ directory detected. Run `node bin/migrate-legacy-plan.js` to convert per-spec plans into ## Tasks (curated) sections.
+```
+
+Continue regardless — the warning is informational. The curated-section precheck above is the actual gate.
+
 Checkpoint handling (after precheck passes):
 - `--fresh` → delete `.deepflow/checkpoint.json`.
 - Checkpoint exists without flag → prompt "Resume? (y/n)". If yes: rehydrate from checkpoint (§A.1).
