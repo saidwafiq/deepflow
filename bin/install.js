@@ -36,6 +36,65 @@ const GLOBAL_DIR = path.join(os.homedir(), '.claude');
 const PROJECT_DIR = path.join(process.cwd(), '.claude');
 const PACKAGE_DIR = path.resolve(__dirname, '..');
 
+// `npx deepflow migrate-legacy` — direct passthrough to the migrator
+if (process.argv[2] === 'migrate-legacy') {
+  const { spawnSync } = require('child_process');
+  const result = spawnSync(
+    process.execPath,
+    [path.join(PACKAGE_DIR, 'bin', 'migrate-legacy-plan.js'), ...process.argv.slice(3)],
+    { stdio: 'inherit' }
+  );
+  process.exit(result.status == null ? 1 : result.status);
+}
+
+/**
+ * Detect a legacy `.deepflow/plans/` directory in process.cwd() and offer to
+ * run bin/migrate-legacy-plan.js. Returns silently when there's nothing to do.
+ *
+ * REQ-11 of specs/done-deprecate-plan-auto.md: the new install flow notifies
+ * the user when legacy per-spec plans are still present and points them at
+ * the migrator. We auto-run with confirmation in TTY mode.
+ */
+async function offerLegacyMigration() {
+  const plansDir = path.join(process.cwd(), '.deepflow', 'plans');
+  if (!fs.existsSync(plansDir)) return;
+
+  const legacyFiles = fs
+    .readdirSync(plansDir)
+    .filter((f) => f.endsWith('.md'));
+  if (legacyFiles.length === 0) return;
+
+  console.log('');
+  console.log(`${c.yellow}!${c.reset} Legacy ${c.cyan}.deepflow/plans/${c.reset} detected (${legacyFiles.length} file${legacyFiles.length === 1 ? '' : 's'}).`);
+  console.log(`  These were per-spec mini-plans for the removed /df:plan flow.`);
+  console.log(`  The curator pattern keeps tasks inline in the spec under ${c.cyan}## Tasks (curated)${c.reset}.`);
+  console.log('');
+
+  if (!process.stdin.isTTY) {
+    console.log(`  ${c.dim}Non-interactive mode — skipping. Run \`npx deepflow migrate-legacy\` to convert.${c.reset}`);
+    console.log('');
+    return;
+  }
+
+  const answer = await ask(`Run migration now? Best-effort; review each spec after. [Y/n] `);
+  if (answer.trim().toLowerCase() === 'n') {
+    console.log(`  ${c.dim}Skipped. Run \`npx deepflow migrate-legacy\` later.${c.reset}`);
+    console.log('');
+    return;
+  }
+
+  const { spawnSync } = require('child_process');
+  console.log('');
+  const result = spawnSync(
+    process.execPath,
+    [path.join(PACKAGE_DIR, 'bin', 'migrate-legacy-plan.js')],
+    { stdio: 'inherit' }
+  );
+  if (result.status !== 0) {
+    console.log(`  ${c.yellow}!${c.reset} Migrator exited with status ${result.status} — review output above.`);
+  }
+}
+
 function updateGlobalPackage() {
   const currentVersion = require(path.join(PACKAGE_DIR, 'package.json')).version;
   try {
@@ -268,6 +327,9 @@ async function main() {
   console.log('  2. Describe what you want to build');
   console.log('  3. /df:discover feature-name');
   console.log('');
+
+  // REQ-11: notify and offer to migrate any legacy per-spec plans found in cwd
+  await offerLegacyMigration();
 }
 
 function isInstalled(claudeDir) {
