@@ -1,3 +1,22 @@
+## v0.1.137 — 2026-05-01
+
+Two fixes that restore real signal where there was none. L3 verify stops being a self-report the agent could fabricate, and `/df:update` stops silently exiting inside the Claude Code sandbox.
+
+### What's new
+
+- **L3 verify is now a tag-presence lint, not an agent self-report.** Tag any test with the literal `specs/<slug>.md#AC-<n>` (in a name, comment, JSDoc, or string) and L3 confirms every AC in the spec is covered by at least one test file. ACs that can't be machine-verified can carry an `[advisory]` marker in the spec bullet to opt out. Whether the test passes is L4's job; L3 only checks the tag exists.
+- **`/df:update` now works.** Switched from `npx deepflow` to `npm install -g deepflow && deepflow`, since `npx` silently exits 194 inside the Claude Code Bash sandbox and left users unable to tell whether the update succeeded.
+
+### Why this matters
+
+The old L3 parsed an `AC_COVERAGE: …` block the agent emitted in its own output. That violated the framework's "no LLM judges another LLM" principle and produced no real signal — agents that fabricated coverage passed; agents that forgot to mention an AC failed. The new lint reads the test files directly.
+
+### Fixes & internals
+
+- `.deepflow/results/T<n>.yaml` artifact path removed entirely — execute.md no longer parses agent self-reports into YAML, and verify.md no longer reads them back.
+- verify.md scrubbed of stale references to `PLAN.md`, per-spec auto-snapshots, and `.deepflow/plans/`; now reads the curator checkpoint schema and `## Tasks (curated)` directly.
+- README's `df-ac-coverage` row updated to describe the tag-based protocol.
+
 ## v0.1.136 — 2026-05-01
 
 Closes the manual-rename gap in the curator flow. After authoring a spec via `/df:spec foo`, the planned file lands at `specs/foo.md` — but `/df:execute` only reads `specs/doing-*.md`. Until now, users had to know to `mv specs/foo.md specs/doing-foo.md` between the two commands. Not anymore.
