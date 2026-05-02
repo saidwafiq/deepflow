@@ -8,17 +8,19 @@ description: Update or uninstall deepflow, check installed version
 **ACTION REQUIRED:** Immediately run the update command below. Do NOT ask for confirmation — the user already confirmed by running `/df:update`.
 
 ```bash
-npx deepflow@latest
+npm install -g deepflow@latest && deepflow
 ```
 
-Auto-detects existing installation and updates it.
+Updates the global npm package, then runs the installer to refresh `~/.claude/`.
+
+**Why not `npx deepflow@latest`?** Inside the Claude Code Bash sandbox, `npx`'s package-fetch step silently exits with code 194 and produces no output, leaving you unable to tell whether the install succeeded. `npm install -g` works reliably and the globally installed `deepflow` binary then runs the installer cleanly.
 
 ## Uninstall
 
 To uninstall instead, run:
 
 ```bash
-npx deepflow --uninstall
+deepflow --uninstall
 ```
 
 ## Check Version
