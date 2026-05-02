@@ -1,3 +1,21 @@
+## v0.1.136 — 2026-05-01
+
+Closes the manual-rename gap in the curator flow. After authoring a spec via `/df:spec foo`, the planned file lands at `specs/foo.md` — but `/df:execute` only reads `specs/doing-*.md`. Until now, users had to know to `mv specs/foo.md specs/doing-foo.md` between the two commands. Not anymore.
+
+### What's new
+
+- **`/df:execute` auto-prompts to start a planned spec.** When no `doing-*.md` exists but a planned spec is present, you get a single yes/no in TTY: *"Start /df:execute on specs/foo.md? [Y/n]"*. Default Y, single keystroke, done. Multiple planned specs → numbered pick.
+- **Explicit start form: `/df:execute {spec-name}`.** Skips the prompt entirely — renames `specs/{spec-name}.md` → `specs/doing-{spec-name}.md` and proceeds. Idempotent: if the spec is already `doing-`, treats it as resume.
+- **CI-safe.** Non-TTY runs preserve the old hard-error behaviour: no silent auto-promotion. You must use the explicit form or pre-rename.
+
+### Why this matters
+
+The "planned" state (spec written, not yet running) has real value — it's the review-before-execute gate. The fix doesn't remove the gate, it just makes it a one-key confirmation instead of undocumented filesystem hygiene. The same review/edit cycle still works: `/df:spec foo` → review `specs/foo.md` → tweak if needed → `/df:execute` → confirm prompt → run.
+
+### Internals
+
+- §0 PRECHECK in `src/commands/df/execute.md` split into `§0a Resolve target spec(s)` (the new five-rule selection ladder) and `§0b Validate curated section` (the existing hard-error gate, unchanged).
+
 ## v0.1.135 — 2026-05-01
 
 Closes a curator-pattern leak vector: implementation-class subagents could `cat ../../specs/foo.md` from inside their worktree and use the full spec text — including other tasks' bundles — to over-deliver. Observed in the wild when a `df-implement` subagent wrote another task's test file from inside its own commit, citing ACs verbatim from the spec it shouldn't have read.
