@@ -38,6 +38,28 @@ Each task = one background agent. **NEVER use TaskOutput** (100KB+ transcripts e
 
 ### 0. PRECHECK
 
+#### 0a. Resolve target spec(s)
+
+Inventory `specs/`:
+
+```bash
+DOING=$(ls specs/doing-*.md 2>/dev/null)
+# Planned = .md files NOT prefixed by doing-/done-/_ and NOT starting with `.`
+PLANNED=$(ls specs/*.md 2>/dev/null | grep -vE '/(doing-|done-|_|\.)' || true)
+```
+
+**Selection rules** (in order):
+
+1. **Explicit start** — `/df:execute {spec-name}` where `{spec-name}` matches `specs/{spec-name}.md` (planned, not yet `doing-`). Rename `specs/{spec-name}.md` → `specs/doing-{spec-name}.md` and proceed. If `{spec-name}` matches a `doing-` already, treat as resume (proceed). If neither, exit 1: `✗ ERROR: specs/{spec-name}.md not found (planned or doing-).`
+2. **At least one `doing-*.md` exists** — proceed to §0b directly. (Don't auto-promote planned specs; the orchestrator may have intentionally left them un-started.)
+3. **No `doing-*.md` but exactly one planned spec** — TTY: prompt `Start /df:execute on specs/{name}.md? [Y/n]` (default Y). On Y → rename to `doing-` and proceed. On n → exit 0 silently. Non-TTY → exit 1 with: `✗ ERROR: specs/{name}.md is planned but not yet started. Run \`mv specs/{name}.md specs/doing-{name}.md\` or \`/df:execute {name}\` to start.`
+4. **No `doing-*.md` but multiple planned specs** — TTY: list them numbered and prompt `Pick one to start [1-N] (n to abort): `. On valid pick → rename → proceed. Non-TTY → exit 1 with the same hint as rule 3.
+5. **No `doing-*.md` and no planned specs** — exit 1: `✗ ERROR: no specs to execute. Author one with /df:spec.`
+
+Renaming uses `git mv` only when the spec is git-tracked; otherwise plain `mv` (deepflow's default `.gitignore` excludes `specs/`).
+
+#### 0b. Validate curated section
+
 Read every `specs/doing-*.md`. Each MUST contain a `## Tasks (curated)` section. Any spec missing it is a hard error:
 
 ```
@@ -392,12 +414,15 @@ Runs L0-L4 gates, merges branch, cleans worktree, renames `doing-` → `done-`, 
 ## Usage
 
 ```
-/df:execute              # All ready tasks
-/df:execute T1 T2        # Specific tasks
-/df:execute --continue   # Resume checkpoint
-/df:execute --fresh      # Ignore checkpoint, recreate worktree
-/df:execute --dry-run    # Show plan only
+/df:execute                    # Auto-detect: prompt to start a planned spec, or run all doing-* tasks
+/df:execute {spec-name}        # Start execution on specs/{spec-name}.md (rename to doing- first)
+/df:execute T1 T2              # Specific tasks (within active doing-*)
+/df:execute --continue         # Resume checkpoint
+/df:execute --fresh            # Ignore checkpoint, recreate worktree
+/df:execute --dry-run          # Show plan only
 ```
+
+The auto-promote flow (§0a) only fires when no `doing-*.md` exists. If you have a planned spec ready and want to skip the prompt, use the explicit form `/df:execute {spec-name}`.
 
 ## Skills & Agents
 
