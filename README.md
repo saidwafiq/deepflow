@@ -212,7 +212,7 @@ Skills are reusable capabilities invoked by sub-agents or commands. Some run in 
 |-------|---------|
 | `gap-discovery` | Surface missing requirements during ideation |
 | `df-decisions` | Decision capture protocol — extracts `[APPROACH] / [PROVISIONAL] / [ASSUMPTION] / [FUTURE] / [UPDATE]` tags from agent output to `.deepflow/decisions.md` |
-| `df-ac-coverage` | Acceptance-criteria coverage protocol — agents emit `AC_COVERAGE: AC-1=test:file#name, ...` so the post-task hook can audit |
+| `df-ac-coverage` | Acceptance-criteria tagging protocol — tests carry `specs/<slug>.md#AC-<n>` literals so /df:verify L3 can lint that every AC is exercised |
 | `atomic-commits` | One logical change per commit, conventional format |
 | `code-completeness` | Find TODOs, stubs, placeholders, skipped tests, missing implementations |
 | `browse-fetch` | Fetch external API docs via headless Chromium (replaces context-hub) |
