@@ -21,7 +21,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { getCanonicalSpecSlug, scanTestFilesForScopedACs } = require('./ac-coverage.js');
+const { getCanonicalSpecSlug, scanTestFilesForScopedACs, extractSpecACs } = require('./ac-coverage.js');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -168,4 +168,18 @@ test('AC-5 AC-8: file with refs to two specs — scanning for spec b returns onl
   } finally {
     removeTmpDir(dir);
   }
+});
+
+test('advisory: ACs whose bullet line contains [advisory] are excluded from extraction', () => {
+  const spec = [
+    '## Acceptance Criteria',
+    '',
+    '- [ ] **AC-1** — WHEN x THEN y SHALL z.',
+    '- [ ] **AC-2** — [advisory] WHEN reviewers read the diff THEN intent SHALL be clear.',
+    '- [ ] **AC-3** — WHEN q THEN r SHALL s.',
+    '',
+    '## Next Section',
+  ].join('\n');
+  const acs = extractSpecACs(spec);
+  assert.deepEqual(acs, ['AC-1', 'AC-3'], 'AC-2 should be excluded due to [advisory] marker');
 });

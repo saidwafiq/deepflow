@@ -2,23 +2,25 @@
 // @hook-event: PostToolUse
 // @hook-owner: deepflow
 /**
- * deepflow AC coverage checker
+ * deepflow AC test-tag lint
  *
- * Hook mode (PostToolUse — auto-triggered on git commit):
- *   Reads PostToolUse event from stdin. Fires only when tool_name is "Bash"
- *   and the command contains "git commit". Auto-detects the current spec from
- *   specs/doing-*.md in cwd and scans snapshot test files for AC references.
- *   Emits SALVAGEABLE (exit 2) when ACs in the spec have no corresponding
- *   test references.
+ * Verifies every AC in a spec is referenced by `specs/<slug>.md#AC-<n>` in at
+ * least one test file. Whether the test passes is L4's job — this only checks
+ * the tag exists. ACs marked `[advisory]` in the spec are skipped.
  *
- * CLI mode (called explicitly by orchestrator):
- *   node ac-coverage.js --spec <path> --test-files <file1,file2,...> --status <pass|fail|revert>
+ * Hook mode (PostToolUse on git commit):
+ *   Reads PostToolUse event from stdin. Auto-detects the doing-*.md spec and
+ *   scans snapshot test files (or git ls-files) for AC tags. Exit 2 with
+ *   OVERRIDE:SALVAGEABLE when untagged ACs are found.
+ *
+ * CLI mode (called by /df:execute §5.5.1 and /df:verify L3):
  *   node ac-coverage.js --spec <path> --snapshot <path> --status <pass|fail|revert>
+ *   node ac-coverage.js --spec <path> --test-files <file1,file2,...> --status <pass|fail|revert>
  *
  * Exit codes:
- *   0 — all ACs covered, no ACs in spec, or non-commit event, or status != pass
- *   2 — SALVAGEABLE: missed ACs detected (hook mode or CLI pass status)
- *   1 — script error only
+ *   0 — all ACs tagged (or no ACs in spec, or status != pass)
+ *   2 — SALVAGEABLE: untagged ACs detected
+ *   1 — script error
  */
 
 'use strict';
@@ -74,15 +76,19 @@ function extractACSection(content) {
 /**
  * Extract canonical AC-N identifiers from the spec's Acceptance Criteria section.
  * Returns null if no section found, empty array if section exists but has no AC-\d+ patterns.
+ * ACs whose declaring bullet line contains `[advisory]` are excluded — those ACs are
+ * declared not machine-verifiable and L3 skips them.
  */
 function extractSpecACs(specContent) {
   const section = extractACSection(specContent);
   if (section === null) return null;
 
   const ids = new Set();
-  const pattern = /\bAC-(\d+)\b/g;
-  let m;
-  while ((m = pattern.exec(section)) !== null) {
+  const linePattern = /\bAC-(\d+)\b/;
+  for (const line of section.split('\n')) {
+    const m = line.match(linePattern);
+    if (!m) continue;
+    if (/\[advisory\]/i.test(line)) continue;
     ids.add(`AC-${m[1]}`);
   }
   return [...ids].sort((a, b) => {

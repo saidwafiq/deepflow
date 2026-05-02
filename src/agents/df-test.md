@@ -42,13 +42,7 @@ DECISIONS: [TAG] {decision} — {rationale}
 
 (omit if no non-obvious choices were made)
 
-Then emit:
-
-```
-AC_COVERAGE:
-AC-{n}:done:covered by {how verified}
-AC_COVERAGE_END
-```
+When a test is the verifier for an AC, include the literal string `specs/<spec-slug>.md#AC-<n>` somewhere in the test file (test name, comment, JSDoc — anywhere). `/df:verify` L3 lints for this tag; the test passing is verified by L4.
 
 Last line must be exactly one of:
 ```

@@ -50,14 +50,6 @@ DECISIONS: [TAG] {decision} — {rationale}
 
 (omit if no non-obvious choices were made)
 
-Then emit:
-
-```
-AC_COVERAGE:
-AC-{n}:done:covered by {how verified}
-AC_COVERAGE_END
-```
-
 Last line must be exactly one of:
 ```
 TASK_STATUS:pass

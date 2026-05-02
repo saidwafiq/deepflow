@@ -15,6 +15,5 @@ RULES:
 - Do NOT create new variables or intermediate adapters to paper over mismatches. Fix the actual call site.
 - Do NOT modify acceptance criteria or spec definitions.
 - Commit as fix({spec}): {contract description}. One commit per contract fix.
-skill: df-ac-coverage
 skill: df-decisions
 Last line: TASK_STATUS:pass or TASK_STATUS:fail

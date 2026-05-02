@@ -147,7 +147,6 @@ forbidden-inputs:
 
 required-output-schema:
   decisions: "Optional DECISIONS: block with [TAG] entries for non-obvious choices"
-  ac-coverage: "AC_COVERAGE: block listing AC-{n}:done:covered by {evidence}"
   task-status: "Final line must be TASK_STATUS:pass, TASK_STATUS:fail, or TASK_STATUS:revert"
 ```
 
@@ -171,7 +170,6 @@ forbidden-inputs:
   - producer-weakening: "Do not ask df-integration to change the producer interface to match a broken consumer"
 
 required-output-schema:
-  ac-coverage: "AC_COVERAGE: block for each integration AC"
   task-status: "Final line must be TASK_STATUS:pass or TASK_STATUS:fail"
 ```
 
@@ -284,7 +282,6 @@ forbidden-inputs:
 
 required-output-schema:
   decisions: "Optional DECISIONS: block for non-obvious test design choices"
-  ac-coverage: "AC_COVERAGE: block listing AC-{n}:done:covered by {test name or assertion}"
   task-status: "Final line must be TASK_STATUS:pass, TASK_STATUS:fail, or TASK_STATUS:revert"
 ```
 

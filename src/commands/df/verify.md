@@ -66,7 +66,7 @@ When invoked with `--diagnostic`:
     summary: "L0 ✓ | L1 ✓ | L2 ⚠ | L3 — | L4 ✗ | L4.5 ✓"
   ```
 - Prefix all report output with `[DIAGNOSTIC]`.
-- **Skip entirely:** Post-Verification merge (§4), fix task creation, spec rename, decision extraction, PLAN.md cleanup (step 6).
+- **Skip entirely:** Post-Verification merge (§4), fix task creation, spec rename, decision extraction, cleanup (step 6).
 - Does **not** count as a revert for the circuit breaker.
 - Does **not** modify `auto-snapshot.txt`.
 
@@ -74,7 +74,7 @@ When invoked with `--diagnostic`:
 
 ### 1. LOAD CONTEXT
 
-Load: `!`ls specs/doing-*.md 2>/dev/null || echo 'NOT_FOUND'``, `!`cat PLAN.md 2>/dev/null || echo 'NOT_FOUND'``, source code. Load `specs/done-*.md` only if `--re-verify`.
+Load: `!`ls specs/doing-*.md 2>/dev/null || echo 'NOT_FOUND'``, source code. Load `specs/done-*.md` only if `--re-verify`.
 
 **Readiness:** All tasks `[x]` → proceed. Some `[ ]` → warn incomplete, suggest `/df:execute`. No `doing-*` specs → report counts, suggest `/df:execute`.
 
@@ -99,7 +99,7 @@ Nothing found → `⚠ No build/test commands detected. L0/L4 skipped. Set quali
 **L0: Build** — Run build command. Exit 0 → pass. Non-zero → FAIL with last 30 lines, add fix task, skip L1-L4.
 Existence predicate: `require('hooks/lib/artifact-predicates.js').checkBuildPasses` (REQ-8, AC-9 — single source shared with `hooks/df-artifact-validate.js`).
 
-**L1: Files exist** — Compare `git diff main...HEAD --name-only` in worktree against PLAN.md `Files:` entries. All planned files in diff → pass. Missing → FAIL with list.
+**L1: Files exist** — Parse `## Tasks (curated)` in the spec file; collect the union of all `**Slice:**` paths listed across all task entries. Run `git diff main...HEAD --name-only` inside `.deepflow/worktrees/curator-active/`. All planned slice paths present in the diff → pass. Missing → FAIL with list.
 Scope-coverage predicate: `require('hooks/lib/artifact-predicates.js').checkScopeCoverage` (REQ-8, AC-9 — single source shared with `hooks/df-artifact-validate.js`).
 
 **L2: Coverage** — Detect coverage tool (first match wins):
@@ -115,13 +115,17 @@ Scope-coverage predicate: `require('hooks/lib/artifact-predicates.js').checkScop
 
 No tool → pass with warning. When available: stash changes → run coverage on baseline → stash pop → run coverage on current → compare. Drop → FAIL. Same/improved → pass.
 
-**L3: AC coverage verification** — Verify that agent-reported acceptance criteria coverage matches the spec's acceptance criteria section. Parse spec file for `## Acceptance Criteria` section, extract all ACs. For each AC, verify that agent execution explicitly claimed coverage (via agent output or PLAN.md task completion notes). Missing or uncovered ACs → FAIL with list of uncovered ACs. All ACs claimed → pass.
+**L3: AC test-tag lint** — Parse the spec for `## Acceptance Criteria` and extract all AC identifiers (e.g. `AC-1`, `AC-2`, …). For each AC, the spec MUST satisfy one of:
+  1. At least one test file (listed in `.deepflow/auto-snapshot.txt`, falling back to `git ls-files` filtered by the standard test-file glob) contains the literal string `specs/<slug>.md#AC-<n>` where `<slug>` is the spec basename without `doing-`/`done-`/`.md`. Reference may appear anywhere in the file (test name, comment, JSDoc, string literal). Presence of the tag is the signal; the test passing is verified by L4.
+  2. The AC's bullet in the spec contains the marker `[advisory]`, declaring it intentionally not machine-verifiable.
+
+Invocation: `node "${HOME}/.claude/hooks/ac-coverage.js" --spec {spec_path} --snapshot .deepflow/auto-snapshot.txt --status pass`. Exit 0 → pass. Exit 2 → FAIL, listing untagged non-advisory ACs. No agent self-report is consulted; correctness of each AC is verified by its tagged test under L4.
 
 **L4: Tests** — Run AFTER L0 passes. Run even if L1-L2 had issues. Exit 0 → pass. Non-zero → FAIL with last 50 lines + fix task. If `quality.test_retry_on_fail: true`: re-run once; second pass → warn (flaky); second fail → genuine failure.
 
 **L4.5: Cross-Spec Integration** (if integration tasks exist)
 
-**Trigger:** Current spec's PLAN.md section contains `[INTEGRATION]` tasks, OR spec has `depends_on` referencing `done-*` specs.
+**Trigger:** Current spec's `## Tasks (curated)` section contains a task with a `[INTEGRATION]` title marker, OR the spec declares `depends_on: done-*`. Otherwise emit `L4.5 — (no integration tasks)` and skip.
 
 **Check:** Load dependent specs (`specs/done-*.md` referenced in `depends_on` or connected via integration tasks). For each:
 1. Re-run L0 (build) — already covered by standard L0, skip
@@ -155,7 +159,7 @@ Fix task on L4.5 failure: prescriptive — names the exact contract from CODE (n
 
 **L5: Browser Verification** (if frontend detected)
 
-Algorithm: detect frontend → resolve dev command/port → start server → poll readiness → read assertions from PLAN.md → auto-install Playwright Chromium → evaluate via `locator.ariaSnapshot()` → screenshot → retry once on failure → report.
+Algorithm: detect frontend → resolve dev command/port → start server → poll readiness → read assertions from spec or config → auto-install Playwright Chromium → evaluate via `locator.ariaSnapshot()` → screenshot → retry once on failure → report.
 
 **Step 1: Detect frontend.** Config `quality.browser_verify` overrides: `false` → always skip (`L5 — (no frontend)`), `true` → always run, absent → auto-detect using BOTH conditions:
 
@@ -170,11 +174,11 @@ Algorithm: detect frontend → resolve dev command/port → start server → pol
 | `@sveltejs/kit` | SvelteKit |
 | `svelte`, `@sveltejs/*` | Svelte |
 
-2. A `browser_assertions:` block exists in PLAN.md scoped to the current spec.
+2. A `## Browser assertions` YAML block exists in the spec body, OR `quality.browser_assertions.<spec>` is set in `.deepflow/config.yaml`.
 
 **Auto-detect outcomes (no config override):**
 - No frontend detected → `L5 — (no frontend)`, skip remaining L5 steps.
-- Frontend detected but no `browser_assertions:` block in PLAN.md for current spec → `L5 — (no browser_assertions in PLAN.md)`, skip remaining L5 steps.
+- Frontend detected but no assertions source found → `L5 — (no assertions)`, skip remaining L5 steps.
 - Both conditions met → proceed to Steps 2–6.
 
 **Step 2: Dev server lifecycle.**
@@ -184,7 +188,7 @@ Algorithm: detect frontend → resolve dev command/port → start server → pol
 4. **Start & poll:** If not already running, start via `setsid ${DEV_COMMAND} &`. Poll with 0.5s interval up to `quality.browser_timeout` (default 30s). Timeout → FAIL + kill process group + fix task.
 5. **Teardown (always runs):** trap EXIT kills the process group (SIGTERM → wait 5s → SIGKILL). No-op when reusing pre-existing server (`DEV_SERVER_PID` empty).
 
-**Step 3: Read assertions from PLAN.md.** Extract `browser_assertions:` YAML block for current spec. Each assertion has `selector` + optional `role`, `name`, `visible`, `text`. No block found → `L5 — (no assertions)`, skip Playwright.
+**Step 3: Read assertions.** Look first for a `## Browser assertions` YAML block in the spec body; if absent, look for `quality.browser_assertions.<spec>` in `.deepflow/config.yaml`. If both are absent → `L5 — (no assertions)`, skip Playwright. Each assertion has `selector` + optional `role`, `name`, `visible`, `text`.
 
 **Step 3.5: Playwright auto-install.** Check `$TMPDIR/.deepflow-pw-chromium-ok` marker. If absent, run `npx --yes playwright install --dry-run chromium` to detect, install if needed, cache marker. Install failure → `L5 ✗ (install failed)`, skip Steps 4-6.
 
@@ -206,9 +210,9 @@ Algorithm: detect frontend → resolve dev command/port → start server → pol
 | Fail | Fail — same selectors | L5 ✗ — genuine failure |
 | Fail | Fail — different selectors | L5 ✗ (flaky) |
 
-All L5 outcomes: `✓` pass | `⚠` passed on retry | `✗` both failed (same) | `✗ (flaky)` both failed (different) | `— (no frontend)` | `— (no browser_assertions in PLAN.md)` | `— (no assertions)` | `✗ (install failed)`
+All L5 outcomes: `✓` pass | `⚠` passed on retry | `✗` both failed (same) | `✗ (flaky)` both failed (different) | `— (no frontend)` | `— (no assertions)` | `✗ (install failed)`
 
-**Fix task on L5 failure:** Append to PLAN.md under spec section with next T{n} ID. Include: failing assertions (selector + detail), first 40 lines of `locator('body').ariaSnapshot()` DOM excerpt, screenshot path, flakiness note if assertion sets differed.
+**Fix task on L5 failure:** Append to the spec's `## Tasks (curated)` section as a new `### T<n+1>:` entry (continuing from the highest existing task ID in that section). Include: failing assertions (selector + detail), first 40 lines of `locator('body').ariaSnapshot()` DOM excerpt, screenshot path, flakiness note if assertion sets differed.
 
 ### 3. GENERATE REPORT
 
@@ -224,7 +228,7 @@ Issues:
     FAIL src/upload.test.ts > should validate file type
   ✗ L4.5: Contract mismatch — done-auth produces { access_token } but operator sends { api_key }
 
-Fix tasks added to PLAN.md:
+Fix tasks added to ## Tasks (curated):
   T10: Implement missing upload endpoint and storage service
   T11: Fix operator login to send access_token per auth spec contract
 
@@ -326,7 +330,7 @@ Before invoking (when `AUTO_FIX_ENABLED = true` and no-progress halt did NOT tri
    echo "=== Auto-fix: invoking /df:execute --continue (iteration ${NEW_ITER}/${MAX_ITER}) ==="
    echo "Triggering issues: {L0 build | L1 scope | L4 tests} — Tasks: T{n}, T{m}"
    ```
-   Where `{L0 build | L1 scope | L4 tests}` lists only the blocking issue categories that are actually present (e.g. `L0 build, L4 tests`), and `T{n}, T{m}` lists the IDs of the fix tasks just added to PLAN.md for those blocking issues.
+   Where `{L0 build | L1 scope | L4 tests}` lists only the blocking issue categories that are actually present (e.g. `L0 build, L4 tests`), and `T{n}, T{m}` lists the IDs of the fix tasks just added to the spec's `## Tasks (curated)` section for those blocking issues.
 
    Then invoke `/df:execute --continue` automatically (do NOT print "Run /df:execute --continue" — just invoke the command).
 
@@ -346,7 +350,7 @@ Before invoking (when `AUTO_FIX_ENABLED = true` and no-progress halt did NOT tri
 
 **Gate conditions (ALL must pass to merge):** L0 build (or no command) | L1 all files in diff | L2 coverage held (or no tool) | L4 tests pass (or no command) | L4.5 contracts match (or no dependencies/integration tasks) | L5 assertions pass (or no frontend/assertions).
 
-**All pass →** Post-Verification merge. **Issues found →** Add fix tasks to worktree PLAN.md (IDs continue from last), register via TaskCreate/TaskUpdate, then apply no-progress check and auto-invoke logic above. Do NOT create new specs, worktrees, or merge with issues pending.
+**All pass →** Post-Verification merge. **Issues found →** Add fix tasks to the spec's `## Tasks (curated)` section (IDs continue from the highest existing `T<n>` in that section), register via TaskCreate/TaskUpdate, then apply no-progress check and auto-invoke logic above. Do NOT create new specs, worktrees, or merge with issues pending.
 
 ### 4. CAPTURE LEARNINGS
 
@@ -360,7 +364,7 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
 - Verify against spec, not assumptions
 - Flag partial implementations
 - All checks machine-verifiable — no LLM judgment
-- Don't auto-fix — add fix tasks to PLAN.md, then `/df:execute --continue`
+- Don't auto-fix — add fix tasks to the spec's `## Tasks (curated)` section, then `/df:execute --continue`
 - Capture learnings for significant approaches
 - **Terse output** — Output ONLY the compact report format (section 3); obey the top-of-file OUTPUT and NEVER contracts (including the LSP/diagnostics prohibition).
 
@@ -368,9 +372,9 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
 
 **Only runs when ALL gates pass AND `--diagnostic` was NOT used.**
 
-1. **Discover worktree:** Read `.deepflow/checkpoint.json` for `worktree_branch`/`worktree_path`. Fallback: infer from `doing-*` spec name + `git worktree list --porcelain`. No worktree → "nothing to merge", exit.
+1. **Discover worktree:** Read `.deepflow/checkpoint.json.worktree` (the worktree path) and `.deepflow/checkpoint.json.branch` (the branch name) per the curator checkpoint schema. Fallback: infer from `doing-*` spec name + `git worktree list --porcelain`. No worktree → "nothing to merge", exit.
 2. **Merge:** `git checkout main && git merge ${BRANCH} --no-ff -m "feat({spec}): merge verified changes"`. On conflict → keep worktree, output "Resolve manually, run /df:verify --merge-only", exit.
-3. **Cleanup:** `git worktree remove --force ${PATH} && git branch -d ${BRANCH} && rm -f .deepflow/checkpoint.json`
+3. **Cleanup:** `git worktree remove --force ${PATH} && git branch -d ${BRANCH} && rm -f .deepflow/checkpoint.json.worktree .deepflow/checkpoint.json.branch`
 4. **Rename spec & archive:** `mv specs/doing-${NAME}.md specs/done-${NAME}.md`, then:
    ```sh
    mkdir -p .deepflow/specs-done/
@@ -378,21 +382,7 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
      mv "specs/done-${NAME}.md" ".deepflow/specs-done/"
    fi
    ```
-5. **Delete per-spec auto-snapshot:** `rm -f ".deepflow/auto-snapshot-${NAME}.txt"`
-6. **Cleanup stale plans:** `rm -f .deepflow/plans/doing-${NAME}.md`
-6a. **Delete per-spec result files:** Extract task IDs from the plan file (now renamed to `done-${NAME}.md`) and delete their result artifacts:
-   ```sh
-   TIDS=$(grep -oE '\*\*T[0-9]+\*\*' ".deepflow/plans/done-${NAME}.md" 2>/dev/null | tr -d '*' | sort -u)
-   for TID in $TIDS; do
-     rm -f ".deepflow/results/${TID}.yaml"
-   done
-   ```
-   Scoped to this spec's task IDs only — never globs all results. Missing plan file → empty `$TIDS` → silent no-op (idempotent).
-6b. **Delete per-spec plan files:** Delete both the done and doing plan files (doing already deleted at step 6, confirm and delete done):
-   ```sh
-   rm -f ".deepflow/plans/done-${NAME}.md" ".deepflow/plans/doing-${NAME}.md"
-   ```
-   Idempotent: missing files are silent no-ops.
+5. **Delete shared auto-snapshot (conditional):** After the doing→done rename, check if any doing specs remain: `ls specs/doing-*.md 2>/dev/null`. If none remain (all specs have completed), delete the shared snapshot: `rm -f .deepflow/auto-snapshot.txt`. If doing specs still exist, skip deletion — the snapshot is still in use.
 6c. **Invalidate spec map directory:** Remove `.deepflow/maps/${NAME}/` so stale sketch/impact/findings artifacts from this spec don't persist after completion:
    ```sh
    rm -rf ".deepflow/maps/${NAME}/"
@@ -404,10 +394,8 @@ Objective: ... | Approach: ... | Why it worked: ... | Files: ...
      printf -- '- [TAG] %s\n' "{decision_text}" >> .deepflow/decisions.md
    ```
    Where `[TAG]` is the actual tag (`[APPROACH]`, `[ASSUMPTION]`, `[PROVISIONAL]`, `[FUTURE]`, or `[UPDATE]`). Apply one guard per decision line. Delete done spec after successful write; preserve on failure.
-8. **Clean PLAN.md:** Find the `### {spec-name}` section (match on name stem, strip `doing-`/`done-` prefix). Delete from header through the line before the next `### ` header (or EOF). Recalculate Summary table (recount `### ` headers for spec count, `- [ ]`/`- [x]` for task counts). If no spec sections remain, delete PLAN.md entirely. Skip silently if PLAN.md missing or section already gone.
-
 Output (exactly one line, no emojis beyond `✓`, no commentary before or after):
-`✓ Merged → main | ✓ Cleaned worktree | ✓ Spec → done | ✓ Decisions extracted | ✓ Cleaned PLAN.md | Ready: /df:spec <name>`
+`✓ Merged → main | ✓ Cleaned worktree | ✓ Spec → done | ✓ Decisions extracted | ✓ Cleaned up | Ready: /df:spec <name>`
 
 **Do NOT** append congratulatory text (e.g. "🎉 Spec merged successfully"), explanations of LSP/worktree behavior, or any other narration after this line. After printing the merge-status line, end the turn.
 
@@ -435,7 +423,7 @@ AC-3:done
 AC-4:done
   --no-auto-fix sets AUTO_FIX_ENABLED=false in prologue. §3: "If AUTO_FIX_ENABLED=false
   (set by --no-auto-fix): print 'Run /df:execute --continue...' as the legacy message...
-  Do NOT invoke the command." Fix tasks are still added to PLAN.md as required.
+  Do NOT invoke the command." Fix tasks are still added to ## Tasks (curated) as required.
 
 AC-5:done
   Auto-invoke step 2 prints:

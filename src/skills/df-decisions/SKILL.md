@@ -120,4 +120,4 @@ The `— rationale` portion should be concise (1–2 sentences) answering **why*
 
 - **Verification:** Execute.md §5.5.2 validates tag syntax and extracts to `.deepflow/decisions.md`
 - **Reporting:** Decisions are archived per-spec and per-date for architectural review
-- **Coverage:** Tags are NOT part of AC_COVERAGE (different reporting stream)
+- **Coverage:** Decision tags are independent of AC verification (see df-ac-coverage)

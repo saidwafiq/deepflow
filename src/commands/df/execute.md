@@ -229,9 +229,9 @@ node "${HOME}/.claude/bin/ratchet.js" \
 
 ```bash
 node "${HOME}/.claude/hooks/ac-coverage.js" \
-  --spec {spec_path} --output-file {agent_output_file} --status pass
+  --spec {spec_path} --snapshot .deepflow/auto-snapshot.txt --status pass
 ```
-Exit 0: all covered. Exit 2: SALVAGEABLE override. Exit 1: log error, treat as PASS.
+Tag-presence lint: every AC in the spec must be referenced by `specs/<slug>.md#AC-<n>` in at least one snapshot test file (or carry `[advisory]` in the spec). Exit 0: all tagged. Exit 2: SALVAGEABLE override (untagged ACs listed). Exit 1: log error, treat as PASS. No agent output is parsed.
 
 #### 5.5.2. DECISION EXTRACTION
 
@@ -394,8 +394,8 @@ Every template requires `WORKTREE_PATH` (set to `.deepflow/worktrees/curator-act
 
 | `subagent_type` | Required output |
 |-----------------|----------------|
-| `df-implement` / `df-test` | Optional `DECISIONS:`; `AC_COVERAGE:...AC_COVERAGE_END`; `TASK_STATUS:pass\|fail\|revert` |
-| `df-integration` | `AC_COVERAGE:...AC_COVERAGE_END`; `TASK_STATUS:pass\|fail` |
+| `df-implement` / `df-test` | Optional `DECISIONS:`; `TASK_STATUS:pass\|fail\|revert` |
+| `df-integration` | `TASK_STATUS:pass\|fail` |
 | `df-spike` | Result file; `PASSED/FAILED/INCONCLUSIVE`; `TASK_STATUS:pass\|fail` |
 | `df-optimize` | `before {val} → after {val} ({pct}%)`; `TASK_STATUS:pass\|fail` |
 
