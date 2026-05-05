@@ -332,4 +332,159 @@ const SCOPES = {
   },
 };
 
-module.exports = { SCOPES, CURATOR_PATH_DENY };
+// ---------------------------------------------------------------------------
+// Read-style verb helpers (used by slice-guard and tests)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shell verbs that read file contents and output them to stdout.
+ * Used to identify commands that access file content directly —
+ * the slice-guard needs to intercept these when an active slice is set.
+ *
+ * Covers:
+ *   - POSIX/GNU: cat, head, tail, less, more
+ *   - Modern alternatives: bat, batcat (syntax-highlighted cat)
+ *   - Editor-like: view (read-only vi)
+ *
+ * Does NOT include: grep, rg, ag, find — those are search tools already
+ * covered by SEARCH_TOOL_DENY.
+ */
+const READ_STYLE_VERBS = new Set([
+  'cat',
+  'head',
+  'tail',
+  'less',
+  'more',
+  'bat',
+  'batcat',
+  'view',
+]);
+
+/**
+ * Split a shell command string into pipe-separated segments.
+ *
+ * Strategy: split on `|` that are NOT part of `||` (logical OR) or heredoc
+ * operators (`<<`). This allows `go test ./... 2>&1 | grep FAIL` to be treated
+ * as a compound command where the first segment is `go test` (non-read-style)
+ * and the whole pipeline is permitted.
+ *
+ * @param {string} cmd   Raw command string.
+ * @returns {string[]}   Array of trimmed pipe segments; always at least one element.
+ */
+function splitPipeSegments(cmd) {
+  if (!cmd || typeof cmd !== 'string') return [''];
+
+  const segments = [];
+  let current = '';
+  let i = 0;
+
+  while (i < cmd.length) {
+    const ch = cmd[i];
+
+    // Skip heredoc bodies: <<'WORD' or <<"WORD" or <<WORD
+    if (ch === '<' && cmd[i + 1] === '<') {
+      // Consume the heredoc operator and everything after it;
+      // treat the rest as opaque (no more pipe segments).
+      current += cmd.slice(i);
+      i = cmd.length;
+      continue;
+    }
+
+    // Pipe character
+    if (ch === '|') {
+      // Logical OR (||) — keep together, not a pipe segment boundary
+      if (cmd[i + 1] === '|') {
+        current += '||';
+        i += 2;
+        continue;
+      }
+      // True pipe: flush current segment
+      segments.push(current.trim());
+      current = '';
+      i++;
+      continue;
+    }
+
+    current += ch;
+    i++;
+  }
+
+  segments.push(current.trim());
+  return segments;
+}
+
+/**
+ * Extract the file path arguments from a read-style shell command.
+ *
+ * Handles:
+ *   - Flags: skip tokens that start with `-`.
+ *   - Heredoc syntax: `cat <<'EOF'` or `cat <<EOF` — returns [] (no file arg;
+ *     the content is inline, not read from a file path).
+ *   - Quoted file paths: strips surrounding `"` or `'`.
+ *   - Multiple file args: `cat foo.go bar.go` returns ['foo.go', 'bar.go'].
+ *
+ * @param {string} cmd   A single pipe segment (not a full pipeline).
+ * @returns {string[]}   Array of file path strings extracted from the command.
+ *                       Returns [] when the command is a heredoc or has no file args.
+ */
+function extractReadStyleFileArgs(cmd) {
+  if (!cmd || typeof cmd !== 'string') return [];
+
+  const trimmed = cmd.trimStart();
+
+  // Heredoc: any `<<` in the command → content is inline, no file args
+  if (/<</.test(trimmed)) return [];
+
+  // Tokenise (naive whitespace split — does not handle embedded spaces in quoted paths)
+  const tokens = trimmed.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return [];
+
+  // First token is the verb — skip it; collect remaining non-flag tokens.
+  // Flags that take a value argument (e.g. -n 5, -c 10) consume the next
+  // token too; we detect this by checking if the previous token was a
+  // short flag and the current token is purely numeric.
+  const fileArgs = [];
+  let prevWasFlag = false;
+  for (let i = 1; i < tokens.length; i++) {
+    const token = tokens[i];
+
+    // Skip redirection operators and their targets
+    if (token === '>' || token === '>>' || token === '2>' || token === '2>>' || token === '&>') {
+      i++; // skip the redirection target token too
+      prevWasFlag = false;
+      continue;
+    }
+    if (token.startsWith('>') || token.startsWith('2>') || token.startsWith('&>')) {
+      prevWasFlag = false;
+      continue;
+    }
+
+    // Skip flags (e.g. -n, --lines, -c)
+    if (token.startsWith('-')) {
+      prevWasFlag = true;
+      continue;
+    }
+
+    // Skip purely numeric tokens that follow a flag — they are flag arguments
+    // (e.g. the `5` in `head -n 5 foo.go`), not file paths.
+    if (prevWasFlag && /^\d+$/.test(token)) {
+      prevWasFlag = false;
+      continue;
+    }
+    prevWasFlag = false;
+
+    // Strip surrounding quotes
+    const unquoted = token.replace(/^['"]|['"]$/g, '');
+    fileArgs.push(unquoted);
+  }
+
+  return fileArgs;
+}
+
+module.exports = {
+  SCOPES,
+  CURATOR_PATH_DENY,
+  READ_STYLE_VERBS,
+  splitPipeSegments,
+  extractReadStyleFileArgs,
+};
