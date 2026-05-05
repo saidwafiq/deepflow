@@ -122,6 +122,21 @@ node "${HOME}/.claude/bin/decisions-index.js" <file_paths> 2>/dev/null || true
 
 Use output to surface prior decisions/experiments relevant to slices.
 
+#### 4a.1 Caller signatures (LSP)
+
+For every exported symbol in the task's slice, collect caller signatures using LSP `incomingCalls` / `findReferences`:
+
+```bash
+# Collect caller function headers for a symbol (skip silently if bin absent)
+node "${HOME}/.claude/bin/lsp-query.js" --callers <symbol> --json 2>/dev/null || true
+```
+
+- Run for each **exported** function/type in the slice. Skip unexported symbols.
+- Collect the **function header only** (signature line) for each unique caller — not the full body.
+- Cap at **20 callers**; if more exist, append `… and N more (truncated)`.
+- If LSP is unavailable or returns no results, fall back to grep and label the block `# callers (grep, low-confidence):`.
+- Embed the collected headers in the task's `**Context bundle:**` (see §4d template below).
+
 #### 4b. Slice the work
 
 Each task touches one logical unit (one file, one function, one cohesive set of related edits). Use Read to load actual file content for each slice. Extract excerpts ≤30 lines per region, rendering as fenced code blocks:
@@ -156,6 +171,11 @@ Append to spec after Acceptance Criteria:
 ​```
 # file: path/to/file.ext (excerpt — description, lines N-M)
 {code excerpt ≤30 lines}
+
+# callers (LSP):        ← use "# callers (grep, low-confidence):" when LSP unavailable
+{callerFunctionHeader1}
+{callerFunctionHeader2}
+… and N more (truncated)   ← only when >20 callers
 ​```
 **Subagent prompt:**
 > {Full instruction text}
@@ -253,5 +273,6 @@ If layer < 2: `ℹ Spec is at L{N} — /df:execute will generate spikes to disco
 - `[P]` only when file-touch sets are pairwise empty; otherwise `Blocked by: T<n>`
 - Excerpts ≤30 lines per region
 - Subagent prompts MUST end with: `CRITICAL: do not use Read/Grep/Glob. The bundle above is exhaustive. If context is missing, output CONTEXT_INSUFFICIENT: <file_path> and stop.`
+- Every task whose slice exports at least one symbol MUST include a `# callers (LSP):` block (or `# callers (grep, low-confidence):` fallback) in the Context bundle; omit only when the slice has no exported symbols
 - Include agent-discovered context in Technical Notes
 - Keep specs concise (<100 lines for spec body, excluding Tasks section)
