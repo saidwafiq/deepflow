@@ -149,6 +149,39 @@ function extractField(chunk, fieldName) {
 }
 
 /**
+ * Parse a slice string (comma-separated, backtick/quote stripped) into
+ * an array of clean path strings. Returns [] for empty/null input.
+ * E.g. '`foo.js`, "bar.go"' → ['foo.js', 'bar.go']
+ */
+function parseSlicePaths(sliceStr) {
+  if (!sliceStr || typeof sliceStr !== 'string') return [];
+  return sliceStr
+    .split(',')
+    .map((s) => s.trim().replace(/^[`"']|[`"']$/g, '').trim())
+    .filter(Boolean);
+}
+
+/**
+ * Write the active-slice cache file for a matched task.
+ * Never throws — errors are silently swallowed to avoid blocking injection.
+ */
+function writeActiveSliceCache(repoRoot, task) {
+  try {
+    const dir = path.join(repoRoot, '.deepflow', 'active-slice');
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, task.id + '.json');
+    const data = JSON.stringify({
+      task_id: task.id,
+      slice: parseSlicePaths(task.slice),
+      written_at: new Date().toISOString(),
+    });
+    fs.writeFileSync(filePath, data, 'utf8');
+  } catch (_) {
+    // fail-open: never block injection
+  }
+}
+
+/**
  * Render the injection prefix from a task object.
  */
 function renderInjection(task) {
@@ -195,6 +228,9 @@ function main(payload) {
 
   if (!matched) return null;
 
+  // Write active-slice cache so bash-scope hook can read it (REQ-A2).
+  writeActiveSliceCache(repoRoot, matched);
+
   const injection = renderInjection(matched);
   const updatedPrompt = `${injection}\n\n${INJECTION_MARKER}\n\n${prompt}`;
 
@@ -223,5 +259,7 @@ module.exports = {
   findCuratedSpecs,
   parseCuratedSection,
   renderInjection,
+  parseSlicePaths,
+  writeActiveSliceCache,
   INJECTION_MARKER,
 };
