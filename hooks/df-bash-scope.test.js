@@ -1111,6 +1111,7 @@ function writeActiveSlice(repoRoot, taskId, slice) {
 
 describe('Layer 1.5: slice-aware read guard (subagent-burn-controls)', () => {
 
+  // specs/subagent-burn-controls.md#AC-1
   // AC-1: df-implement reading out-of-slice file → block
   describe('AC-1 (subagent-burn-controls): df-implement cat out-of-slice file is blocked', () => {
     let repoDir;
@@ -1144,6 +1145,7 @@ describe('Layer 1.5: slice-aware read guard (subagent-burn-controls)', () => {
     });
   });
 
+  // specs/subagent-burn-controls.md#AC-2
   // AC-2: df-implement reading in-slice file → pass through
   describe('AC-2 (subagent-burn-controls): df-implement cat in-slice file passes through', () => {
     let repoDir;
@@ -1173,6 +1175,7 @@ describe('Layer 1.5: slice-aware read guard (subagent-burn-controls)', () => {
     });
   });
 
+  // specs/subagent-burn-controls.md#AC-3
   // AC-3: heredoc (no file arg) → pass through
   describe('AC-3 (subagent-burn-controls): heredoc cat passes through', () => {
     let repoDir;
@@ -1197,6 +1200,7 @@ describe('Layer 1.5: slice-aware read guard (subagent-burn-controls)', () => {
     });
   });
 
+  // specs/subagent-burn-controls.md#AC-4
   // AC-4: pipeline with non-read-style first segment → slice guard does NOT fire
   // (tested via exported checkSliceGuard unit function — the hook's scope enforcement
   // for grep in pipelines is orthogonal to the slice guard's purpose)
@@ -1233,6 +1237,7 @@ describe('Layer 1.5: slice-aware read guard (subagent-burn-controls)', () => {
     });
   });
 
+  // specs/subagent-burn-controls.md#AC-5
   // AC-5: df-spike → slice guard does not apply
   describe('AC-5 (subagent-burn-controls): df-spike is exempt from slice guard', () => {
     let repoDir;

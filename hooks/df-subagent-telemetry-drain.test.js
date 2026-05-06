@@ -416,6 +416,7 @@ describe('appendErrorEvent', () => {
 // drain function — AC-6: one row with agent_role, task_id, cache_read_input_tokens
 // ---------------------------------------------------------------------------
 
+// specs/subagent-burn-controls.md#AC-6
 describe('drain — AC-6: appends token history row', () => {
   let tmp;
 
@@ -511,6 +512,7 @@ describe('drain — AC-6: appends token history row', () => {
 // drain function — AC-7: idempotency
 // ---------------------------------------------------------------------------
 
+// specs/subagent-burn-controls.md#AC-7
 describe('drain — AC-7: idempotency', () => {
   let tmp;
 
@@ -556,6 +558,7 @@ describe('drain — AC-7: idempotency', () => {
 // drain function — AC-8: malformed/missing JSONL
 // ---------------------------------------------------------------------------
 
+// specs/subagent-burn-controls.md#AC-8
 describe('drain — AC-8: malformed/missing JSONL handling', () => {
   let tmp;
 
