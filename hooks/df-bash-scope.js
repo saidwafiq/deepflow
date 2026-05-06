@@ -29,7 +29,7 @@ const path = require('path');
 const fs = require('fs');
 const { readStdinIfMain } = require('./lib/hook-stdin');
 const { inferAgentRole } = require('./lib/agent-role');
-const { SCOPES, CURATOR_PATH_DENY, READ_STYLE_VERBS, extractReadStyleFileArgs, splitPipeSegments } = require('./lib/bash-scopes');
+const { SCOPES, CURATOR_PATH_DENY, READ_STYLE_VERBS, INTERPRETER_EVAL_DENY, extractReadStyleFileArgs, splitCommandSegments } = require('./lib/bash-scopes');
 
 // ---------------------------------------------------------------------------
 // Telemetry
@@ -266,32 +266,64 @@ function checkSliceGuard(cmd, role, cwd) {
 
   const { task_id, slice } = sliceData;
 
-  // Split on pipes; examine only the first segment (the read command)
-  const segments = splitPipeSegments(cmd);
-  const firstSeg = segments[0] || '';
+  // Split on `|`, `&&`, `;`, `||` — examine EVERY logical command segment.
+  // Closes the `cd worktree && cat secret` bypass: the chained `cat` is now
+  // its own segment and gets inspected even though it isn't first.
+  const segments = splitCommandSegments(cmd);
 
-  // Check if first segment starts with a read-style verb
-  const firstToken = firstSeg.trimStart().split(/\s+/)[0] || '';
-  if (!READ_STYLE_VERBS.has(firstToken)) return { blocked: false };
+  for (const seg of segments) {
+    const firstToken = seg.trimStart().split(/\s+/)[0] || '';
+    if (!READ_STYLE_VERBS.has(firstToken)) continue;
 
-  // Extract file args (handles heredocs → returns [])
-  const fileArgs = extractReadStyleFileArgs(firstSeg);
-  if (fileArgs.length === 0) return { blocked: false }; // heredoc or no file arg
+    // Extract file args (handles heredocs → returns [])
+    const fileArgs = extractReadStyleFileArgs(seg);
+    if (fileArgs.length === 0) continue; // heredoc or no file arg
 
-  // Check each file arg against the slice
-  for (const fileArg of fileArgs) {
-    if (!isFileInSlice(fileArg, slice, cwd)) {
-      const sliceList = slice.join(', ');
-      const message =
-        `df-bash-scope: \`${firstToken} ${fileArg}\` is outside the active slice for task ${task_id}. ` +
-        `Active slice: [${sliceList}]. ` +
-        `Reading files outside the slice burns cache tokens unnecessarily. ` +
-        `If you genuinely need this file, emit "CONTEXT_INSUFFICIENT: ${fileArg}" on its own line and stop — ` +
-        `the orchestrator will add it to the slice and re-spawn you with the file's content in your bundle.`;
-      return { blocked: true, message };
+    for (const fileArg of fileArgs) {
+      if (!isFileInSlice(fileArg, slice, cwd)) {
+        const sliceList = slice.join(', ');
+        const message =
+          `df-bash-scope: \`${firstToken} ${fileArg}\` is outside the active slice for task ${task_id}. ` +
+          `Active slice: [${sliceList}]. ` +
+          `Reading files outside the slice burns cache tokens unnecessarily. ` +
+          `If you genuinely need this file, emit "CONTEXT_INSUFFICIENT: ${fileArg}" on its own line and stop — ` +
+          `the curator will add it to the slice and re-spawn you with the file's content in your bundle.`;
+        return { blocked: true, message };
+      }
     }
   }
 
+  return { blocked: false };
+}
+
+/**
+ * Layer 1.4: interpreter-eval block.
+ *
+ * Inside curator worktrees, deny `python -c`, `node -e`, `ruby -e`, `perl -e`,
+ * `deno eval`, `bun -e`, `bash -c`, `sh -c`, `zsh -c`, `awk '...getline...'`.
+ * These forms let a subagent read arbitrary files via interpreter file APIs
+ * (`open(p).read()`, `fs.readFileSync(p)`, `File.read(p)`) — fully bypassing
+ * the slice guard, which only inspects shell read verbs.
+ *
+ * Pass-through: scripts run with explicit file paths (`python script.py`,
+ * `node script.js`) are NOT blocked — those are normal task execution.
+ *
+ * @param {string} cmd  Raw command string.
+ * @param {string} cwd  Working directory from payload.
+ * @returns {{ blocked: boolean, message?: string }}
+ */
+function checkInterpreterEval(cmd, cwd) {
+  if (!isCuratorWorktree(cwd)) return { blocked: false };
+  for (const re of INTERPRETER_EVAL_DENY) {
+    if (re.test(cmd)) {
+      const message =
+        `df-bash-scope: interpreter-eval forms (\`python -c\`, \`node -e\`, \`bash -c\`, etc.) are forbidden inside curator worktrees. ` +
+        `These bypass the slice guard by reading files via interpreter APIs (\`open(p).read()\`, \`fs.readFileSync(p)\`). ` +
+        `Use the Read/Edit/Write tools for file operations, or emit "CONTEXT_INSUFFICIENT: <path>" if you need a file outside your slice — ` +
+        `the curator will augment your bundle and re-spawn.`;
+      return { blocked: true, message };
+    }
+  }
   return { blocked: false };
 }
 
@@ -316,9 +348,19 @@ readStdinIfMain(module, (payload) => {
       `df-bash-scope: subagent cannot read curator-only artefacts (specs/, .deepflow/maps/, decisions, checkpoint, config, CLAUDE.md). ` +
       `These are orchestrator inputs — your bundle is the only context source. ` +
       `If you need a file outside your bundle, emit "CONTEXT_INSUFFICIENT: <path>" on its own line and stop; ` +
-      `the orchestrator will augment your bundle and re-spawn.`;
+      `the curator will augment your bundle and re-spawn.`;
     appendTelemetry(cwd, { role: 'curator-worktree', command: cmd, decision: 'block', reason: 'curator-path' });
     block(message);
+    return;
+  }
+
+  // Layer 1.4: Interpreter-eval block — fires inside curator worktrees,
+  // independent of role inference. Closes the `python -c "open(...).read()"`
+  // bypass that evades the slice guard (which only inspects shell read verbs).
+  const interpGuard = checkInterpreterEval(cmd, cwd);
+  if (interpGuard.blocked) {
+    appendTelemetry(cwd, { role: 'curator-worktree', command: cmd, decision: 'block', reason: 'interpreter-eval' });
+    block(interpGuard.message);
     return;
   }
 
@@ -368,7 +410,7 @@ readStdinIfMain(module, (payload) => {
       ? `df-bash-scope: ${role} cannot read curator-only artefacts (specs/, .deepflow/maps/, decisions, checkpoint, config, CLAUDE.md). ` +
         `These are orchestrator inputs — your bundle is the only context source. ` +
         `If you need a file outside your bundle, emit "CONTEXT_INSUFFICIENT: <path>" on its own line and stop; ` +
-        `the orchestrator will augment your bundle and re-spawn.`
+        `the curator will augment your bundle and re-spawn.`
       : `df-bash-scope: \`${token}\` is outside ${role} scope. ` +
         `Command blocked by denyOverride rule.`;
 

@@ -27,7 +27,9 @@ const assert = require('node:assert/strict');
 
 const {
   READ_STYLE_VERBS,
+  INTERPRETER_EVAL_DENY,
   splitPipeSegments,
+  splitCommandSegments,
   extractReadStyleFileArgs,
 } = require('./bash-scopes');
 
@@ -261,5 +263,133 @@ describe('integration: slice-guard logic simulation', () => {
   test('AC-5: cat is correctly identified as read-style (slice guard can apply role filter)', () => {
     const verb = 'cat';
     assert.ok(READ_STYLE_VERBS.has(verb), 'cat is a read-style verb — slice guard can apply');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// splitCommandSegments — splits on `|`, `&&`, `;`, `||`
+// ---------------------------------------------------------------------------
+
+describe('splitCommandSegments', () => {
+  test('returns single segment for simple command', () => {
+    assert.deepEqual(splitCommandSegments('cat foo.go'), ['cat foo.go']);
+  });
+
+  test('splits on && (the canonical bypass form)', () => {
+    assert.deepEqual(
+      splitCommandSegments('cd /worktree && cat secret.txt'),
+      ['cd /worktree', 'cat secret.txt'],
+    );
+  });
+
+  test('splits on ; (sequence)', () => {
+    assert.deepEqual(
+      splitCommandSegments('cd /worktree; cat secret.txt'),
+      ['cd /worktree', 'cat secret.txt'],
+    );
+  });
+
+  test('splits on || (logical OR)', () => {
+    assert.deepEqual(
+      splitCommandSegments('cat foo.txt || cat bar.txt'),
+      ['cat foo.txt', 'cat bar.txt'],
+    );
+  });
+
+  test('splits on | (pipe)', () => {
+    assert.deepEqual(
+      splitCommandSegments('cat foo.txt | grep bar'),
+      ['cat foo.txt', 'grep bar'],
+    );
+  });
+
+  test('mixed operators: cd && pnpm test | grep FAIL', () => {
+    assert.deepEqual(
+      splitCommandSegments('cd /worktree && pnpm test | grep FAIL'),
+      ['cd /worktree', 'pnpm test', 'grep FAIL'],
+    );
+  });
+
+  test('treats heredoc body as opaque (no further splitting)', () => {
+    const cmd = "cat <<'EOF' && echo done\nhello\nEOF";
+    const segs = splitCommandSegments(cmd);
+    assert.equal(segs.length, 1, 'heredoc body should not be split');
+    assert.match(segs[0], /^cat <</);
+  });
+
+  test('returns single-element array for empty / null', () => {
+    assert.deepEqual(splitCommandSegments(''), ['']);
+    assert.deepEqual(splitCommandSegments(null), ['']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// INTERPRETER_EVAL_DENY — closes the python -c / node -e / bash -c bypasses
+// ---------------------------------------------------------------------------
+
+describe('INTERPRETER_EVAL_DENY', () => {
+  function blocks(cmd) {
+    return INTERPRETER_EVAL_DENY.some(re => re.test(cmd));
+  }
+
+  test('blocks python3 -c "open(...)..."', () => {
+    assert.ok(blocks(`python3 -c "open('secret').read()"`));
+  });
+
+  test('blocks python -c (no version suffix)', () => {
+    assert.ok(blocks(`python -c "import os; print(os.environ)"`));
+  });
+
+  test('blocks node -e "fs.readFileSync(...)"', () => {
+    assert.ok(blocks(`node -e "console.log(require('fs').readFileSync('x'))"`));
+  });
+
+  test('blocks node --eval', () => {
+    assert.ok(blocks(`node --eval "console.log(1)"`));
+  });
+
+  test('blocks ruby -e', () => {
+    assert.ok(blocks(`ruby -e "puts File.read('secret')"`));
+  });
+
+  test('blocks perl -e', () => {
+    assert.ok(blocks(`perl -e 'open F, "secret"; print <F>'`));
+  });
+
+  test('blocks bash -c "..."', () => {
+    assert.ok(blocks(`bash -c "cat /etc/passwd"`));
+  });
+
+  test('blocks sh -c, zsh -c, ksh -c', () => {
+    assert.ok(blocks(`sh -c "echo x"`));
+    assert.ok(blocks(`zsh -c "echo x"`));
+    assert.ok(blocks(`ksh -c "echo x"`));
+  });
+
+  test('blocks deno eval', () => {
+    assert.ok(blocks(`deno eval "Deno.readTextFile('x')"`));
+  });
+
+  test('blocks bun -e', () => {
+    assert.ok(blocks(`bun -e "console.log(1)"`));
+  });
+
+  test('blocks chained form: cd worktree && python3 -c "..."', () => {
+    assert.ok(blocks(`cd /worktree && python3 -c "open('x').read()"`));
+  });
+
+  test('does NOT block python script.py (explicit script — normal task execution)', () => {
+    assert.ok(!blocks('python script.py'));
+    assert.ok(!blocks('python3 ./tools/run.py --flag'));
+  });
+
+  test('does NOT block node script.js', () => {
+    assert.ok(!blocks('node script.js'));
+    assert.ok(!blocks('node ./bin/run.js'));
+  });
+
+  test('does NOT block "python" mentioned in a path or filename', () => {
+    assert.ok(!blocks('cat /usr/bin/python-version.txt'));
+    assert.ok(!blocks('ls scripts/python/'));
   });
 });

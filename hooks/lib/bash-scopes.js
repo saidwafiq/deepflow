@@ -103,7 +103,7 @@ const SEARCH_TOOL_DENY = [
  * indicates a sub-agent reaching beyond its inline bundle. The curator
  * pattern's promise is that subagents receive bundled context inline; if
  * a subagent needs more context it must emit `CONTEXT_INSUFFICIENT: <path>`
- * and let the orchestrator augment the bundle.
+ * and let the curator augment the bundle.
  *
  * Block targets (in any path-prefix combination):
  *   - specs/{name}.md  — full spec text (would leak other tasks' bundles)
@@ -361,6 +361,95 @@ const READ_STYLE_VERBS = new Set([
 ]);
 
 /**
+ * Interpreter eval forms — `<interp> -c "<code>"` / `-e "<code>"` / `eval "<code>"`.
+ * These are how a subagent can read arbitrary files without using a shell read
+ * verb (e.g. `python3 -c "open('secret').read()"`). Blocked unconditionally
+ * inside curator worktrees; the subagent must use Read/Edit/Write tools or
+ * emit `CONTEXT_INSUFFICIENT: <path>` to expand its slice.
+ *
+ * Patterns intentionally match anywhere in the command string (no `^` anchor)
+ * so they catch chained forms like `cd worktree && python3 -c '...'`.
+ */
+const INTERPRETER_EVAL_DENY = [
+  /(?:^|[\s;&|`(])python3?\s+(?:-[A-Za-z]*\s+)*-c\s/,
+  /(?:^|[\s;&|`(])node\s+(?:-[A-Za-z]*\s+)*(?:-e|--eval)\s/,
+  /(?:^|[\s;&|`(])(?:ruby|perl)\s+(?:-[A-Za-z]*\s+)*-e\s/,
+  /(?:^|[\s;&|`(])deno\s+eval\b/,
+  /(?:^|[\s;&|`(])bun\s+(?:-[A-Za-z]*\s+)*(?:-e|--eval)\s/,
+  /(?:^|[\s;&|`(])(?:bash|sh|zsh|ksh)\s+(?:-[A-Za-z]*\s+)*-c\s/,
+  /(?:^|[\s;&|`(])awk\s+(?:-[A-Za-z]*\s+)*'[^']*getline/,
+];
+
+/**
+ * Split a shell command string into logical command segments.
+ *
+ * Strategy: split on `|`, `&&`, `;`, and `||` — every operator that introduces
+ * a separate command. Heredoc bodies (`<<WORD`) are treated as opaque (no further
+ * splitting after the heredoc operator). Used by the slice guard to inspect
+ * EVERY chained command, not just the first — closes the `cd worktree && cat secret`
+ * bypass.
+ *
+ * @param {string} cmd   Raw command string.
+ * @returns {string[]}   Array of trimmed command segments; always at least one element.
+ */
+function splitCommandSegments(cmd) {
+  if (!cmd || typeof cmd !== 'string') return [''];
+
+  const segments = [];
+  let current = '';
+  let i = 0;
+
+  while (i < cmd.length) {
+    const ch = cmd[i];
+
+    // Skip heredoc bodies: <<'WORD' or <<"WORD" or <<WORD
+    if (ch === '<' && cmd[i + 1] === '<') {
+      current += cmd.slice(i);
+      i = cmd.length;
+      continue;
+    }
+
+    // && — boundary
+    if (ch === '&' && cmd[i + 1] === '&') {
+      segments.push(current.trim());
+      current = '';
+      i += 2;
+      continue;
+    }
+
+    // || — boundary
+    if (ch === '|' && cmd[i + 1] === '|') {
+      segments.push(current.trim());
+      current = '';
+      i += 2;
+      continue;
+    }
+
+    // | (single pipe) — boundary
+    if (ch === '|') {
+      segments.push(current.trim());
+      current = '';
+      i++;
+      continue;
+    }
+
+    // ; — boundary (but not inside heredoc, handled above)
+    if (ch === ';') {
+      segments.push(current.trim());
+      current = '';
+      i++;
+      continue;
+    }
+
+    current += ch;
+    i++;
+  }
+
+  segments.push(current.trim());
+  return segments.filter(s => s.length > 0);
+}
+
+/**
  * Split a shell command string into pipe-separated segments.
  *
  * Strategy: split on `|` that are NOT part of `||` (logical OR) or heredoc
@@ -485,6 +574,8 @@ module.exports = {
   SCOPES,
   CURATOR_PATH_DENY,
   READ_STYLE_VERBS,
+  INTERPRETER_EVAL_DENY,
   splitPipeSegments,
+  splitCommandSegments,
   extractReadStyleFileArgs,
 };

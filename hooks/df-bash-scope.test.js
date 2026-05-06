@@ -1275,3 +1275,139 @@ describe('Layer 1.5: slice-aware read guard (subagent-burn-controls)', () => {
   });
 
 });
+
+// ---------------------------------------------------------------------------
+// Multi-segment slice guard — closes the `cd worktree && cat secret` bypass
+// ---------------------------------------------------------------------------
+
+describe('Layer 1.5 multi-segment: && / ; / || chained reads are inspected', () => {
+  let repoDir;
+  beforeEach(() => {
+    repoDir = makeRoleRepo('df-implement');
+    writeActiveSlice(repoDir, 'T77', ['allowed/foo.go']);
+  });
+  afterEach(() => rmrf(repoDir));
+
+  it('blocks `cd <wt> && cat out-of-slice.txt` (chained read after cd)', () => {
+    const r = runHook(HOOK_PATH, bashPayload('cd ' + repoDir + ' && cat secret.txt', repoDir));
+    assert.equal(r.code, 0);
+    const out = parseOut(r.stdout);
+    assert.ok(out !== null, `expected block payload, got: ${r.stdout}`);
+    assert.equal(out.decision, 'block');
+    assert.match(out.message, /secret\.txt/);
+    assert.match(out.message, /T77/);
+  });
+
+  it('blocks `pnpm test && cat secret.txt` (chained after allowed runner)', () => {
+    const r = runHook(HOOK_PATH, bashPayload('pnpm test && cat secret.txt', repoDir));
+    const out = parseOut(r.stdout);
+    assert.ok(out !== null);
+    assert.equal(out.decision, 'block');
+    assert.match(out.message, /secret\.txt/);
+  });
+
+  it('blocks `cat allowed/foo.go ; cat secret.txt` (sequence form)', () => {
+    const r = runHook(HOOK_PATH, bashPayload('cat allowed/foo.go ; cat secret.txt', repoDir));
+    const out = parseOut(r.stdout);
+    assert.ok(out !== null);
+    assert.equal(out.decision, 'block');
+    assert.match(out.message, /secret\.txt/);
+  });
+
+  it('blocks `cat slice.go || cat fallback.go` (logical OR form)', () => {
+    const r = runHook(HOOK_PATH, bashPayload('cat allowed/foo.go || cat fallback.go', repoDir));
+    const out = parseOut(r.stdout);
+    assert.ok(out !== null);
+    assert.equal(out.decision, 'block');
+    assert.match(out.message, /fallback\.go/);
+  });
+
+  it('passes `cat allowed/foo.go && echo done` (chained non-read after in-slice read)', () => {
+    const r = runHook(HOOK_PATH, bashPayload('cat allowed/foo.go && echo done', repoDir));
+    const out = parseOut(r.stdout);
+    assert.equal(out, null, `expected pass-through, got: ${r.stdout}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Layer 1.4: interpreter-eval block (closes python -c / node -e / bash -c bypass)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a fake curator-worktree cwd inside the temp dir so isCuratorWorktree(cwd)
+ * returns true. The hook only checks the path string for `.deepflow/worktrees/`,
+ * so we don't need a real git worktree — just the path component.
+ */
+function makeCuratorWorktree() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-curator-wt-'));
+  const wt = path.join(root, '.deepflow', 'worktrees', 'curator-active');
+  fs.mkdirSync(wt, { recursive: true });
+  // Init a git repo at root so resolveRepoRoot has something to find
+  execFileSync('git', ['init', '-b', 'main'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'Test'], { cwd: root, stdio: 'ignore' });
+  fs.writeFileSync(path.join(root, 'README.md'), 'x', 'utf8');
+  execFileSync('git', ['add', 'README.md'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-m', 'fixture'], { cwd: root, stdio: 'ignore' });
+  return { root, wt };
+}
+
+describe('Layer 1.4: interpreter-eval block in curator worktree', () => {
+  let env;
+  beforeEach(() => { env = makeCuratorWorktree(); });
+  afterEach(() => rmrf(env.root));
+
+  it('blocks python3 -c "open(...).read()"', () => {
+    const r = runHook(HOOK_PATH, bashPayload(`python3 -c "open('secret').read()"`, env.wt));
+    const out = parseOut(r.stdout);
+    assert.ok(out !== null, `expected block, got: ${r.stdout}`);
+    assert.equal(out.decision, 'block');
+    assert.match(out.message, /interpreter-eval/);
+  });
+
+  it('blocks node -e "fs.readFileSync(...)"', () => {
+    const r = runHook(HOOK_PATH, bashPayload(`node -e "console.log(require('fs').readFileSync('x'))"`, env.wt));
+    const out = parseOut(r.stdout);
+    assert.ok(out !== null);
+    assert.equal(out.decision, 'block');
+  });
+
+  it('blocks chained `cd <wt> && python3 -c "..."`', () => {
+    const r = runHook(HOOK_PATH, bashPayload(`cd ${env.wt} && python3 -c "open('x').read()"`, env.wt));
+    const out = parseOut(r.stdout);
+    assert.ok(out !== null);
+    assert.equal(out.decision, 'block');
+    assert.match(out.message, /interpreter-eval/);
+  });
+
+  it('blocks bash -c "cat /etc/passwd"', () => {
+    const r = runHook(HOOK_PATH, bashPayload(`bash -c "cat /etc/passwd"`, env.wt));
+    const out = parseOut(r.stdout);
+    assert.ok(out !== null);
+    assert.equal(out.decision, 'block');
+  });
+
+  it('passes `python script.py` (explicit script — not eval)', () => {
+    const r = runHook(HOOK_PATH, bashPayload(`python script.py --flag`, env.wt));
+    const out = parseOut(r.stdout);
+    // No block from the interpreter-eval layer; may still be denied by role scope,
+    // but role inference is null on curator-active so Layer 2 is skipped.
+    assert.equal(out, null, `expected pass-through for explicit script, got: ${r.stdout}`);
+  });
+
+  it('does NOT block interpreter-eval outside curator worktree', () => {
+    // Use a non-curator cwd (a normal makeRoleRepo for df-spike — slice guard exempt).
+    const repoDir = makeRoleRepo('df-spike');
+    try {
+      const r = runHook(HOOK_PATH, bashPayload(`python3 -c "open('x').read()"`, repoDir));
+      const out = parseOut(r.stdout);
+      // df-spike scope allows arbitrary CLI; outside curator worktree the eval block does not fire.
+      // The result is allow (or pass-through), not the curator-eval block.
+      if (out !== null) {
+        assert.notMatch(out.message || '', /interpreter-eval/);
+      }
+    } finally {
+      rmrf(repoDir);
+    }
+  });
+});
