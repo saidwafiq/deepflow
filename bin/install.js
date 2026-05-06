@@ -424,16 +424,19 @@ async function main() {
   console.log('  templates/       — 7 agent-prompt templates (standard-task, integration, spike,');
   console.log('                     optimize, optimize-probe, wave-test, bootstrap) + map artifacts');
   if (level === 'global') {
-    console.log('  hooks/           — 23 lifecycle hooks');
+    console.log('  hooks/           — 26 lifecycle hooks');
     console.log('                       PreToolUse:    df-codebase-inject (artifact injection on Task spawn)');
+    console.log('                                      df-context-injection (curated bundle + active-slice cache on Task spawn)');
     console.log('                                      df-delegation-contract (DELEGATION.md enforcement)');
     console.log('                                      df-explore-protocol, df-implement-protocol, df-verify-protocol');
-    console.log('                                      df-bash-rewrite, df-bash-worktree-guard, df-bash-scope');
+    console.log('                                      df-implement-test-invocation-cap');
+    console.log('                                      df-bash-rewrite, df-bash-worktree-guard, df-bash-scope (slice-aware Layer 1.5)');
     console.log('                                      df-snapshot-guard, df-worktree-guard, df-worktree-precheck');
     console.log('                       PostToolUse:   df-artifact-validate (sketch/impact/findings/PLAN consistency)');
     console.log('                                      df-codebase-staleness, df-experiment-immutable, df-spike-validate');
     console.log('                                      df-validate-tasks-gates, df-bash-telemetry, df-harness-score');
     console.log('                       UserPromptSubmit: df-spec-lint, df-invariant-check, df-check-update');
+    console.log('                       SubagentStop:  df-subagent-telemetry-drain (per-subagent token-history append)');
     console.log('                       Stop / etc:    df-statusline');
   } else {
     console.log('  hooks/df-spec-*  — spec validation (auto-enforced by /df:spec)');
