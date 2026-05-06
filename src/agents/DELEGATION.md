@@ -21,8 +21,8 @@ Orchestrators (slash commands) are **routers**, not interpreters.
 
 When an orchestrator re-words context before passing it to a specialist agent, two problems arise:
 
-1. **Information loss** — the orchestrator's summary omits details the specialist needs.
-2. **Interpretation laundering** — the orchestrator's framing biases the specialist's output before the specialist sees the raw evidence.
+1. **Information loss** — the curator's summary omits details the specialist needs.
+2. **Interpretation laundering** — the curator's framing biases the specialist's output before the specialist sees the raw evidence.
 
 The fix is mechanical: either pass the raw artifact verbatim, or spawn `reasoner` to compress it, store the output verbatim, and pass that to downstream agents.
 
@@ -70,7 +70,7 @@ Authoritative listing of which tools each agent's frontmatter grants. Mirror thi
 |---|---|---|
 | df-implement | Edit, Write, Bash, mcp__ide__getDiagnostics, mcp__ide__executeCode | Curator-fed implementer — no Read/Grep/Glob; CONTEXT_INSUFFICIENT escape on missing context |
 | df-test | Edit, Write, Bash, mcp__ide__getDiagnostics, mcp__ide__executeCode | Curator-fed test author — no Read/Grep/Glob |
-| df-integration | Edit, Write, Bash, mcp__ide__getDiagnostics, mcp__ide__executeCode | Curator-fed integration implementer — bundle is read post-commit by the orchestrator (single shared worktree) |
+| df-integration | Edit, Write, Bash, mcp__ide__getDiagnostics, mcp__ide__executeCode | Curator-fed integration implementer — bundle is read post-commit by the curator (single shared worktree) |
 | df-optimize | Edit, Write, Bash, mcp__ide__getDiagnostics, mcp__ide__executeCode | Curator-fed optimizer — no Read/Grep/Glob |
 | df-haiku-ops | Bash | Mechanical git/shell agent (widest Bash scope — see Risk concentration below) |
 | df-spike | Read, Bash, WebFetch, Write | Exploratory spike — keeps Read because hypotheses are unknowns the curator cannot pre-bundle |
@@ -99,7 +99,7 @@ allowed-inputs:
   - exit-code-check: "Request to capture and return exit code + stdout/stderr of a command"
 
 forbidden-inputs:
-  - source-file-content: "Do not pass source code for reading or understanding — that is the coordinator's job"
+  - source-file-content: "Do not pass source code for reading or understanding — that is the curator's job"
   - architectural-context: "Do not include design rationale, trade-off analysis, or spec context"
   - edit-instructions: "Do not ask df-haiku-ops to modify file contents — only shell/git operations"
   - open-ended-questions: "Do not ask 'what should I commit?' — provide the exact commit message"
@@ -259,7 +259,7 @@ Exemplar incidents:
   instrumented session was required to observe actual field names and nesting.
 
 Implication: any df-spike-platform task that concludes INCONCLUSIVE on payload shape MUST document
-the specific unknown fields and escalate to the orchestrator for live-session capture before
+the specific unknown fields and escalate to the curator for live-session capture before
 downstream implementation tasks proceed.
 
 ---

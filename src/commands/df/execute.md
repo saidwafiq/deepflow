@@ -51,7 +51,7 @@ PLANNED=$(ls specs/*.md 2>/dev/null | grep -vE '/(doing-|done-|_|\.)' || true)
 **Selection rules** (in order):
 
 1. **Explicit start** — `/df:execute {spec-name}` where `{spec-name}` matches `specs/{spec-name}.md` (planned, not yet `doing-`). Rename `specs/{spec-name}.md` → `specs/doing-{spec-name}.md` and proceed. If `{spec-name}` matches a `doing-` already, treat as resume (proceed). If neither, exit 1: `✗ ERROR: specs/{spec-name}.md not found (planned or doing-).`
-2. **At least one `doing-*.md` exists** — proceed to §0b directly. (Don't auto-promote planned specs; the orchestrator may have intentionally left them un-started.)
+2. **At least one `doing-*.md` exists** — proceed to §0b directly. (Don't auto-promote planned specs; the curator may have intentionally left them un-started.)
 3. **No `doing-*.md` but exactly one planned spec** — TTY: prompt `Start /df:execute on specs/{name}.md? [Y/n]` (default Y). On Y → rename to `doing-` and proceed. On n → exit 0 silently. Non-TTY → exit 1 with: `✗ ERROR: specs/{name}.md is planned but not yet started. Run \`mv specs/{name}.md specs/doing-{name}.md\` or \`/df:execute {name}\` to start.`
 4. **No `doing-*.md` but multiple planned specs** — TTY: list them numbered and prompt `Pick one to start [1-N] (n to abort): `. On valid pick → rename → proceed. Non-TTY → exit 1 with the same hint as rule 3.
 5. **No `doing-*.md` and no planned specs** — exit 1: `✗ ERROR: no specs to execute. Author one with /df:spec.`

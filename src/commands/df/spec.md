@@ -52,9 +52,9 @@ The orchestrator now consumes the artefacts above directly — they are the auth
 |----------|------|----------|
 | Architecture / patterns / integrations | the **map** above (already loaded) | "What stack? What's the component layout? What external services?" |
 | Content of a named target | **Read** that target directly | "/df:verify behaviour" → Read `src/commands/df/verify.md`. "ratchet logic" → Read `bin/ratchet.js`. |
-| Path of an unknown symbol | **Explore** (capped at 2 agents) | "Where is `someFunction` defined?" — Explore returns paths only (per `templates/explore-agent.md` scope restrictions); the orchestrator then Reads the result. |
+| Path of an unknown symbol | **Explore** (capped at 2 agents) | "Where is `someFunction` defined?" — Explore returns paths only (per `templates/explore-agent.md` scope restrictions); the curator then Reads the result. |
 
-Default Explore count is **0**. Spawn an Explore agent only when (a) the topic mentions a symbol or keyword that the map does not cover and (b) the orchestrator cannot guess the path from the spec name. Cap: 2 agents per `/df:spec` run.
+Default Explore count is **0**. Spawn an Explore agent only when (a) the topic mentions a symbol or keyword that the map does not cover and (b) the curator cannot guess the path from the spec name. Cap: 2 agents per `/df:spec` run.
 
 **Fallback:** if all three map artefacts returned `NOT_FOUND`, broader Explore is allowed (1–3 agents) and the §6 confirmation MUST emit the existing `ℹ .deepflow/codebase/ artifacts not generated — run /df:map for warm-up context on next /df:spec` hint.
 

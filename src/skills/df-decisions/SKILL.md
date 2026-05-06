@@ -43,7 +43,7 @@ Multiple decisions are separated by ` | ` (space-pipe-space). Each decision is *
 - Task is purely mechanical (renaming, copying, trivial refactors)
 - No non-obvious choices were made
 
-**Validation rule:** If a task has effort ≥ `medium` and no `DECISIONS:` line appears in your output, the orchestrator will emit SALVAGEABLE (indicating potential architectural choices were not documented).
+**Validation rule:** If a task has effort ≥ `medium` and no `DECISIONS:` line appears in your output, the curator will emit SALVAGEABLE (indicating potential architectural choices were not documented).
 
 ## Files Tag
 
@@ -77,7 +77,7 @@ Omit the `Files:` tag when the decision is purely conceptual or spans the entire
 
 ## Decision Extraction & Storage
 
-The orchestrator runs decision extraction after each ratchet pass:
+The curator runs decision extraction after each ratchet pass:
 
 1. **Parse:** Extract `DECISIONS:` line from agent output
 2. **Validate:** Each entry must start with `[TAG]` where TAG ∈ {APPROACH, PROVISIONAL, ASSUMPTION, FUTURE, UPDATE}
