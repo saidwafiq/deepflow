@@ -29,7 +29,7 @@ const path = require('path');
 const fs = require('fs');
 const { readStdinIfMain } = require('./lib/hook-stdin');
 const { inferAgentRole } = require('./lib/agent-role');
-const { SCOPES, CURATOR_PATH_DENY } = require('./lib/bash-scopes');
+const { SCOPES, CURATOR_PATH_DENY, READ_STYLE_VERBS, extractReadStyleFileArgs, splitPipeSegments } = require('./lib/bash-scopes');
 
 // ---------------------------------------------------------------------------
 // Telemetry
@@ -115,6 +115,186 @@ function isCuratorWorktree(cwd) {
   return cwd.includes(marker);
 }
 
+// ---------------------------------------------------------------------------
+// Layer 1.5: Slice-aware read guard helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the main repo root from a worktree cwd using git --git-common-dir.
+ * Returns null on any error.
+ *
+ * @param {string} cwd  Absolute path to the worktree.
+ * @returns {string|null}  Absolute repo root path or null.
+ */
+function resolveRepoRoot(cwd) {
+  try {
+    const { execSync } = require('child_process');
+    const commonDir = execSync('git rev-parse --git-common-dir', {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const absCommonDir = path.isAbsolute(commonDir)
+      ? commonDir
+      : path.resolve(cwd, commonDir);
+    return path.dirname(absCommonDir);
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Load the active slice JSON for the current subagent, if present.
+ *
+ * Contract (T1): `.deepflow/active-slice/<task_id>.json`
+ * Shape: `{"task_id": string, "slice": string[], "written_at": string}`
+ *
+ * Picks the file with the latest mtime when multiple files exist.
+ * Returns null when the directory does not exist, no files are present,
+ * or any JSON parse error occurs.
+ *
+ * @param {string} repoRoot  Absolute path to main repo root.
+ * @returns {{ task_id: string, slice: string[] }|null}
+ */
+function loadActiveSlice(repoRoot) {
+  try {
+    const sliceDir = path.join(repoRoot, '.deepflow', 'active-slice');
+    if (!fs.existsSync(sliceDir)) return null;
+
+    const entries = fs.readdirSync(sliceDir)
+      .filter(f => f.endsWith('.json'))
+      .map(f => {
+        const full = path.join(sliceDir, f);
+        try {
+          const stat = fs.statSync(full);
+          return { full, mtimeMs: stat.mtimeMs };
+        } catch (_) {
+          return null;
+        }
+      })
+      .filter(Boolean);
+
+    if (entries.length === 0) return null;
+
+    // Pick the file with the latest mtime
+    entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const latest = entries[0].full;
+
+    const raw = fs.readFileSync(latest, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.slice)) return null;
+    return parsed;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Normalise a file path argument for slice comparison.
+ *
+ * Strategy: resolve relative to cwd; then take just the basename-relative
+ * portion that the slice entries might use. Slice entries are relative paths
+ * (e.g. "src/foo.ts", "hooks/bar.js"). We compare by:
+ *   1. Exact match on the raw file arg.
+ *   2. Suffix match: slice entry is a suffix of the resolved absolute path
+ *      (handles slice entries like "src/foo.ts" matching "/abs/repo/src/foo.ts").
+ *
+ * @param {string} fileArg   Raw file argument from the command (may be relative or absolute).
+ * @param {string[]} slice   Array of slice path strings.
+ * @param {string} cwd       Working directory for relative resolution.
+ * @returns {boolean}  True when fileArg refers to a path within the slice.
+ */
+function isFileInSlice(fileArg, slice, cwd) {
+  if (!fileArg || !Array.isArray(slice) || slice.length === 0) return false;
+
+  // Attempt absolute resolution for proper suffix matching
+  let absArg;
+  try {
+    absArg = path.isAbsolute(fileArg) ? fileArg : path.resolve(cwd, fileArg);
+  } catch (_) {
+    absArg = null;
+  }
+
+  for (const entry of slice) {
+    if (!entry) continue;
+    // Exact match on raw arg
+    if (fileArg === entry) return true;
+    // Normalised path comparison
+    if (absArg) {
+      // The slice entry may be a relative path from repo root; check if absArg
+      // ends with the normalised slice entry.
+      const normEntry = entry.replace(/\\/g, '/');
+      const normAbs = absArg.replace(/\\/g, '/');
+      if (normAbs === normEntry) return true;
+      if (normAbs.endsWith('/' + normEntry)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Layer 1.5: slice-aware read guard.
+ *
+ * When a df-implement subagent runs a read-style command (cat, head, tail, …)
+ * against a file that is NOT in the active slice, block it with an informative
+ * message naming the slice and the CONTEXT_INSUFFICIENT escape hatch.
+ *
+ * Pass-through conditions (exit without blocking):
+ *   - role is not 'df-implement'
+ *   - no active slice found
+ *   - command first segment is not a read-style verb (non-destructive check)
+ *   - command is a heredoc (no file arg)
+ *   - all file args are within the active slice
+ *
+ * @param {string}   cmd       Raw command string.
+ * @param {string}   role      Inferred agent role (or null).
+ * @param {string}   cwd       Working directory from payload.
+ * @returns {{ blocked: boolean, message?: string }}
+ */
+function checkSliceGuard(cmd, role, cwd) {
+  // Only applies to df-implement
+  if (role !== 'df-implement') return { blocked: false };
+
+  // Resolve repo root so we can load the active slice
+  const repoRoot = resolveRepoRoot(cwd);
+  if (!repoRoot) return { blocked: false };
+
+  const sliceData = loadActiveSlice(repoRoot);
+  if (!sliceData || !sliceData.slice || sliceData.slice.length === 0) {
+    return { blocked: false };
+  }
+
+  const { task_id, slice } = sliceData;
+
+  // Split on pipes; examine only the first segment (the read command)
+  const segments = splitPipeSegments(cmd);
+  const firstSeg = segments[0] || '';
+
+  // Check if first segment starts with a read-style verb
+  const firstToken = firstSeg.trimStart().split(/\s+/)[0] || '';
+  if (!READ_STYLE_VERBS.has(firstToken)) return { blocked: false };
+
+  // Extract file args (handles heredocs → returns [])
+  const fileArgs = extractReadStyleFileArgs(firstSeg);
+  if (fileArgs.length === 0) return { blocked: false }; // heredoc or no file arg
+
+  // Check each file arg against the slice
+  for (const fileArg of fileArgs) {
+    if (!isFileInSlice(fileArg, slice, cwd)) {
+      const sliceList = slice.join(', ');
+      const message =
+        `df-bash-scope: \`${firstToken} ${fileArg}\` is outside the active slice for task ${task_id}. ` +
+        `Active slice: [${sliceList}]. ` +
+        `Reading files outside the slice burns cache tokens unnecessarily. ` +
+        `If you genuinely need this file, emit "CONTEXT_INSUFFICIENT: ${fileArg}" on its own line and stop — ` +
+        `the orchestrator will add it to the slice and re-spawn you with the file's content in your bundle.`;
+      return { blocked: true, message };
+    }
+  }
+
+  return { blocked: false };
+}
+
 readStdinIfMain(module, (payload) => {
   // Defensive: only act on Bash tool calls.
   if (!payload || payload.tool_name !== 'Bash') return;
@@ -155,6 +335,16 @@ readStdinIfMain(module, (payload) => {
   if (role === null) {
     appendTelemetry(cwd, { role: null, command: cmd, decision: 'pass-through', reason: 'orchestrator-or-unknown-cwd' });
     return;
+  }
+
+  // Layer 1.5: Slice-aware read guard — fires between curator-path block (Layer 1)
+  // and per-role scope check (Layer 2). Prevents df-implement from reading files
+  // outside its active slice, reducing unnecessary cache token consumption.
+  const sliceGuard = checkSliceGuard(cmd, role, cwd);
+  if (sliceGuard.blocked) {
+    appendTelemetry(cwd, { role, command: cmd, decision: 'block', reason: 'slice-guard' });
+    block(sliceGuard.message);
+    return; // unreachable — block() exits, but makes logic explicit.
   }
 
   const scope = SCOPES[role];
@@ -212,4 +402,7 @@ module.exports = {
   matchesAny,
   firstToken,
   appendTelemetry,
+  loadActiveSlice,
+  isFileInSlice,
+  checkSliceGuard,
 };

@@ -12,6 +12,7 @@ const {
   extractTaskId,
   parseCuratedSection,
   renderInjection,
+  parseSlicePaths,
   INJECTION_MARKER,
 } = require('./df-context-injection');
 
@@ -474,6 +475,168 @@ describe('multiple specs', () => {
     const parsed = JSON.parse(r.stdout);
     const newPrompt = parsed.hookSpecificOutput.updatedInput.prompt;
     assert.match(newPrompt, /A-BUNDLE/);
+  });
+});
+
+describe('parseSlicePaths', () => {
+  it('returns [] for null input', () => {
+    assert.deepEqual(parseSlicePaths(null), []);
+  });
+
+  it('returns [] for empty string', () => {
+    assert.deepEqual(parseSlicePaths(''), []);
+  });
+
+  it('returns [] for whitespace-only string', () => {
+    assert.deepEqual(parseSlicePaths('   '), []);
+  });
+
+  it('parses a single path', () => {
+    assert.deepEqual(parseSlicePaths('foo.js'), ['foo.js']);
+  });
+
+  it('parses comma-separated paths', () => {
+    assert.deepEqual(parseSlicePaths('a.js, b.go'), ['a.js', 'b.go']);
+  });
+
+  it('strips backticks', () => {
+    assert.deepEqual(parseSlicePaths('`a.js`, `b.go`'), ['a.js', 'b.go']);
+  });
+
+  it('strips double-quotes', () => {
+    assert.deepEqual(parseSlicePaths('"a.js", "b.go"'), ['a.js', 'b.go']);
+  });
+
+  it('strips single-quotes', () => {
+    assert.deepEqual(parseSlicePaths("'a.js', 'b.go'"), ['a.js', 'b.go']);
+  });
+
+  it('filters out empty entries after stripping', () => {
+    assert.deepEqual(parseSlicePaths('a.js,,b.go'), ['a.js', 'b.go']);
+  });
+});
+
+describe('active-slice cache writing', () => {
+  let repo;
+
+  beforeEach(() => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'df-ctx-inj-slice-'));
+    fs.mkdirSync(path.join(repo, 'specs'), { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  function writeSpec(repoDir, name, content) {
+    fs.writeFileSync(path.join(repoDir, 'specs', name), content, 'utf8');
+  }
+
+  function runHook(payload, cwd) {
+    return spawnSync('node', [HOOK_PATH], {
+      input: JSON.stringify({ ...payload, cwd }),
+      encoding: 'utf8',
+    });
+  }
+
+  function curatedSpec(tasks) {
+    const blocks = tasks.map(
+      (t) =>
+        `### ${t.id}: ${t.title || 'example'}
+**Slice:** ${t.slice !== undefined ? t.slice : 'new file foo.js'}
+**Parallel:** ${t.parallel || '[P]'}
+**Context bundle:**
+${t.bundle || 'some bundle text here'}
+**Subagent prompt:**
+${t.prompt || 'do the thing'}
+`,
+    );
+    return `# Spec\n\n## Tasks (curated)\n\n${blocks.join('\n')}\n`;
+  }
+
+  it('writes .deepflow/active-slice/<task_id>.json with correct paths', () => {
+    writeSpec(
+      repo,
+      'doing-test.md',
+      curatedSpec([{ id: 'T1', slice: 'a.js, b.js', bundle: 'BUNDLE', prompt: 'do it' }]),
+    );
+    const r = runHook(
+      {
+        tool_name: 'Task',
+        tool_input: {
+          subagent_type: 'df-implement',
+          description: 'x',
+          prompt: 'T1: implement',
+        },
+      },
+      repo,
+    );
+    assert.equal(r.status, 0);
+    // Hook should inject successfully
+    const parsed = JSON.parse(r.stdout);
+    assert.equal(parsed.hookSpecificOutput.permissionDecision, 'allow');
+    // Cache file should exist
+    const cacheFile = path.join(repo, '.deepflow', 'active-slice', 'T1.json');
+    assert.ok(fs.existsSync(cacheFile), 'cache file should exist');
+    const data = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    assert.equal(data.task_id, 'T1');
+    assert.deepEqual(data.slice, ['a.js', 'b.js']);
+    assert.ok(typeof data.written_at === 'string', 'written_at should be a string');
+  });
+
+  it('malformed slice (empty string) writes cache with empty slice array', () => {
+    writeSpec(
+      repo,
+      'doing-test.md',
+      curatedSpec([{ id: 'T2', slice: '', bundle: 'BUNDLE', prompt: 'do it' }]),
+    );
+    const r = runHook(
+      {
+        tool_name: 'Task',
+        tool_input: {
+          subagent_type: 'df-implement',
+          description: 'x',
+          prompt: 'T2: implement',
+        },
+      },
+      repo,
+    );
+    assert.equal(r.status, 0);
+    const cacheFile = path.join(repo, '.deepflow', 'active-slice', 'T2.json');
+    assert.ok(fs.existsSync(cacheFile), 'cache file should exist even with empty slice');
+    const data = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    assert.equal(data.task_id, 'T2');
+    assert.deepEqual(data.slice, []);
+  });
+
+  it('write failure does not block injection — hook still emits updatedInput', () => {
+    writeSpec(
+      repo,
+      'doing-test.md',
+      curatedSpec([{ id: 'T3', slice: 'a.js', bundle: 'BUNDLE', prompt: 'do it' }]),
+    );
+    // Create .deepflow/active-slice as a FILE (not a dir) to cause mkdirSync to fail
+    const deepflowDir = path.join(repo, '.deepflow');
+    fs.mkdirSync(deepflowDir, { recursive: true });
+    // Write a file at the active-slice path to block directory creation
+    fs.writeFileSync(path.join(deepflowDir, 'active-slice'), 'NOT A DIR', 'utf8');
+
+    const r = runHook(
+      {
+        tool_name: 'Task',
+        tool_input: {
+          subagent_type: 'df-implement',
+          description: 'x',
+          prompt: 'T3: implement',
+        },
+      },
+      repo,
+    );
+    assert.equal(r.status, 0);
+    // Injection must still succeed despite write failure
+    const parsed = JSON.parse(r.stdout);
+    assert.equal(parsed.hookSpecificOutput.permissionDecision, 'allow');
+    assert.match(parsed.hookSpecificOutput.updatedInput.prompt, /BUNDLE/);
   });
 });
 
