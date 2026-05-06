@@ -1,3 +1,25 @@
+## v0.1.139 — 2026-05-06
+
+Closes three concrete bypasses that were defeating v0.1.138's slice guard in production: `&&`-chaining, `;`/`||` chaining, and interpreter-eval forms (`python -c`, `node -e`, `bash -c`). Also flips the per-call `cd <WORKDIR> &&` contract — subagents now `cd` once per session, which is more cache-friendly and removes the very pattern that was being chained around the guard.
+
+### What's new
+
+- **`cd <WORKDIR> &&` is no longer required on every Bash call.** The agent contract now says: `cd <WORKDIR>` once as your first command, the shell session keeps the cwd. Removes ~one redundant prefix per Bash invocation, and eliminates the chaining surface that the slice guard was being walked around. `git -C <WORKDIR>` is still required for git operations as belt-and-suspenders.
+- **Slice guard now walks every chained command.** `cd worktree && cat secret.txt`, `pnpm test ; cat secret.txt`, `cat foo || cat bar` — every segment of `&&` / `;` / `||` / `|` chains is inspected against the active slice, not just the first.
+- **Interpreter-eval forms are blocked inside curator worktrees.** `python -c`, `python3 -c`, `node -e`, `node --eval`, `ruby -e`, `perl -e`, `deno eval`, `bun -e`, `bash -c`, `sh -c`, `zsh -c`, `ksh -c`, and `awk '...getline...'` — these all let a subagent read arbitrary files via interpreter file APIs (`open(p).read()`, `fs.readFileSync(p)`), bypassing the shell-read-verb-only slice guard. Now blocked with a message pointing at Read/Edit/Write tools and the `CONTEXT_INSUFFICIENT` escape hatch. Explicit script execution (`python script.py`) still passes through.
+- **User-facing terminology unified to "curator".** Agent contracts, command flows, and skill descriptions had drifted between "orchestrator" and "coordinator"; deepflow's mental model is curator-driven, so all user-facing strings now say "curator". (Internal role-inference enums kept as-is.)
+
+### Why this matters
+
+The bench that approved v0.1.138 was a single n=1 task where subagents happened not to chain reads or use `python -c`. The first real-world spec (14 tasks across 4 apps) hit both bypasses immediately — burning ~14 M tokens on context that the slice guard was supposed to prevent. The unit tests for v0.1.138's guard tested bare commands (`cat foo.txt`); production commands always had a `cd worktree && …` prefix, and the guard never inspected past the `&&`. This release plugs the holes the bench missed.
+
+### Fixes & internals
+
+- `hooks/lib/bash-scopes.js`: new `splitCommandSegments` (splits on `|`, `&&`, `;`, `||`; heredocs stay opaque) and `INTERPRETER_EVAL_DENY` regex set.
+- `hooks/df-bash-scope.js`: `checkSliceGuard` iterates every segment; new `checkInterpreterEval` Layer 1.4 fires inside `.deepflow/worktrees/*` regardless of role inference.
+- 33 new test cases (`splitCommandSegments`, `INTERPRETER_EVAL_DENY`, multi-segment hook e2e, interpreter-eval hook e2e); 135/135 pass.
+- Install banner now surfaces df-bash-scope's broadened guard set.
+
 ## v0.1.138 — 2026-05-06
 
 Closes the largest token-burn channel in subagent execution: `cat`/`head`/`grep` of out-of-slice source files. Adds per-subagent telemetry so the burn becomes legible, and documents caller-signature inlining as a curator output.
