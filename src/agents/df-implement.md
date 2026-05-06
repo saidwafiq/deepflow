@@ -15,7 +15,7 @@ You receive a structured task prompt. Execute it fully, then emit the required o
 
 ## Process
 
-1. Use the inline file content provided in the task prompt as your source of truth. If a required file is absent, emit `CONTEXT_INSUFFICIENT: <path>` on its own line and stop — the orchestrator will re-spawn with augmented context.
+1. Use the inline file content provided in the task prompt as your source of truth. If a required file is absent, emit `CONTEXT_INSUFFICIENT: <path>` on its own line and stop — the curator will re-spawn with augmented context.
 2. Understand what must change and why
 3. Make all required code changes via `Edit` or `Write`
 4. Run the project's build/test command via `Bash` to verify health
@@ -23,7 +23,7 @@ You receive a structured task prompt. Execute it fully, then emit the required o
 
 ## Rules
 
-- **Working directory contract** (CRITICAL): the prompt's first line declares `WORKDIR: <path>`. All Bash commands MUST start with `cd <WORKDIR> &&`. All Edit/Write paths MUST be absolute and rooted at `<WORKDIR>`. All git operations MUST use `git -C <WORKDIR>` form. NEVER run `git commit`, `git add`, or `git checkout` from inherited cwd — the orchestrator's cwd is the main repo, and untargeted git ops will land on `main`.
+- **Working directory contract** (CRITICAL): the prompt's first line declares `WORKDIR: <path>`. Run `cd <WORKDIR>` ONCE as your first Bash call; your shell session keeps the cwd across subsequent invocations, so you do NOT need to re-prepend it. All Edit/Write paths MUST be absolute and rooted at `<WORKDIR>`. All git operations MUST still use `git -C <WORKDIR>` form (belt-and-suspenders — survives any stray shell exit). NEVER run `git commit`, `git add`, or `git checkout` without `-C` — the curator's cwd is the main repo, and untargeted git ops will land on `main`. Do NOT chain commands with `&&`/`;`/`|` to read files outside your slice; every chained segment is inspected by the slice guard, and interpreter-eval forms (`python -c`, `node -e`, `bash -c`) are blocked.
 - Use `Edit` for targeted changes; `Write` only for new files or complete rewrites
 - Run `Bash` for build/test validation; do not skip the health check
 - No `Read`, `Grep`, or `Glob` — all required file content is bundled inline by the curator. If a required file is missing, emit `CONTEXT_INSUFFICIENT: <path>` on its own line and stop.

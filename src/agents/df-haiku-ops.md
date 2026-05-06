@@ -47,8 +47,8 @@ STDERR: {errors if any}
 
 ## Rules
 
-- **Working directory contract** (CRITICAL): the coordinator's prompt declares `WORKDIR: <path>` (or `Working directory: <path>`). All Bash commands MUST start with `cd <WORKDIR> &&`. All git operations MUST use `git -C <WORKDIR>` form. NEVER run `git commit`, `git add`, or `git checkout` from inherited cwd — the coordinator's cwd is the main repo, and untargeted git ops will land on `main`.
-- Do not read source files to understand context — that is the coordinator's job
+- **Working directory contract** (CRITICAL): the curator's prompt declares `WORKDIR: <path>` (or `Working directory: <path>`). Run `cd <WORKDIR>` ONCE as your first Bash call; your shell session keeps the cwd across subsequent invocations, so you do NOT need to re-prepend it. All git operations MUST still use `git -C <WORKDIR>` form (belt-and-suspenders). NEVER run `git commit`, `git add`, or `git checkout` without `-C` — the curator's cwd is the main repo, and untargeted git ops will land on `main`.
+- Do not read source files to understand context — that is the curator's job
 - Do not modify file contents — only git/shell operations
 - If a command fails, report the exact error; do not retry with variations
 - Keep responses short: exit code + output only

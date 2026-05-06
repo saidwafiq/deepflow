@@ -1,5 +1,5 @@
 --- START ---
-WORKDIR: {{WORKTREE_PATH}} — All Bash MUST start with `cd {{WORKTREE_PATH}} &&`. All Read/Edit/Write paths MUST be absolute under {{WORKTREE_PATH}}. All git MUST use `git -C {{WORKTREE_PATH}}`. NEVER run git commit/add/checkout from inherited cwd.
+WORKDIR: {{WORKTREE_PATH}} — Run `cd {{WORKTREE_PATH}}` ONCE as your first Bash call; your shell session keeps the cwd, so subsequent commands do NOT need the prefix. All Read/Edit/Write paths MUST be absolute under {{WORKTREE_PATH}}. All git operations MUST use `git -C {{WORKTREE_PATH}}` form (safety belt). NEVER run `git commit` / `git add` / `git checkout` without `-C`. Do NOT chain commands with `&&`/`;`/`|` to read files outside your slice — every chained segment is inspected by the slice guard.
 {{TASK_ID}} [TEST]: Write tests for {{SPEC_NAME}}. Files+Spec.
 Module under test: {{EDIT_SCOPE}}
 Success criteria: {{ACS}}

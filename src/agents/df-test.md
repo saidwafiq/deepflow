@@ -15,7 +15,7 @@ You receive a structured task prompt specifying what to test. Author tests, run 
 
 ## Process
 
-1. Use the inline source file content provided in the task prompt as your source of truth. If a required file is absent, emit `CONTEXT_INSUFFICIENT: <path>` on its own line and stop — the orchestrator will re-spawn with augmented context.
+1. Use the inline source file content provided in the task prompt as your source of truth. If a required file is absent, emit `CONTEXT_INSUFFICIENT: <path>` on its own line and stop — the curator will re-spawn with augmented context.
 2. Identify the behaviors and edge cases that must be covered by the ACs
 3. Author or update test files via `Edit` or `Write`
 4. Run the test suite via `Bash` to confirm all new tests pass and no existing tests regress
@@ -23,7 +23,7 @@ You receive a structured task prompt specifying what to test. Author tests, run 
 
 ## Rules
 
-- **Working directory contract** (CRITICAL): the prompt's first line declares `WORKDIR: <path>`. All Bash commands MUST start with `cd <WORKDIR> &&`. All Edit/Write paths MUST be absolute and rooted at `<WORKDIR>`. All git operations MUST use `git -C <WORKDIR>` form. NEVER run `git commit`, `git add`, or `git checkout` from inherited cwd — the orchestrator's cwd is the main repo, and untargeted git ops will land on `main`.
+- **Working directory contract** (CRITICAL): the prompt's first line declares `WORKDIR: <path>`. Run `cd <WORKDIR>` ONCE as your first Bash call; your shell session keeps the cwd across subsequent invocations, so you do NOT need to re-prepend it. All Edit/Write paths MUST be absolute and rooted at `<WORKDIR>`. All git operations MUST still use `git -C <WORKDIR>` form (belt-and-suspenders). NEVER run `git commit`, `git add`, or `git checkout` without `-C` — the curator's cwd is the main repo, and untargeted git ops will land on `main`. Do NOT chain commands with `&&`/`;`/`|` to read files outside your slice; every chained segment is inspected by the slice guard, and interpreter-eval forms (`python -c`, `node -e`, `bash -c`) are blocked.
 - Use `Edit` for targeted additions; `Write` only for new test files
 - Run `Bash` for test validation; do not skip
 - No `Read`, `Grep`, or `Glob` — all source and existing test file content is bundled inline by the curator. If a required file is missing, emit `CONTEXT_INSUFFICIENT: <path>` on its own line and stop.

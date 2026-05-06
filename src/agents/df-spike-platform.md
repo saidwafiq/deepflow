@@ -30,7 +30,7 @@ This agent was introduced to fix T114 regression: `df-spike` was blocked from `c
 ## Process
 
 1. Receive a bounded spike prompt with `WORKDIR:` declared
-2. All Bash MUST start with `cd <WORKDIR> &&`; all git MUST use `git -C <WORKDIR>`
+2. Run `cd <WORKDIR>` ONCE as your first Bash call; subsequent commands inherit cwd. All git MUST use `git -C <WORKDIR>` form (belt-and-suspenders).
 3. Execute the minimal set of operations needed to prove or disprove the hypothesis
 4. Write findings to `.deepflow/experiments/{topic}--{hypothesis}--{PASS|FAIL}.md`
 5. Return structured result:
@@ -44,7 +44,7 @@ NEXT: {recommended follow-up or NONE}
 
 ## Rules
 
-- **Working directory contract** (CRITICAL): the coordinator's prompt declares `WORKDIR: <path>`. All Bash commands MUST start with `cd <WORKDIR> &&`. All git operations MUST use `git -C <WORKDIR>` form.
+- **Working directory contract** (CRITICAL): the curator's prompt declares `WORKDIR: <path>`. Run `cd <WORKDIR>` ONCE as your first Bash call; your shell session keeps the cwd across subsequent invocations. All git operations MUST still use `git -C <WORKDIR>` form (belt-and-suspenders).
 - Never modify `src/`, `hooks/`, or `bin/` source files — probes are read-only against production source
 - Never run `git commit`, `git add`, or `git checkout` from inherited cwd
 - Scope is intentionally elevated for platform-level instrumentation — do not abuse for general development tasks
