@@ -1,3 +1,22 @@
+## v0.1.138 — 2026-05-06
+
+Closes the largest token-burn channel in subagent execution: `cat`/`head`/`grep` of out-of-slice source files. Adds per-subagent telemetry so the burn becomes legible, and documents caller-signature inlining as a curator output.
+
+### What's new
+
+- **Subagents can no longer read source outside their task slice via Bash.** `hooks/df-bash-scope.js` now runs a Layer 1.5 slice-aware guard for `df-implement` / `df-test` / `df-integration` / `df-optimize` inside the curator worktree: read-style verbs (`cat`, `head`, `tail`, `sed`, `grep`, `rg`, `ag`, `find`, `ls`, `awk`, `xxd`, `od`, `less`, `more`, `nl`) are blocked when any positional argument resolves to an existing file outside the active task's `Slice:` list. Heredocs and pipes fed by build/test runners (e.g. `go test ./... | grep FAIL`) pass through. `df-spike` and `df-spike-platform` are unaffected.
+- **Block messages name the slice and point to the escape hatch.** When the guard fires, the agent gets a one-line diagnostic listing the active slice and the `CONTEXT_INSUFFICIENT: <path>` contract — the orchestrator augments the bundle and re-spawns.
+- **Per-subagent telemetry now lands in `.deepflow/token-history.jsonl`.** New `hooks/df-subagent-telemetry-drain.js` (SubagentStop) drains the just-finished subagent's transcript and appends one row per agent with `agent_role`, `task_id`, `agent_id`, turns, tool counts, and full token breakdown (input/cache_creation/cache_read/output). Idempotent on `agent_id` — re-firing is a no-op. Best-effort I/O: missing/malformed transcripts log to `.deepflow/events.jsonl` and never break the subagent.
+- **`/df:spec` now documents caller-signature inlining.** New §4a.1 instructs the curator to inline LSP `findReferences` callers (header-only, capped at 20 per slice file, with `# callers (LSP):` block) into each task's Context bundle, with a `# callers (grep, low-confidence):` fallback when LSP is unavailable.
+- **`/df:update` now shows what changed.** After `npm install -g deepflow`, a Step 2 fetches the matching CHANGELOG block from GitHub via a single Node one-liner and prints `VERSION` + release notes inline.
+
+### Fixes & internals
+
+- `hooks/df-context-injection.js` writes `.deepflow/active-slice/<task_id>.json` when it injects a curated bundle — feeds the new Bash slice-guard.
+- `hooks/lib/bash-scopes.js` exports `READ_STYLE_VERBS`, `extractReadStyleFileArgs`, `splitPipeSegments` for the slice-guard wiring.
+- 224 new test cases across `hooks/df-bash-scope.test.js`, `hooks/lib/bash-scopes.test.js`, `hooks/df-context-injection.test.js`, `hooks/df-subagent-telemetry-drain.test.js`.
+- Install banner bumped to 26 hooks; surfaces `df-subagent-telemetry-drain` (SubagentStop) and `df-context-injection` (PreToolUse).
+
 ## v0.1.137 — 2026-05-01
 
 Two fixes that restore real signal where there was none. L3 verify stops being a self-report the agent could fabricate, and `/df:update` stops silently exiting inside the Claude Code sandbox.
