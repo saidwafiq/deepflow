@@ -45,19 +45,17 @@ function extractHookEvent(filePath) {
 // Expected tags per hook file
 // ---------------------------------------------------------------------------
 
+// v2 surviving hooks: every non-test .js file in hooks/ must declare its
+// PostToolUse / PreToolUse / SessionStart / statusLine via @hook-event tag.
 const EXPECTED_TAGS = {
+  'ac-coverage.js': 'PostToolUse',
+  'df-bash-telemetry.js': 'PostToolUse',
   'df-check-update.js': 'SessionStart',
-  'df-quota-logger.js': 'SessionStart, SessionEnd',
-  'df-dashboard-push.js': 'SessionEnd',
-  'df-command-usage.js': 'PreToolUse, PostToolUse, SessionEnd',
-  'df-tool-usage.js': 'PostToolUse',
-  'df-execution-history.js': 'PostToolUse',
-  'df-worktree-guard.js': 'PostToolUse',
-  'df-snapshot-guard.js': 'PostToolUse',
-  'df-invariant-check.js': 'PostToolUse',
-  'df-subagent-registry.js': 'SubagentStop',
-  'df-explore-protocol.js': 'PreToolUse',
+  'df-codebase-inject.js': 'PreToolUse',
+  'df-codebase-staleness.js': 'PostToolUse',
+  'df-spec-lint.js': 'PostToolUse',
   'df-statusline.js': 'statusLine',
+  'spec-transition.js': 'PostToolUse',
 };
 
 // ---------------------------------------------------------------------------
@@ -91,30 +89,6 @@ describe('@hook-event tags — self-describing hooks', () => {
     }
   });
 
-  // Multi-event hooks have comma-separated values
-  test('df-quota-logger.js lists two events comma-separated', () => {
-    const tag = extractHookEvent(path.join(HOOKS_DIR, 'df-quota-logger.js'));
-    const events = tag.split(',').map(e => e.trim());
-    assert.equal(events.length, 2);
-    assert.deepEqual(events, ['SessionStart', 'SessionEnd']);
-  });
-
-  test('df-command-usage.js lists three events comma-separated', () => {
-    const tag = extractHookEvent(path.join(HOOKS_DIR, 'df-command-usage.js'));
-    const events = tag.split(',').map(e => e.trim());
-    assert.equal(events.length, 3);
-    assert.deepEqual(events, ['PreToolUse', 'PostToolUse', 'SessionEnd']);
-  });
-
-  // Negative case: df-spec-lint.js should NOT have a @hook-event tag
-  test('df-spec-lint.js does NOT have a @hook-event tag', () => {
-    const filePath = path.join(HOOKS_DIR, 'df-spec-lint.js');
-    assert.ok(fs.existsSync(filePath), 'df-spec-lint.js should exist');
-
-    const tag = extractHookEvent(filePath);
-    assert.equal(tag, null, 'df-spec-lint.js should not have a @hook-event tag');
-  });
-
   // df-statusline uses statusLine (not a hooks.* lifecycle event)
   test('df-statusline.js uses statusLine event (not a hooks.* event)', () => {
     const tag = extractHookEvent(path.join(HOOKS_DIR, 'df-statusline.js'));
@@ -123,5 +97,18 @@ describe('@hook-event tags — self-describing hooks', () => {
       !tag.startsWith('Session') && !tag.startsWith('Pre') && !tag.startsWith('Post') && !tag.startsWith('Subagent'),
       'statusLine should not be a lifecycle event type'
     );
+  });
+
+  // Every non-test hook file in hooks/ must declare a @hook-event tag.
+  // Catches new hooks added without the canonical tag.
+  test('every hooks/*.js declares @hook-event (auto-discovery)', () => {
+    const files = fs.readdirSync(HOOKS_DIR)
+      .filter(f => f.endsWith('.js') && !f.endsWith('.test.js'));
+    const missing = [];
+    for (const f of files) {
+      const tag = extractHookEvent(path.join(HOOKS_DIR, f));
+      if (!tag) missing.push(f);
+    }
+    assert.deepEqual(missing, [], `hooks missing @hook-event: ${missing.join(', ')}`);
   });
 });
