@@ -1145,9 +1145,13 @@ describe('Layer 1.5: slice-aware read guard (subagent-burn-controls)', () => {
     });
   });
 
-  // specs/subagent-burn-controls.md#AC-2
-  // AC-2: df-implement reading in-slice file → pass through
-  describe('AC-2 (subagent-burn-controls): df-implement cat in-slice file passes through', () => {
+  // specs/subagent-burn-controls.md#AC-2 — UPDATED CONTRACT
+  // AC-2 (revised): df-implement may NOT read files via Bash, even in-slice.
+  // The inline-bundle contract requires the curator to provide all needed
+  // file content in the task prompt. Read-style verbs (cat/head/tail/etc.)
+  // are blocked by READ_STYLE_VERB_DENY regardless of slice membership.
+  // Required action: emit `CONTEXT_INSUFFICIENT: <path>`.
+  describe('AC-2 (subagent-burn-controls, revised): df-implement cat in-slice file is blocked (inline-bundle contract)', () => {
     let repoDir;
     beforeEach(() => {
       repoDir = makeRoleRepo('df-implement');
@@ -1155,23 +1159,21 @@ describe('Layer 1.5: slice-aware read guard (subagent-burn-controls)', () => {
     });
     afterEach(() => rmrf(repoDir));
 
-    it('AC-2: cat foo.go (in-slice) exits 0 with no block payload', () => {
+    it('AC-2: cat foo.go (in-slice) is blocked — inline-bundle contract forbids shell reads', () => {
       const r = runHook(HOOK_PATH, bashPayload('cat foo.go', repoDir));
       assert.equal(r.code, 0);
       const out = parseOut(r.stdout);
-      assert.equal(out, null, `expected pass-through (no block payload) for in-slice file, got: ${r.stdout}`);
+      assert.ok(out !== null, `expected block payload, got: ${r.stdout}`);
+      assert.equal(out.decision, 'block');
+      assert.match(out.message, /CONTEXT_INSUFFICIENT|denyOverride/);
     });
 
-    it('AC-2: tail -n 5 foo.go (in-slice) passes through (tail is allowed for df-implement)', () => {
-      // Note: head/tail/bat/etc are read-style verbs for the slice guard but are NOT in
-      // df-implement's scope allow list. cat IS in the allow list. The slice guard fires
-      // before the scope check; for in-slice files the slice guard passes, then the scope
-      // check runs. Only verbs in the allow list will ultimately pass through.
-      // cat is the canonical read-style verb in df-implement's allow list.
-      const r = runHook(HOOK_PATH, bashPayload('cat foo.go', repoDir));
+    it('AC-2: tail -n 5 foo.go (in-slice) is blocked', () => {
+      const r = runHook(HOOK_PATH, bashPayload('tail -n 5 foo.go', repoDir));
       assert.equal(r.code, 0);
       const out = parseOut(r.stdout);
-      assert.equal(out, null, `expected pass-through for cat in-slice file (allowed + in-slice), got: ${r.stdout}`);
+      assert.ok(out !== null, `expected block payload, got: ${r.stdout}`);
+      assert.equal(out.decision, 'block');
     });
   });
 
@@ -1255,8 +1257,8 @@ describe('Layer 1.5: slice-aware read guard (subagent-burn-controls)', () => {
     });
   });
 
-  // No active slice → no block
-  describe('Layer 1.5 no-op when no active slice present', () => {
+  // No active slice → still blocks (READ_STYLE_VERB_DENY is unconditional)
+  describe('Layer 1.5 no-op when no active slice — but denyOverride still blocks reads', () => {
     let repoDir;
     beforeEach(() => {
       repoDir = makeRoleRepo('df-implement');
@@ -1264,13 +1266,14 @@ describe('Layer 1.5: slice-aware read guard (subagent-burn-controls)', () => {
     });
     afterEach(() => rmrf(repoDir));
 
-    it('cat bar.go passes through when no active slice exists', () => {
+    it('cat bar.go is blocked even without active slice (inline-bundle contract is unconditional)', () => {
       const r = runHook(HOOK_PATH, bashPayload('cat bar.go', repoDir));
       assert.equal(r.code, 0);
-      // Without active slice, slice guard is a no-op; falls through to scope check.
-      // cat is in the df-implement allow list, so it passes.
+      // Without slice, slice-guard is a no-op, but READ_STYLE_VERB_DENY in
+      // IMPL_DENY (Layer 2 denyOverride) still blocks the read.
       const out = parseOut(r.stdout);
-      assert.equal(out, null, `expected pass-through when no active slice, got: ${r.stdout}`);
+      assert.ok(out !== null, `expected block payload, got: ${r.stdout}`);
+      assert.equal(out.decision, 'block');
     });
   });
 
@@ -1322,10 +1325,12 @@ describe('Layer 1.5 multi-segment: && / ; / || chained reads are inspected', () 
     assert.match(out.message, /fallback\.go/);
   });
 
-  it('passes `cat allowed/foo.go && echo done` (chained non-read after in-slice read)', () => {
+  it('blocks `cat allowed/foo.go && echo done` (cat is forbidden regardless of slice membership)', () => {
+    // Revised contract: cat is in READ_STYLE_VERB_DENY; in-slice or not, it's blocked.
     const r = runHook(HOOK_PATH, bashPayload('cat allowed/foo.go && echo done', repoDir));
     const out = parseOut(r.stdout);
-    assert.equal(out, null, `expected pass-through, got: ${r.stdout}`);
+    assert.ok(out !== null, `expected block payload, got: ${r.stdout}`);
+    assert.equal(out.decision, 'block');
   });
 });
 

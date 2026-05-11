@@ -99,6 +99,27 @@ const SEARCH_TOOL_DENY = [
 ];
 
 /**
+ * Read-style verbs blocked for impl-class agents (df-implement, df-test,
+ * df-integration, df-optimize). The curator pattern's promise: all required
+ * file content is bundled inline in the task prompt. Re-reading via Bash
+ * burns cache tokens and signals the bundle is incomplete — the agent must
+ * emit `CONTEXT_INSUFFICIENT: <path>` instead. Matches both standalone and
+ * chained forms (`cd foo && cat bar.go`, `... | head -10`).
+ */
+const READ_STYLE_VERB_DENY = [
+  // `cat` excludes heredoc forms (`cat <<EOF`, `cat <<-'EOF'`) which write,
+  // not read — common for inline file generation.
+  /(?:^|&&\s*|;\s*|\|\s*)cat\b(?!\s+<<-?\s*['"]?\w)/,
+  /(?:^|&&\s*|;\s*|\|\s*)head\b/,
+  /(?:^|&&\s*|;\s*|\|\s*)tail\b/,
+  /(?:^|&&\s*|;\s*|\|\s*)less\b/,
+  /(?:^|&&\s*|;\s*|\|\s*)more\b/,
+  /(?:^|&&\s*|;\s*|\|\s*)bat\b/,
+  /(?:^|&&\s*|;\s*|\|\s*)batcat\b/,
+  /(?:^|&&\s*|;\s*|\|\s*)view\b/,
+];
+
+/**
  * Curator-only artifact paths — any reference to these in a Bash command
  * indicates a sub-agent reaching beyond its inline bundle. The curator
  * pattern's promise is that subagents receive bundled context inline; if
@@ -128,10 +149,12 @@ const CURATOR_PATH_DENY = [
 
 // denyOverride for implementation-class agents (df-implement, df-test, df-integration, df-optimize).
 // git add and plain git commit are intentionally absent — they are in the allow list instead.
+// READ_STYLE_VERB_DENY enforces the curator pattern's inline-bundle contract: no shell file reads.
 const IMPL_DENY = [
   ...GIT_HISTORY_REWRITING_DENY,
   ...GIT_AMEND_DENY,
   ...SEARCH_TOOL_DENY,
+  ...READ_STYLE_VERB_DENY,
   ...CURATOR_PATH_DENY,
 ];
 
@@ -186,6 +209,10 @@ const SCOPES = {
       // Lightweight read utilities
       /^ls\b/,
       /^pwd\b/,
+      // cat is allowed at the allow layer for heredoc forms (`cat <<EOF`,
+      // common for inline file writes). Plain reads (`cat foo.go`) are
+      // re-blocked by READ_STYLE_VERB_DENY in denyOverride (which excludes
+      // heredoc syntax). denyOverride beats allow per the precedence contract.
       /^cat\b/,
       /^echo\b/,
       /^which\b/,
@@ -205,6 +232,10 @@ const SCOPES = {
       /^git\s+commit\b/,
       /^ls\b/,
       /^pwd\b/,
+      // cat is allowed at the allow layer for heredoc forms (`cat <<EOF`,
+      // common for inline file writes). Plain reads (`cat foo.go`) are
+      // re-blocked by READ_STYLE_VERB_DENY in denyOverride (which excludes
+      // heredoc syntax). denyOverride beats allow per the precedence contract.
       /^cat\b/,
       /^echo\b/,
       /^which\b/,
@@ -224,6 +255,10 @@ const SCOPES = {
       /^git\s+commit\b/,
       /^ls\b/,
       /^pwd\b/,
+      // cat is allowed at the allow layer for heredoc forms (`cat <<EOF`,
+      // common for inline file writes). Plain reads (`cat foo.go`) are
+      // re-blocked by READ_STYLE_VERB_DENY in denyOverride (which excludes
+      // heredoc syntax). denyOverride beats allow per the precedence contract.
       /^cat\b/,
       /^echo\b/,
       /^which\b/,
@@ -243,6 +278,10 @@ const SCOPES = {
       /^git\s+commit\b/,
       /^ls\b/,
       /^pwd\b/,
+      // cat is allowed at the allow layer for heredoc forms (`cat <<EOF`,
+      // common for inline file writes). Plain reads (`cat foo.go`) are
+      // re-blocked by READ_STYLE_VERB_DENY in denyOverride (which excludes
+      // heredoc syntax). denyOverride beats allow per the precedence contract.
       /^cat\b/,
       /^echo\b/,
       /^which\b/,
@@ -283,6 +322,11 @@ const SCOPES = {
       // Light read utilities
       /^ls\b/,
       /^pwd\b/,
+      // cat is allowed at the allow layer for heredoc forms (`cat <<EOF`,
+      // common for inline file writes). Plain reads (`cat foo.go`) are
+      // re-blocked by READ_STYLE_VERB_DENY in denyOverride (which excludes
+      // heredoc syntax). denyOverride beats allow per the precedence contract.
+      /^cat\b/,
       /^echo\b/,
       /^which\b/,
     ],
@@ -574,6 +618,8 @@ module.exports = {
   SCOPES,
   CURATOR_PATH_DENY,
   READ_STYLE_VERBS,
+  READ_STYLE_VERB_DENY,
+  SEARCH_TOOL_DENY,
   INTERPRETER_EVAL_DENY,
   splitPipeSegments,
   splitCommandSegments,

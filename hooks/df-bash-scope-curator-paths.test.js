@@ -194,21 +194,27 @@ describe('df-bash-scope curator-path denyOverride (df-implement)', () => {
     }
   });
 
-  it('allows `cat package.json` (legitimate worktree file)', () => {
+  it('blocks `cat package.json` (inline-bundle contract — emit CONTEXT_INSUFFICIENT instead)', () => {
     const { worktree, root } = makeImplWorktree();
     try {
       const r = runHook({ command: 'cat package.json', cwd: worktree });
-      assert.equal(r.stdout, '', `expected pass-through, got stdout: ${r.stdout}`);
+      const decision = parseDecision(r.stdout);
+      assert.ok(decision, `expected JSON decision on stdout, got: ${r.stdout}`);
+      assert.equal(decision.decision, 'block');
+      assert.match(decision.message, /CONTEXT_INSUFFICIENT/);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it('allows `cat README.md` (not a curator artefact)', () => {
+  it('blocks `cat README.md` (inline-bundle contract — emit CONTEXT_INSUFFICIENT instead)', () => {
     const { worktree, root } = makeImplWorktree();
     try {
       const r = runHook({ command: 'cat README.md', cwd: worktree });
-      assert.equal(r.stdout, '', `expected pass-through, got stdout: ${r.stdout}`);
+      const decision = parseDecision(r.stdout);
+      assert.ok(decision);
+      assert.equal(decision.decision, 'block');
+      assert.match(decision.message, /CONTEXT_INSUFFICIENT/);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

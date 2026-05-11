@@ -29,7 +29,7 @@ const path = require('path');
 const fs = require('fs');
 const { readStdinIfMain } = require('./lib/hook-stdin');
 const { inferAgentRole } = require('./lib/agent-role');
-const { SCOPES, CURATOR_PATH_DENY, READ_STYLE_VERBS, INTERPRETER_EVAL_DENY, extractReadStyleFileArgs, splitCommandSegments } = require('./lib/bash-scopes');
+const { SCOPES, CURATOR_PATH_DENY, READ_STYLE_VERBS, READ_STYLE_VERB_DENY, SEARCH_TOOL_DENY, INTERPRETER_EVAL_DENY, extractReadStyleFileArgs, splitCommandSegments } = require('./lib/bash-scopes');
 
 // ---------------------------------------------------------------------------
 // Telemetry
@@ -364,6 +364,7 @@ readStdinIfMain(module, (payload) => {
     return;
   }
 
+
   // Layer 2: Per-role scope check (Tier 1 cwd-branch inference for probe-T{N} worktrees).
   let role;
   try {
@@ -371,6 +372,28 @@ readStdinIfMain(module, (payload) => {
   } catch (_) {
     // inferAgentRole is already guarded, but be extra safe.
     role = null;
+  }
+
+  // Layer 1.6: curator-active shared-worktree read/search block.
+  // Role inference returns null for `df/curator-active` (no per-task probe
+  // suffix), but impl-class subagents (df-implement/test/integration/optimize)
+  // DO run there per execute.md §6. Without this layer, `cat foo.go`,
+  // `head -100 bar.go`, and `grep -n pattern src/` slip through to silent
+  // pass-through, defeating the inline-bundle contract. Build/test runners
+  // (go test, python script.py, npm test) are NOT blocked — those are
+  // legitimate task execution. Gated on `role === null` so df-spike /
+  // df-spike-platform in probe sub-worktrees keep their exploration scope.
+  if (role === null && isCuratorWorktree(cwd)) {
+    if (matchesAny(READ_STYLE_VERB_DENY, cmd) || matchesAny(SEARCH_TOOL_DENY, cmd)) {
+      const token = firstToken(cmd);
+      const message =
+        `df-bash-scope: \`${token}\` is forbidden inside curator-active. ` +
+        `Subagents receive full file content INLINE in the task prompt — shell file reads/searches burn cache tokens and violate the inline-bundle contract. ` +
+        `If a needed file is missing from your bundle, emit "CONTEXT_INSUFFICIENT: <path>" on its own line and stop; the curator will augment your bundle and re-spawn.`;
+      appendTelemetry(cwd, { role: 'curator-worktree', command: cmd, decision: 'block', reason: `curator-worktree-read:${token}` });
+      block(message);
+      return;
+    }
   }
 
   // Orchestrator-level Bash or non-df branch → pass-through silently.
