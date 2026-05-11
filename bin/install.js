@@ -84,10 +84,9 @@ function collectShippedFiles(level) {
   // (migrate-legacy-plan.js is intentionally not here — it's invoked via
   // `npx deepflow migrate-legacy` directly from the npm package.)
   for (const script of [
-    'prompt-compose.js',
     'ratchet.js',
-    'worktree-deps.js',
-    'df-filter-suggest.js',
+    'count-tokens.js',
+    'lsp-query.js',
   ]) {
     if (fs.existsSync(path.join(PACKAGE_DIR, 'bin', script))) {
       files.push(`bin/${script}`);
@@ -322,10 +321,11 @@ async function main() {
   }
   log('Map artifact templates installed (sketch, impact, findings)');
 
-  // Copy bin utilities (prompt-compose, ratchet, worktree-deps, filter-suggest)
+  // Copy bin utilities (ratchet for /df:execute health gate, count-tokens for
+  // /df:map budget check, lsp-query for /df:spec impact analysis)
   const binDest = path.join(CLAUDE_DIR, 'bin');
   fs.mkdirSync(binDest, { recursive: true });
-  for (const script of ['prompt-compose.js', 'ratchet.js', 'worktree-deps.js', 'df-filter-suggest.js']) {
+  for (const script of ['ratchet.js', 'count-tokens.js', 'lsp-query.js']) {
     const src = path.join(PACKAGE_DIR, 'bin', script);
     if (fs.existsSync(src)) {
       fs.copyFileSync(src, path.join(binDest, script));
@@ -403,7 +403,7 @@ async function main() {
   console.log('                       capture:     gap-discovery, df-decisions, df-ac-coverage');
   console.log('                       craft:       atomic-commits');
   console.log('                       fetch:       browse-fetch, browse-verify, repo-inspect');
-  console.log('  bin/             — ratchet, prompt-compose, worktree-deps, df-filter-suggest');
+  console.log('  bin/             — ratchet (regression gate), count-tokens, lsp-query');
   console.log('  templates/       — spec, sketch, impact, findings, experiment, eval-fixture, state, config');
   if (level === 'global') {
     console.log('  hooks/           — 8 lifecycle hooks (~5k LOC, down from 22.5k)');
@@ -786,10 +786,9 @@ async function uninstall() {
     'skills/df-ac-coverage',
     'skills/df-decisions',
     'skills/repo-inspect',
-    'bin/prompt-compose.js',
     'bin/ratchet.js',
-    'bin/worktree-deps.js',
-    'bin/df-filter-suggest.js',
+    'bin/count-tokens.js',
+    'bin/lsp-query.js',
     'templates'
   ];
 
