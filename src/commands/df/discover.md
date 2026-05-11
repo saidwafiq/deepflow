@@ -1,7 +1,7 @@
 ---
 name: df:discover
 description: Explore a problem space deeply through structured questioning to surface requirements and constraints
-allowed-tools: [AskUserQuestion, Agent, Bash, Write]
+allowed-tools: [AskUserQuestion, Agent, Bash, Write, Read, Skill, WebFetch]
 ---
 
 # /df:discover — Deep Problem Exploration
@@ -42,18 +42,24 @@ Work through phases organically. Don't announce phases — let conversation flow
 
 **Trigger:** User explicitly asks to look at code or a URL (e.g., "look at src/auth/", "check this link"). NEVER proactively fetch.
 
-**For codebase context:**
+**For codebase context** — Explore returns locations only; you read and synthesize:
 ```
-Agent(subagent_type="Explore", model="haiku", prompt="Read and summarize: {target}. Rules: factual observations only (files, functions, types, patterns). No solutions/improvements/opinions. Under 4000 tokens. Bullet points.")
+Agent(subagent_type="Explore", model="haiku", prompt="Find: {target}")
 ```
+Explore's `df-explore-protocol` hook constrains output to `filepath:startLine-endLine` lines only — no narration, no summary. After it returns, you MUST:
+1. `Read(file_path, offset=startLine, limit=endLine-startLine+1)` on each returned location (parallel calls).
+2. Synthesize factual observations from the contents — files, functions, types, patterns, integration points. No solutions/improvements/opinions. Bullet points, under ~4000 tokens.
+3. Present the synthesis to the user, then **resume Socratic questioning** with the new facts in scope.
 
-**For URL context:**
-```
-Agent(subagent_type="Explore", model="haiku", prompt="Use browse-fetch skill to fetch: {url}. Summarize contents. Rules: factual observations only. No recommendations. Under 4000 tokens. Bullet points.")
-```
+If Explore returns 0 locations, tell the user nothing matched and ask whether to broaden the search.
 
-<!-- delegation-contract: Explore is not registered in DELEGATION.md — hook passes through (fail-open for unknown agents). Verbatim relay below is the conformance mechanism, not hook enforcement. -->
-After receiving context: relay the agent's output **verbatim** to the user (do NOT paraphrase, summarize, re-frame, or add commentary), then **resume Socratic questioning** with the new facts in scope. Do NOT shift to suggesting solutions. Soft cap: ~3 context fetches per session.
+**For URL context** — call browse-fetch directly (no agent):
+```
+Skill(skill="browse-fetch", args="{url}")
+```
+Fallback to `WebFetch(url, prompt="Summarize factually: files/functions/patterns mentioned. No recommendations.")` if browse-fetch fails. Then synthesize factual observations (bullet points, ~4000 tokens), present to the user, and **resume Socratic questioning**. Do NOT shift to suggesting solutions.
+
+Soft cap: ~3 context fetches per session.
 
 ## Write sketch.md
 
