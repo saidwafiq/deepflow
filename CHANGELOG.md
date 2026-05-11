@@ -1,3 +1,21 @@
+## v0.1.140 — 2026-05-10
+
+Closes the curator-active shared-worktree gap that let subagents `cat`/`head`/`grep` files already bundled inline, and fixes `/df:discover` so it stops relaying raw Explore file lists as if they were answers.
+
+### What's new
+
+- **Shell file reads are now blocked for subagents in `df/curator-active`.** Previously `cat foo.go`, `head -100 bar.go`, and `grep -n pattern src/` slipped through because role inference returns null for the shared worktree (no per-task probe suffix). Subagents receive full file content INLINE per the curator pattern — re-reading via Bash burned cache tokens for nothing. Now blocked with a message pointing at the `CONTEXT_INSUFFICIENT: <path>` escape hatch.
+- **`/df:discover` now reads + synthesizes after Explore returns paths.** The `df-explore-protocol` hook constrains Explore output to `filepath:startLine-endLine` lines only, but the old `/df:discover` prompt asked it to "summarize" — so the curator just relayed a raw location list to you as if it were the answer. Now: Explore locates, the curator `Read`s the ranges, and you get factual observations.
+- **URL fetching in `/df:discover` skips the agent layer.** `Skill(browse-fetch)` is called directly (with `WebFetch` fallback) since the explore-protocol output format doesn't fit URL content.
+- **Heredoc forms (`cat <<EOF`) still pass.** The new read-verb deny has a negative lookahead — heredocs write inline files, they don't read, so they're exempt.
+
+### Fixes & internals
+
+- `hooks/lib/bash-scopes.js`: new `READ_STYLE_VERB_DENY` added to `IMPL_DENY` (affects df-implement / df-test / df-integration / df-optimize via `denyOverride`).
+- `hooks/df-bash-scope.js`: new Layer 1.6 fires inside `.deepflow/worktrees/*` when role inference fails — closes the curator-active gap without affecting `df-spike` (which runs in probe sub-worktrees where role IS inferred and keeps its exploration scope).
+- `src/commands/df/discover.md`: `allowed-tools` gains `Read`, `Skill`, `WebFetch`; the verbatim-relay rule is replaced with a 3-step locate→read→synthesize protocol.
+- Test suites updated to assert the new contract (in-slice `cat foo.go` now blocks instead of passes). 275/275 tests pass across bash-scope, delegation-contract, implement-protocol, and bash-rewrite suites.
+
 ## v0.1.139 — 2026-05-06
 
 Closes three concrete bypasses that were defeating v0.1.138's slice guard in production: `&&`-chaining, `;`/`||` chaining, and interpreter-eval forms (`python -c`, `node -e`, `bash -c`). Also flips the per-call `cd <WORKDIR> &&` contract — subagents now `cd` once per session, which is more cache-friendly and removes the very pattern that was being chained around the guard.
