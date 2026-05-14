@@ -1,7 +1,0 @@
-{
-  "TASK_ID": "T5",
-  "HYPOTHESIS": "streaming chunked upload via tus protocol reduces memory pressure",
-  "SPEC": "upload",
-  "REVERTED_WARNINGS": "DO NOT repeat: - Cycle 1: \"OOM on large file\"\n",
-  "DESC": "tus protocol viability"
-}

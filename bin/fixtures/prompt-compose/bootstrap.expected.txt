@@ -1,1 +1,0 @@
-BOOTSTRAP: Write tests for src/upload.ts, src/upload-handler.ts files. Do NOT change implementation. Commit as test({spec}): bootstrap. Last line: TASK_STATUS:pass or TASK_STATUS:fail

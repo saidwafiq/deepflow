@@ -80,19 +80,13 @@ function collectShippedFiles(level) {
     }
   }
 
-  const agentsDir = path.join(PACKAGE_DIR, 'src', 'agents');
-  if (fs.existsSync(agentsDir)) {
-    for (const f of fs.readdirSync(agentsDir)) files.push(`agents/${f}`);
-  }
-
   // Bin scripts that the installer actually copies to CLAUDE_DIR/bin/.
   // (migrate-legacy-plan.js is intentionally not here — it's invoked via
   // `npx deepflow migrate-legacy` directly from the npm package.)
   for (const script of [
-    'prompt-compose.js',
     'ratchet.js',
-    'worktree-deps.js',
-    'df-filter-suggest.js',
+    'count-tokens.js',
+    'lsp-query.js',
   ]) {
     if (fs.existsSync(path.join(PACKAGE_DIR, 'bin', script))) {
       files.push(`bin/${script}`);
@@ -279,8 +273,7 @@ async function main() {
   // Create directories
   const dirs = [
     'commands/df',
-    'skills',
-    'agents'
+    'skills'
   ];
 
   if (level === 'global') {
@@ -311,14 +304,7 @@ async function main() {
   );
   log('Skills installed');
 
-  // Copy agents
-  copyDir(
-    path.join(PACKAGE_DIR, 'src', 'agents'),
-    path.join(CLAUDE_DIR, 'agents')
-  );
-  log('Agents installed');
-
-  // Copy templates (explore-protocol, explore-agent, etc.)
+  // Copy templates (spec/sketch/impact/findings/experiment/eval-fixture)
   copyDir(
     path.join(PACKAGE_DIR, 'templates'),
     path.join(CLAUDE_DIR, 'templates')
@@ -335,10 +321,11 @@ async function main() {
   }
   log('Map artifact templates installed (sketch, impact, findings)');
 
-  // Copy bin utilities (prompt-compose, ratchet, worktree-deps, filter-suggest)
+  // Copy bin utilities (ratchet for /df:execute health gate, count-tokens for
+  // /df:map budget check, lsp-query for /df:spec impact analysis)
   const binDest = path.join(CLAUDE_DIR, 'bin');
   fs.mkdirSync(binDest, { recursive: true });
-  for (const script of ['prompt-compose.js', 'ratchet.js', 'worktree-deps.js', 'df-filter-suggest.js']) {
+  for (const script of ['ratchet.js', 'count-tokens.js', 'lsp-query.js']) {
     const src = path.join(PACKAGE_DIR, 'bin', script);
     if (fs.existsSync(src)) {
       fs.copyFileSync(src, path.join(binDest, script));
@@ -408,40 +395,24 @@ async function main() {
   console.log(`${c.green}Installation complete!${c.reset}`);
   console.log('');
   console.log(`Installed to ${c.cyan}${CLAUDE_DIR}${c.reset}:`);
-  console.log('  commands/df/     — 10 slash commands');
-  console.log('                       human loop:  /df:discover  /df:debate  /df:spec  /df:fix');
+  console.log('  commands/df/     — 6 slash commands (v2 minimalist surface)');
+  console.log('                       human loop:  /df:discover  /df:spec');
   console.log('                       AI loop:     /df:execute  /df:verify');
-  console.log('                       support:     /df:map  /df:dashboard  /df:eval  /df:update');
-  console.log('  skills/          — 8 skills');
+  console.log('                       support:     /df:map  /df:eval');
+  console.log('  skills/          — 7 skills');
   console.log('                       capture:     gap-discovery, df-decisions, df-ac-coverage');
-  console.log('                       craft:       atomic-commits, code-completeness');
+  console.log('                       craft:       atomic-commits');
   console.log('                       fetch:       browse-fetch, browse-verify, repo-inspect');
-  console.log('  agents/          — 8 sub-agents + DELEGATION.md contract');
-  console.log('                       df-implement, df-integration, df-spike, df-spike-platform, df-test, df-optimize, df-haiku-ops, reasoner');
-  console.log('                       (input/output contracts enforced by df-delegation-contract PreToolUse hook)');
-  console.log('  bin/             — count-tokens, df-filter-suggest, lsp-query, lineage-ingest,');
-  console.log('                     prompt-compose, ratchet, worktree-deps');
-  console.log('  templates/       — 7 agent-prompt templates (standard-task, integration, spike,');
-  console.log('                     optimize, optimize-probe, wave-test, bootstrap) + map artifacts');
+  console.log('  bin/             — ratchet (regression gate), count-tokens, lsp-query');
+  console.log('  templates/       — spec, sketch, impact, findings, experiment, eval-fixture, state, config');
   if (level === 'global') {
-    console.log('  hooks/           — 26 lifecycle hooks');
-    console.log('                       PreToolUse:    df-codebase-inject (artifact injection on Task spawn)');
-    console.log('                                      df-context-injection (curated bundle + active-slice cache on Task spawn)');
-    console.log('                                      df-delegation-contract (DELEGATION.md enforcement)');
-    console.log('                                      df-explore-protocol, df-implement-protocol, df-verify-protocol');
-    console.log('                                      df-implement-test-invocation-cap');
-    console.log('                                      df-bash-rewrite, df-bash-worktree-guard, df-bash-scope (slice-guard + interpreter-eval block + multi-segment walk + curator-active read/search block)');
-    console.log('                                      df-snapshot-guard, df-worktree-guard, df-worktree-precheck');
-    console.log('                       PostToolUse:   df-artifact-validate (sketch/impact/findings/PLAN consistency)');
-    console.log('                                      df-codebase-staleness, df-experiment-immutable, df-spike-validate');
-    console.log('                                      df-validate-tasks-gates, df-bash-telemetry, df-harness-score');
-    console.log('                       UserPromptSubmit: df-spec-lint, df-invariant-check, df-check-update');
-    console.log('                       SubagentStop:  df-subagent-telemetry-drain (per-subagent token-history append)');
-    console.log('                       Stop / etc:    df-statusline');
+    console.log('  hooks/           — 8 lifecycle hooks (~5k LOC, down from 22.5k)');
+    console.log('                       PreToolUse:       df-codebase-inject (codebase docs into initial prompt)');
+    console.log('                       PostToolUse:      df-bash-telemetry, df-codebase-staleness, spec-transition, ac-coverage');
+    console.log('                       UserPromptSubmit: df-spec-lint, df-check-update');
+    console.log('                       Stop:             df-statusline');
   } else {
-    console.log('  hooks/df-spec-*  — spec validation (auto-enforced by /df:spec)');
-    console.log('  hooks/df-artifact-validate.js — artifact existence + consistency (PostToolUse)');
-    console.log('  hooks/df-delegation-contract.js — DELEGATION.md contract enforcement (PreToolUse)');
+    console.log('  hooks/df-spec-lint — spec validation (auto-enforced by /df:spec)');
   }
   console.log('  env/             — ENABLE_LSP_TOOL (goToDefinition, findReferences, workspaceSymbol)');
   console.log('  permissions/     — granular allow-list for background agents (git, build, test, read/write)');
@@ -809,15 +780,15 @@ async function uninstall() {
   const toRemove = [
     'commands/df',
     'skills/atomic-commits',
-    'skills/code-completeness',
     'skills/gap-discovery',
     'skills/browse-fetch',
     'skills/browse-verify',
-    'agents/reasoner.md',
-    'bin/prompt-compose.js',
+    'skills/df-ac-coverage',
+    'skills/df-decisions',
+    'skills/repo-inspect',
     'bin/ratchet.js',
-    'bin/worktree-deps.js',
-    'bin/df-filter-suggest.js',
+    'bin/count-tokens.js',
+    'bin/lsp-query.js',
     'templates'
   ];
 
