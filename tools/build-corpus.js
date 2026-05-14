@@ -284,6 +284,7 @@ function main() {
   console.log(`\n${args.dryRun ? '[dry-run] ' : ''}${matched}/${results.length} corpus entries${args.dryRun ? ' would be' : ''} written to ${args.out}`);
   if (!args.dryRun) {
     console.log(`Edit ${path.join(args.out, 'index.yaml')} — mark canonical: true on ~12 specs.`);
+    console.log(`Then run \`node tools/harvest-pr-journey.js\` to add commit-journey data per spec (commits, types, wall time, reverts, optional GitHub PR augmentation).`);
   }
 }
 

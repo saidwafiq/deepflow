@@ -160,6 +160,51 @@ Single file per spec, re-derived after every attempt. Mutable.
 
 Single-shot `outcome.json` (pre-A6) overwrites on re-run, losing the journey. Multi-attempt captures the PR-style iteration signal: a spec needing 3 attempts to land is qualitatively different from one that lands first-try, and Mode B's proposer should see that. The schema is additive — adding `attempts/` directory does not break any consumer that only reads `aggregate.json`.
 
+## Corpus-side: `pr_journey.json`
+
+Built by `tools/harvest-pr-journey.js` from the source repo's git history (not by `eval-runner`). One per corpus spec at `corpus/{slug}/pr_journey.json`. Captures the **human journey to merge** for the ground-truth commit — Mode B's proposer reads this to learn iteration patterns.
+
+```json
+{
+  "spec_id": "provably-fair-envelope",
+  "merge_sha": "49eb010e44bd8d90e7703ffdf28a0a75245d94b1",
+  "merge_type": "merge_commit",
+  "first_commit_at": "2026-04-21T02:18:33Z",
+  "merged_at": "2026-04-21T21:57:21Z",
+  "wall_seconds": 70734,
+  "commits_count": 63,
+  "commits_by_type": {
+    "feat": 38, "fix": 9, "test": 4, "chore": 3, "spike": 6, "docs": 2, "style": 1
+  },
+  "revert_count": 0,
+  "commits": [
+    { "sha": "abc123", "date": "2026-04-21T02:18:33Z", "type": "feat", "scope": "engine", "subject": "feat(engine): scaffold envelope module" },
+    ...
+  ],
+  "github_pr": null
+}
+```
+
+`merge_type` ∈ `{merge_commit, fast_forward_or_squash}`. When the spec was merged via a real GitHub PR, `github_pr` carries the augmentation:
+
+```json
+"github_pr": {
+  "number": 42,
+  "state": "MERGED",
+  "title": "feat(rewards-ui): ...",
+  "commits_count": 8,
+  "comment_count": 3,
+  "review_comment_count": 5,
+  "force_push_count": 2,
+  "failed_check_runs": [
+    { "name": "lint", "conclusion": "failure" },
+    { "name": "go-test", "conclusion": "failure" }
+  ]
+}
+```
+
+For most local-merge workflows (e.g. bingo-rgs), `github_pr` is `null` and the commit walk in `commits[]` is the primary journey signal.
+
 ## Stability
 
 Until Mode B is in production, this schema is the contract. **Adding fields is fine** (proposers should ignore unknown fields). **Removing or renaming fields requires version bump** in `result.json.schema_version` (not yet present; introduce when first breaking change ships).
