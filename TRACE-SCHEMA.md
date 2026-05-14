@@ -110,7 +110,55 @@ These are written by the surviving v2 hooks during execution. They survive even 
 | `bash-telemetry.jsonl` | `df-bash-telemetry.js` | Every bash command pattern, exit code, follow-up timing |
 | `events.jsonl` | `spec-transition.js`, `df-statusline.js` | Spec lifecycle + tool usage events |
 | `token-history.jsonl` | `df-statusline.js` | Per-call input/cache/output tokens, context window % |
-| `spec-outcomes/{date}-{spec}/outcome.json` | `/df:execute` v2 | `{tasks_total, tasks_completed, tasks_reverted, tasks_blocked, merged, branch}` |
+| `spec-outcomes/{date}-{spec}/attempts/NN.json` | `/df:execute` v2 | Per-attempt record (see below) |
+| `spec-outcomes/{date}-{spec}/aggregate.json` | `/df:execute` v2 | Roll-up across attempts, updated on every run |
+
+### `attempts/NN.json` schema
+
+One file per `/df:execute` invocation against the spec. Immutable after write. `NN` is zero-padded sequence (`01.json`, `02.json`, …).
+
+```json
+{
+  "attempt_n": 2,
+  "spec_id": "crash-bonus-simulator",
+  "started_at": "2026-05-12T00:11:04.123Z",
+  "completed_at": "2026-05-12T01:15:42.901Z",
+  "tasks_total": 9,
+  "tasks_completed": 9,
+  "tasks_reverted": [],
+  "tasks_blocked": [],
+  "merged": false,
+  "branch": "main",
+  "trigger": "fresh"
+}
+```
+
+`trigger` ∈ `{fresh, continue, manual-rerun}`.
+
+### `aggregate.json` schema
+
+Single file per spec, re-derived after every attempt. Mutable.
+
+```json
+{
+  "spec_id": "crash-bonus-simulator",
+  "first_attempt_at": "2026-05-12T00:11:04.123Z",
+  "last_attempt_at": "2026-05-12T01:15:42.901Z",
+  "total_attempts": 2,
+  "final_status": "merged",
+  "merged_at": "2026-05-12T01:15:50.000Z",
+  "tasks_total": 9,
+  "tasks_completed_best": 9,
+  "tasks_reverted_total": 0,
+  "branches_used": ["main"]
+}
+```
+
+`final_status` ∈ `{in-progress, merged, abandoned}`. Promoted to `merged` by `/df:verify` when `doing-` → `done-` rename succeeds.
+
+### Why per-attempt instead of single outcome
+
+Single-shot `outcome.json` (pre-A6) overwrites on re-run, losing the journey. Multi-attempt captures the PR-style iteration signal: a spec needing 3 attempts to land is qualitatively different from one that lands first-try, and Mode B's proposer should see that. The schema is additive — adding `attempts/` directory does not break any consumer that only reads `aggregate.json`.
 
 ## Stability
 

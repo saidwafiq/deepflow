@@ -134,32 +134,72 @@ git reset --hard $(cat /tmp/df-exec-baseline-T<n>)
 
 When all tasks are processed (completed, reverted-pending, or skipped due to blocked-by):
 
-1. **Write outcome** to `.deepflow/spec-outcomes/{YYYY-MM-DD}-{spec}/outcome.json`:
+1. **Locate or create the outcome directory.** The directory name uses the date of the **first** `/df:execute` attempt for this spec, not today's date:
+   ```bash
+   OUTCOME_DIR=$(ls -d .deepflow/spec-outcomes/*-{spec} 2>/dev/null | head -1)
+   if [ -z "$OUTCOME_DIR" ]; then
+     OUTCOME_DIR=".deepflow/spec-outcomes/$(date +%Y-%m-%d)-{spec}"
+   fi
+   mkdir -p "$OUTCOME_DIR/attempts"
+   ```
+
+2. **Determine the next attempt number:**
+   ```bash
+   N=$(ls "$OUTCOME_DIR/attempts/" 2>/dev/null | wc -l | tr -d ' ')
+   NEXT=$(printf '%02d' $((N + 1)))
+   ```
+
+3. **Write this attempt** to `$OUTCOME_DIR/attempts/{NEXT}.json`:
    ```json
    {
+     "attempt_n": 1,
      "spec_id": "{spec-name}",
-     "completed_at": "{ISO-8601}",
+     "started_at": "{ISO-8601 — when /df:execute began this run}",
+     "completed_at": "{ISO-8601 — now}",
      "tasks_total": N,
      "tasks_completed": M,
      "tasks_reverted": [...],
      "tasks_blocked": [...],
      "merged": false,
-     "branch": "{current-branch-name}"
+     "branch": "{current-branch-name}",
+     "trigger": "fresh|continue|manual-rerun"
    }
    ```
-   `merged` stays false here; it gets updated by `/df:verify` when the spec lands on main.
+   `trigger` distinguishes how this attempt started: `fresh` = first attempt or invoked with `--fresh`; `continue` = `--continue` resumed a previous attempt; `manual-rerun` = invoked again on an existing `doing-*.md` without `--fresh`.
 
-2. **Auto-verify** (only if at least one task completed):
+4. **Update `aggregate.json` roll-up** at `$OUTCOME_DIR/aggregate.json` after every attempt:
+   ```json
+   {
+     "spec_id": "{spec-name}",
+     "first_attempt_at": "{from attempts/01.json.started_at}",
+     "last_attempt_at": "{this attempt's completed_at}",
+     "total_attempts": N,
+     "final_status": "in-progress",
+     "merged_at": null,
+     "tasks_total": N,
+     "tasks_completed_best": "max across all attempts",
+     "tasks_reverted_total": "sum of reverts across attempts",
+     "branches_used": ["unique branch names across attempts"]
+   }
+   ```
+   `final_status` stays `in-progress` until `/df:verify` confirms the spec landed (then `merged`) or the user abandons the spec (then `abandoned`).
+
+5. **Auto-verify** (only if at least one task completed in this attempt):
    ```
    /df:verify doing-{name} --from-execute
    ```
-   If verify passes and renames `doing-` → `done-`, update `outcome.json` to set `merged: true`.
+   If verify passes and renames `doing-` → `done-`, update `aggregate.json`:
+   - `final_status: "merged"`
+   - `merged_at: <ISO-8601>`
 
-3. **Final report**:
+6. **Final report**:
    ```
-   {M}/{N} tasks completed. {len(reverted)} reverted, {len(blocked)} blocked.
-   Outcome: .deepflow/spec-outcomes/{date}-{spec}/outcome.json
+   Attempt {NEXT}: {M}/{T} tasks completed. {len(reverted)} reverted, {len(blocked)} blocked.
+   Outcome:   $OUTCOME_DIR/attempts/{NEXT}.json
+   Aggregate: $OUTCOME_DIR/aggregate.json (total_attempts: N, final_status: ...)
    ```
+
+**Why per-attempt instead of single outcome.json:** PR-style iteration carries signal — if a spec needed 3 attempts to land cleanly, that is diagnostic data Mode B's proposer should see. Single overwrite loses it. Each `attempts/NN.json` is immutable after write; `aggregate.json` is the only roll-up that re-derives on each run.
 
 ## Usage
 
